@@ -29,7 +29,6 @@ public class BrokerCurator {
         cf.start();
         lock = new InterProcessMutex(cf, "/brokerWriteLock");
     }
-
     void close() {
         cf.close();
     }
@@ -43,7 +42,6 @@ public class BrokerCurator {
             return null;
         }
     }
-
     void writeTransactionStatus(long txID, int status) {
         try {
             String path = String.format("/txStatus/%d", txID);
@@ -58,7 +56,6 @@ public class BrokerCurator {
             assert(false);
         }
     }
-
     Optional<Pair<String, Integer>> getMasterLocation() {
         try {
             String path = "/coordinator_host_port";
@@ -75,7 +72,6 @@ public class BrokerCurator {
             return null;
         }
     }
-
     ConsistentHash getConsistentHashFunction() {
         try {
             String path = "/consistentHash";

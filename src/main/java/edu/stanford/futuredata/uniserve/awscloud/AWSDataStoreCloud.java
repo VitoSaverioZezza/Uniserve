@@ -12,7 +12,6 @@ import java.util.Optional;
 
 public class AWSDataStoreCloud implements DataStoreCloud {
     private static final Logger logger = LoggerFactory.getLogger(AWSDataStoreCloud.class);
-
     private final String bucket;
 
     public AWSDataStoreCloud(String bucket) {
@@ -39,8 +38,6 @@ public class AWSDataStoreCloud implements DataStoreCloud {
         }
         return Optional.of(shardCloudName);
     }
-
-
     @Override
     public int downloadShardFromCloud(Path shardDirectory, String shardCloudName) {
         TransferManager tx = TransferManagerBuilder.standard().build();

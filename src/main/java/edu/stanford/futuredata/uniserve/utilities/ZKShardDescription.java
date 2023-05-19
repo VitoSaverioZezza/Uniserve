@@ -15,7 +15,6 @@ public class ZKShardDescription {
         this.versionNumber = versionNumber;
         stringSummary = String.format("%s\n%d\n", cloudName, versionNumber);
     }
-
     public ZKShardDescription(String stringSummary) {
         this.stringSummary = stringSummary;
         String[] ccv = stringSummary.split("\n");

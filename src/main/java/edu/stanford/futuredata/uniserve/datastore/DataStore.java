@@ -156,7 +156,6 @@ public class DataStore<R extends Row, S extends Shard> {
         });
         return true;
     }
-
     /** Stop serving requests and shutdown resources. */
     public void shutDown() {
         if (!serving) {
@@ -298,7 +297,6 @@ public class DataStore<R extends Row, S extends Shard> {
         logger.info("DS{} Shard {}-{} download succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - downloadStart);
         return shard;
     }
-
     public Optional<S> copyShardToDir(int shardNum, String cloudName, int versionNumber) {
         long copyStart = System.currentTimeMillis();
         Shard shard = shardMap.get(shardNum);
@@ -344,7 +342,6 @@ public class DataStore<R extends Row, S extends Shard> {
         }
         return dsIDToChannelMap.get(dsID);
     }
-
     private class PingDaemon extends Thread {
         @Override
         public void run() {

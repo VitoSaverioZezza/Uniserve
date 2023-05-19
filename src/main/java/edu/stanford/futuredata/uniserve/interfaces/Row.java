@@ -2,10 +2,10 @@ package edu.stanford.futuredata.uniserve.interfaces;
 
 import java.io.Serializable;
 
+/**Atomic unit of information that exposes a (non-negative) partition key.
+ * The system ensures that rows with the same key are stored in the same shard
+ * */
 public interface Row extends Serializable {
-    /*
-     A row of data.  Exposes a (non-negative) partition key.
-     We guarantee that objects with the same key are stored in the same shard.
-     */
+    /**@return the partition key of the row*/
     int getPartitionKey();
 }

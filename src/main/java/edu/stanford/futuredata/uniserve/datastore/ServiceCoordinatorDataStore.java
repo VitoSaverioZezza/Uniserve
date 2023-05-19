@@ -25,6 +25,8 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
 
     private static final Logger logger = LoggerFactory.getLogger(ServiceCoordinatorDataStore.class);
     private final DataStore<R, S> dataStore;
+    private ConsistentHash oldHash;
+
 
     ServiceCoordinatorDataStore(DataStore<R, S> dataStore) {
         this.dataStore = dataStore;
@@ -35,12 +37,123 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         responseObserver.onNext(loadShardReplicaHandler(request));
         responseObserver.onCompleted();
     }
+    @Override
+    public void shardUsage(ShardUsageMessage request, StreamObserver<ShardUsageResponse> responseObserver) {
+        responseObserver.onNext(shardUsageHandler(request));
+        responseObserver.onCompleted();
+    }
+    @Override
+    public void removeShard(RemoveShardMessage request, StreamObserver<RemoveShardResponse> responseObserver) {
+        responseObserver.onNext(removeShardHandler(request));
+        responseObserver.onCompleted();
+    }
+    @Override
+    public void notifyReplicaRemoved(NotifyReplicaRemovedMessage request, StreamObserver<NotifyReplicaRemovedResponse> responseObserver) {
+        responseObserver.onNext(notifyReplicaRemovedHandler(request));
+        responseObserver.onCompleted();
+    }
+    @Override
+    public void executeReshuffleRemove(ExecuteReshuffleMessage m, StreamObserver<ExecuteReshuffleResponse> responseObserver) {
+        ConsistentHash newHash = dataStore.consistentHash;
+        ConsistentHash oldHash = this.oldHash;
+        // Delete all shards to be shuffled out, if present.
+        for (int shardNum: dataStore.shardLockMap.keySet()) {
+            if (oldHash != null && oldHash.getBuckets(shardNum).contains(m.getDsID()) && !newHash.getBuckets(shardNum).contains(m.getDsID())) {
+                removeShard(shardNum);
+            }
+        }
+        // After this returns, no more queries can be executed on shards to be shuffled off this server.
+        responseObserver.onNext(ExecuteReshuffleResponse.newBuilder().build());
+        responseObserver.onCompleted();
+    }
+    @Override
+    public void coordinatorPing(CoordinatorPingMessage request, StreamObserver<CoordinatorPingResponse> responseObserver) {
+        responseObserver.onNext(CoordinatorPingResponse.newBuilder().build());
+        responseObserver.onCompleted();
+    }
+    @Override
+    public void executeReshuffleAdd(ExecuteReshuffleMessage m, StreamObserver<ExecuteReshuffleResponse> responseObserver) {
+        ConsistentHash newHash = (ConsistentHash) Utilities.byteStringToObject(m.getNewConsistentHash());
+        ConsistentHash oldHash = dataStore.consistentHash;
+        this.oldHash = oldHash;
+        dataStore.dsID = m.getDsID();
+        for (int shardNum: m.getShardListList()) {
+            if (newHash.getBuckets(shardNum).contains(m.getDsID()) && (oldHash == null || !oldHash.getBuckets(shardNum).contains(m.getDsID()))) {
+                addReplica(shardNum, false);
+            }
+        }
+        // By setting the consistent hash, ensure no new queries are processed after this point.
+        dataStore.consistentHash = newHash;
+        responseObserver.onNext(ExecuteReshuffleResponse.newBuilder().build());
+        responseObserver.onCompleted();
+    }
+
 
     private LoadShardReplicaResponse loadShardReplicaHandler(LoadShardReplicaMessage request) {
         int returnCode = addReplica(request.getShard(), request.getIsReplacementPrimary());
         return LoadShardReplicaResponse.newBuilder().setReturnCode(returnCode).build();
     }
-
+    private ShardUsageResponse shardUsageHandler(ShardUsageMessage message) {
+        Map<Integer, Integer> shardQPS = new HashMap<>();
+        long currentTime = Instant.now().getEpochSecond();
+        for(Map.Entry<Integer, Map<Long, Integer>> entry: dataStore.QPSMap.entrySet()) {
+            int shardNum = entry.getKey();
+            int recentQPS = entry.getValue().entrySet().stream()
+                    .filter(i -> i.getKey() > currentTime - DataStore.qpsReportTimeInterval)
+                    .map(Map.Entry::getValue).mapToInt(i -> i).sum();
+            shardQPS.put(shardNum, recentQPS);
+        }
+        Map<Integer, Integer> shardMemoryUsages = new HashMap<>();
+        for(Map.Entry<Integer, S> entry: dataStore.shardMap.entrySet()) {
+            int shardNum = entry.getKey();
+            int shardMemoryUsage = entry.getValue().getMemoryUsage();
+            shardMemoryUsages.put(shardNum, shardMemoryUsage);
+        }
+        OperatingSystemMXBean bean = (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+        return ShardUsageResponse.newBuilder()
+                .setDsID(dataStore.dsID)
+                .putAllShardQPS(shardQPS)
+                .putAllShardMemoryUsage(shardMemoryUsages)
+                .setServerCPUUsage(bean.getSystemCpuLoad())
+                .build();
+    }
+    private void removeShard(int shardNum) {
+        dataStore.shardLockMap.get(shardNum).systemLockLock();
+        assert(dataStore.shardMap.containsKey(shardNum));
+        S shard = dataStore.shardMap.getOrDefault(shardNum, null);
+        if (shard == null) {
+            // Is primary.
+            shard = dataStore.shardMap.getOrDefault(shardNum, null);
+            for (ManagedChannel channel: dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.channel).collect(Collectors.toList())) {
+                channel.shutdown();
+            }
+        }
+        shard.destroy();
+        dataStore.shardMap.remove(shardNum);
+        dataStore.writeLog.get(shardNum).clear();
+        dataStore.replicaDescriptionsMap.get(shardNum).forEach(i -> i.channel.shutdown());
+        dataStore.replicaDescriptionsMap.get(shardNum).clear();
+        dataStore.shardVersionMap.remove(shardNum);
+        dataStore.shardLockMap.get(shardNum).systemLockUnlock();
+        logger.info("DS{} removed shard {}", dataStore.dsID, shardNum);
+    }
+    private NotifyReplicaRemovedResponse notifyReplicaRemovedHandler(NotifyReplicaRemovedMessage request) {
+        int shardNum = request.getShard();
+        int dsID = request.getDsID();
+        dataStore.shardLockMap.get(shardNum).writerLockLock();
+        List<ReplicaDescription> shardReplicaDescriptions = dataStore.replicaDescriptionsMap.get(shardNum);
+        List<ReplicaDescription> matchingDescriptions = shardReplicaDescriptions.stream().filter(i -> i.dsID == dsID).collect(Collectors.toList());
+        if (matchingDescriptions.size() > 0) {
+            assert(matchingDescriptions.size() == 1);
+            matchingDescriptions.get(0).channel.shutdown();
+            shardReplicaDescriptions.remove(matchingDescriptions.get(0));
+            logger.info("DS{} removed replica of shard {} on DS{}", dataStore.dsID, shardNum, dsID);
+        } else {
+            logger.info("DS{} removed UNKNOWN replica shard {} on DS{}", dataStore.dsID, shardNum, dsID);
+        }
+        dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+        return NotifyReplicaRemovedResponse.newBuilder().build();
+    }
     private Integer addReplica(int shardNum, boolean isReplacementPrimary) {
         long loadStart = System.currentTimeMillis();
         assert(!dataStore.shardMap.containsKey(shardNum));
@@ -109,131 +222,8 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         }
         return 0;
     }
-
-    @Override
-    public void coordinatorPing(CoordinatorPingMessage request, StreamObserver<CoordinatorPingResponse> responseObserver) {
-        responseObserver.onNext(CoordinatorPingResponse.newBuilder().build());
-        responseObserver.onCompleted();
-    }
-
-    @Override
-    public void removeShard(RemoveShardMessage request, StreamObserver<RemoveShardResponse> responseObserver) {
-        responseObserver.onNext(removeShardHandler(request));
-        responseObserver.onCompleted();
-    }
-
     private RemoveShardResponse removeShardHandler(RemoveShardMessage message) {
         removeShard(message.getShard());
         return RemoveShardResponse.newBuilder().build();
-    }
-
-    private void removeShard(int shardNum) {
-        dataStore.shardLockMap.get(shardNum).systemLockLock();
-        assert(dataStore.shardMap.containsKey(shardNum));
-        S shard = dataStore.shardMap.getOrDefault(shardNum, null);
-        if (shard == null) {
-            // Is primary.
-            shard = dataStore.shardMap.getOrDefault(shardNum, null);
-            for (ManagedChannel channel: dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.channel).collect(Collectors.toList())) {
-                channel.shutdown();
-            }
-        }
-        shard.destroy();
-        dataStore.shardMap.remove(shardNum);
-        dataStore.writeLog.get(shardNum).clear();
-        dataStore.replicaDescriptionsMap.get(shardNum).forEach(i -> i.channel.shutdown());
-        dataStore.replicaDescriptionsMap.get(shardNum).clear();
-        dataStore.shardVersionMap.remove(shardNum);
-        dataStore.shardLockMap.get(shardNum).systemLockUnlock();
-        logger.info("DS{} removed shard {}", dataStore.dsID, shardNum);
-    }
-
-    @Override
-    public void shardUsage(ShardUsageMessage request, StreamObserver<ShardUsageResponse> responseObserver) {
-        responseObserver.onNext(shardUsageHandler(request));
-        responseObserver.onCompleted();
-    }
-
-    private ShardUsageResponse shardUsageHandler(ShardUsageMessage message) {
-        Map<Integer, Integer> shardQPS = new HashMap<>();
-        long currentTime = Instant.now().getEpochSecond();
-        for(Map.Entry<Integer, Map<Long, Integer>> entry: dataStore.QPSMap.entrySet()) {
-            int shardNum = entry.getKey();
-            int recentQPS = entry.getValue().entrySet().stream()
-                    .filter(i -> i.getKey() > currentTime - DataStore.qpsReportTimeInterval)
-                    .map(Map.Entry::getValue).mapToInt(i -> i).sum();
-            shardQPS.put(shardNum, recentQPS);
-        }
-        Map<Integer, Integer> shardMemoryUsages = new HashMap<>();
-        for(Map.Entry<Integer, S> entry: dataStore.shardMap.entrySet()) {
-            int shardNum = entry.getKey();
-            int shardMemoryUsage = entry.getValue().getMemoryUsage();
-            shardMemoryUsages.put(shardNum, shardMemoryUsage);
-        }
-        OperatingSystemMXBean bean = (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
-        return ShardUsageResponse.newBuilder()
-                .setDsID(dataStore.dsID)
-                .putAllShardQPS(shardQPS)
-                .putAllShardMemoryUsage(shardMemoryUsages)
-                .setServerCPUUsage(bean.getSystemCpuLoad())
-                .build();
-    }
-
-    @Override
-    public void notifyReplicaRemoved(NotifyReplicaRemovedMessage request, StreamObserver<NotifyReplicaRemovedResponse> responseObserver) {
-        responseObserver.onNext(notifyReplicaRemovedHandler(request));
-        responseObserver.onCompleted();
-    }
-
-    private NotifyReplicaRemovedResponse notifyReplicaRemovedHandler(NotifyReplicaRemovedMessage request) {
-        int shardNum = request.getShard();
-        int dsID = request.getDsID();
-        dataStore.shardLockMap.get(shardNum).writerLockLock();
-        List<ReplicaDescription> shardReplicaDescriptions = dataStore.replicaDescriptionsMap.get(shardNum);
-        List<ReplicaDescription> matchingDescriptions = shardReplicaDescriptions.stream().filter(i -> i.dsID == dsID).collect(Collectors.toList());
-        if (matchingDescriptions.size() > 0) {
-            assert(matchingDescriptions.size() == 1);
-            matchingDescriptions.get(0).channel.shutdown();
-            shardReplicaDescriptions.remove(matchingDescriptions.get(0));
-            logger.info("DS{} removed replica of shard {} on DS{}", dataStore.dsID, shardNum, dsID);
-        } else {
-            logger.info("DS{} removed UNKNOWN replica shard {} on DS{}", dataStore.dsID, shardNum, dsID);
-        }
-        dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-        return NotifyReplicaRemovedResponse.newBuilder().build();
-    }
-
-    private ConsistentHash oldHash;
-
-    @Override
-    public void executeReshuffleAdd(ExecuteReshuffleMessage m, StreamObserver<ExecuteReshuffleResponse> responseObserver) {
-        ConsistentHash newHash = (ConsistentHash) Utilities.byteStringToObject(m.getNewConsistentHash());
-        ConsistentHash oldHash = dataStore.consistentHash;
-        this.oldHash = oldHash;
-        dataStore.dsID = m.getDsID();
-        for (int shardNum: m.getShardListList()) {
-            if (newHash.getBuckets(shardNum).contains(m.getDsID()) && (oldHash == null || !oldHash.getBuckets(shardNum).contains(m.getDsID()))) {
-                addReplica(shardNum, false);
-            }
-        }
-        // By setting the consistent hash, ensure no new queries are processed after this point.
-        dataStore.consistentHash = newHash;
-        responseObserver.onNext(ExecuteReshuffleResponse.newBuilder().build());
-        responseObserver.onCompleted();
-    }
-
-    @Override
-    public void executeReshuffleRemove(ExecuteReshuffleMessage m, StreamObserver<ExecuteReshuffleResponse> responseObserver) {
-        ConsistentHash newHash = dataStore.consistentHash;
-        ConsistentHash oldHash = this.oldHash;
-        // Delete all shards to be shuffled out, if present.
-        for (int shardNum: dataStore.shardLockMap.keySet()) {
-            if (oldHash != null && oldHash.getBuckets(shardNum).contains(m.getDsID()) && !newHash.getBuckets(shardNum).contains(m.getDsID())) {
-                removeShard(shardNum);
-            }
-        }
-        // After this returns, no more queries can be executed on shards to be shuffled off this server.
-        responseObserver.onNext(ExecuteReshuffleResponse.newBuilder().build());
-        responseObserver.onCompleted();
     }
 }

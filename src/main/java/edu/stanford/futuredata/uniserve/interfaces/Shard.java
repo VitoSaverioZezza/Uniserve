@@ -5,20 +5,17 @@ import com.google.protobuf.ByteString;
 import java.nio.file.Path;
 import java.util.Optional;
 
+/**Stateful data structure representing the unit of partitioning, access and replication.
+ * Concurrency contract:
+ *  -Concurrent writes on the same shard will never run simultaneously
+ *  -The shardToData method will never run at the same time as a write operation
+ *  -Reads may run at any time.
+ *  */
 public interface Shard {
-    /*
-     A stateful data structure.
-
-     Shard concurrency contract:
-     Writes never run simultaneously.
-     shardToData never runs at the same time as a write.
-     Reads run at any time.
-     */
-
-    // Return the amount of memory this shard uses in kilobytes.
+    /**@return the amount of memory this shard uses in kilobytes.*/
     int getMemoryUsage();
-    // Destroy shard data and processes.  After destruction, shard is no longer usable.
+    /**Destroy the shard data and related processes. After this method terminates, the shard is no longer usable.*/
     void destroy();
-    // Return a directory containing a serialization of this shard.
+    /**@return an Optional object storing a path to a directory containing a serialization of the shard.*/
     Optional<Path> shardToData();
 }

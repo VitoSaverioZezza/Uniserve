@@ -14,6 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class LocalCoordinatorCloud<R extends Row, S extends Shard> implements CoordinatorCloud {
 
+    //For test usage
     private final Map<Integer, DataStore<R, S>> dataStores = new HashMap<>();
     private final ShardFactory<S> factory;
     private final AtomicInteger cloudID = new AtomicInteger(0);

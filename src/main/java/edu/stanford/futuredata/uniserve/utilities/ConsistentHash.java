@@ -25,15 +25,16 @@ public class ConsistentHash implements Serializable {
 
     // A mapping of keys reassigned away from their consistent-hash buckets.
     public final Map<Integer, List<Integer>> reassignmentMap = new HashMap<>();
-
     public final Set<Integer> buckets = new HashSet<>();
+
+
 
     public static int hashFunction(int k) {
         // from CLRS, including the magic numbers.
-        return (int) (m * (k * A - Math.floor(k * A)));
+        return (int) (m * (k * A - Math.floor(k * A))); //m gets multiplied for a number that is always less than 1
     }
-
     // Add a bucket (server) to the consistent hash.
+    // each server has 10 locations (virtual servers) on the ring
     public void addBucket(int bucketNum) {
         lock.writeLock().lock();
         for(int i = 0; i < numVirtualNodes; i++) {
@@ -45,7 +46,6 @@ public class ConsistentHash implements Serializable {
         buckets.add(bucketNum);
         lock.writeLock().unlock();
     }
-
     // Remove a bucket (server) from the consistent hash.
     public void removeBucket (Integer bucketNum) {
         lock.writeLock().lock();
@@ -68,7 +68,6 @@ public class ConsistentHash implements Serializable {
         buckets.remove(bucketNum);
         lock.writeLock().unlock();
     }
-
     // Get all buckets a key (shard) is assigned to.  By default, a shard is only assigned to one server, but
     // load balancer replication may assign it to more.
     public List<Integer> getBuckets(int key) {
@@ -84,11 +83,10 @@ public class ConsistentHash implements Serializable {
                 return List.of(ret);
             }
         }
-        int ret = hashToBucket.get(hashRing.get(0));
+        int ret = hashToBucket.get(hashRing.get(0)); //?
         lock.readLock().unlock();
         return List.of(ret);
     }
-
     // Get a random bucket (server) to which a key (shard) is assigned.
     public Integer getRandomBucket(int key) {
         if (reassignmentMap.containsKey(key)) {

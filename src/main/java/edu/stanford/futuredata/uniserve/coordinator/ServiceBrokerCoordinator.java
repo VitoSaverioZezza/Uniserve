@@ -12,9 +12,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorImplBase {
-
     private static final Logger logger = LoggerFactory.getLogger(ServiceBrokerCoordinator.class);
-
     private final Coordinator coordinator;
 
     ServiceBrokerCoordinator(Coordinator coordinator) {
@@ -26,7 +24,6 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         responseObserver.onNext(queryStatisticsHandler(request));
         responseObserver.onCompleted();
     }
-
     private QueryStatisticsResponse queryStatisticsHandler(QueryStatisticsMessage m) {
         ConcurrentHashMap<Set<Integer>, Integer> queryStatistics = (ConcurrentHashMap<Set<Integer>, Integer>) Utilities.byteStringToObject(m.getQueryStatistics());
         coordinator.statisticsLock.lock();
@@ -36,11 +33,28 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
     }
 
     @Override
+    public void tableInfo(TableInfoMessage request, StreamObserver<TableInfoResponse> responseObserver) {
+        responseObserver.onNext(tableIDHandler(request));
+        responseObserver.onCompleted();
+    }
+    private TableInfoResponse tableIDHandler(TableInfoMessage m) {
+        String tableName = m.getTableName();
+        if (coordinator.tableInfoMap.containsKey(tableName)) {
+            TableInfo t = coordinator.tableInfoMap.get(tableName);
+            return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
+                    .setId(t.id)
+                    .setNumShards(t.numShards).build();
+        } else {
+            return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
+        }
+    }
+
+
+    @Override
     public void createTable(CreateTableMessage request, StreamObserver<CreateTableResponse> responseObserver) {
         responseObserver.onNext(createTableHandler(request));
         responseObserver.onCompleted();
     }
-
     private CreateTableResponse createTableHandler(CreateTableMessage m) {
         String tableName = m.getTableName();
         int numShards = m.getNumShards();
@@ -51,24 +65,6 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         } else {
             logger.info("Creating Table. Name: {} ID: {} NumShards {}", tableName, tableID, numShards);
             return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();
-        }
-    }
-
-    @Override
-    public void tableInfo(TableInfoMessage request, StreamObserver<TableInfoResponse> responseObserver) {
-        responseObserver.onNext(tableIDHandler(request));
-        responseObserver.onCompleted();
-    }
-
-    private TableInfoResponse tableIDHandler(TableInfoMessage m) {
-        String tableName = m.getTableName();
-        if (coordinator.tableInfoMap.containsKey(tableName)) {
-            TableInfo t = coordinator.tableInfoMap.get(tableName);
-            return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
-                    .setId(t.id)
-                    .setNumShards(t.numShards).build();
-        } else {
-            return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }
     }
 }

@@ -14,11 +14,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class AWSCoordinatorCloud implements CoordinatorCloud {
-
     private final String ami;
     private String launchDataStoreScript;
     private final InstanceType instanceType;
-
     private AtomicInteger cloudID = new AtomicInteger(0);
     private final Map<Integer, String> cloudIDToInstanceID = new ConcurrentHashMap<>();
 
@@ -58,7 +56,6 @@ public class AWSCoordinatorCloud implements CoordinatorCloud {
         cloudIDToInstanceID.put(cloudID, instanceID);
         return true;
     }
-
     @Override
     public void removeDataStore(int cloudID) {
         assert(cloudIDToInstanceID.containsKey(cloudID));
@@ -70,7 +67,6 @@ public class AWSCoordinatorCloud implements CoordinatorCloud {
         assert(terminateInstancesResult.getTerminatingInstances().size() == 1);
         cloudIDToInstanceID.remove(cloudID);
     }
-
     @Override
     public void shutdown() {
         List<Integer> remainingKeys = new ArrayList<>(cloudIDToInstanceID.keySet());

@@ -8,21 +8,22 @@ package coordinatordatastore;
 
 // Communication from coordinator to the datastores.
 service CoordinatorDataStore {
-    // Create a new shard on a datastore.
-    rpc createNewShard (CreateNewShardMessage) returns (CreateNewShardResponse) {}
     // Load a replica shard on a datastore.
     rpc loadShardReplica (LoadShardReplicaMessage) returns (LoadShardReplicaResponse) {}
-    // Ping a datastore to see if it's alive.
-    rpc CoordinatorPing (CoordinatorPingMessage) returns (CoordinatorPingResponse) {}
-    // Remove a shard from a datastore.
-    rpc removeShard (RemoveShardMessage) returns (RemoveShardResponse) {}
     // Ask a datastore for shard usage information.
     rpc shardUsage (ShardUsageMessage) returns (ShardUsageResponse) {}
+    // Remove a shard from a datastore.
+    rpc removeShard (RemoveShardMessage) returns (RemoveShardResponse) {}
     // Notify the primary a replica is being removed.
     rpc NotifyReplicaRemoved (NotifyReplicaRemovedMessage) returns (NotifyReplicaRemovedResponse) {}
+    rpc ExecuteReshuffleRemove (ExecuteReshuffleMessage) returns (ExecuteReshuffleResponse) {}
+    // Ping a datastore to see if it's alive.
+    rpc CoordinatorPing (CoordinatorPingMessage) returns (CoordinatorPingResponse) {}
     // Execute a shard reshuffle, adding or remove shards to servers.
     rpc ExecuteReshuffleAdd (ExecuteReshuffleMessage) returns (ExecuteReshuffleResponse) {}
-    rpc ExecuteReshuffleRemove (ExecuteReshuffleMessage) returns (ExecuteReshuffleResponse) {}
+
+    // Create a new shard on a datastore.
+    rpc createNewShard (CreateNewShardMessage) returns (CreateNewShardResponse) {}
 }
 
 message CreateNewShardMessage {

@@ -16,6 +16,8 @@ service BrokerDataStore {
     rpc AnchoredReadQuery (AnchoredReadQueryMessage) returns (AnchoredReadQueryResponse) {}
     // Make a read query to a DataStore server.  Return a response.
     rpc ShuffleReadQuery (ShuffleReadQueryMessage) returns (ShuffleReadQueryResponse) {}
+
+    rpc SimpleWriteSimpleTransform(stream WriteSimpleTransformMessage) returns (WriteSimpleTransformResponse){}
 }
 
 message WriteQueryMessage {
@@ -56,4 +58,16 @@ message ShuffleReadQueryMessage {
 message ShuffleReadQueryResponse {
     int32 returnCode = 1;
     bytes response = 2;
+}
+
+message WriteSimpleTransformMessage {
+    int32 shard = 1;
+    bytes serializedQuery = 2;
+    bytes rowData = 3;
+    int64 txID = 4;
+    int32 writeState = 5;
+}
+
+message WriteSimpleTransformResponse {
+    int32 returnCode = 1;
 }

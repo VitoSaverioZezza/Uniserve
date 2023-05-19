@@ -26,6 +26,11 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
     private static final Logger logger = LoggerFactory.getLogger(ServiceBrokerDataStore.class);
     private final DataStore<R, S> dataStore;
 
+    private final Map<Pair<Long, Integer>, Semaphore> txSemaphores = new ConcurrentHashMap<>();
+    private final Map<Pair<Long, Integer>, Map<Integer, List<ByteString>>> txShuffledData = new ConcurrentHashMap<>();
+    private final Map<Pair<Long, Integer>, Map<Integer, List<Integer>>> txPartitionKeys = new ConcurrentHashMap<>();
+    private final Map<Pair<Long, Integer>, AtomicInteger> txCounts = new ConcurrentHashMap<>();
+
     ServiceDataStoreDataStore(DataStore<R, S> dataStore) {
         this.dataStore = dataStore;
     }
@@ -35,39 +40,65 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         responseObserver.onNext(bootstrapReplicaHandler(request));
         responseObserver.onCompleted();
     }
+    @Override
+    public StreamObserver<ReplicaWriteMessage> simpleReplicaWrite(StreamObserver<ReplicaWriteResponse> responseObserver) {
+        return new StreamObserver<>() {
+            int shardNum;
+            int versionNumber;
+            long txID;
+            SimpleWriteQueryPlan<R, S> writeQueryPlan;
+            final List<R[]> rowArrayList = new ArrayList<>();
+            List<R> rowList;
+            int lastState = DataStore.COLLECT;
 
-    private BootstrapReplicaResponse bootstrapReplicaHandler(BootstrapReplicaMessage request) {
-        int shardNum = request.getShard();
-        dataStore.shardLockMap.get(shardNum).writerLockLock();
-        Integer replicaVersion = request.getVersionNumber();
-        Integer primaryVersion = dataStore.shardVersionMap.get(shardNum);
-        assert(primaryVersion != null);
-        assert(replicaVersion <= primaryVersion);
-        assert(dataStore.shardMap.containsKey(shardNum));  // TODO: Could fail during shard transfers?
-        Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
-        if (replicaVersion.equals(primaryVersion)) {
-            DataStoreDescription dsDescription = dataStore.zkCurator.getDSDescription(request.getDsID());
-            ManagedChannel channel = ManagedChannelBuilder.forAddress(dsDescription.host, dsDescription.port).usePlaintext().build();
-            DataStoreDataStoreGrpc.DataStoreDataStoreStub asyncStub = DataStoreDataStoreGrpc.newStub(channel);
-            ReplicaDescription rd = new ReplicaDescription(request.getDsID(), channel, asyncStub);
-            dataStore.replicaDescriptionsMap.get(shardNum).add(rd);
-        }
-        dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-        List<WriteQueryPlan<R, S>> writeQueryPlans = new ArrayList<>();
-        List<R[]> rowListList = new ArrayList<>();
-        for (int v = replicaVersion + 1; v <= primaryVersion; v++) {
-            writeQueryPlans.add(shardWriteLog.get(v).getValue0());
-            rowListList.add((R[]) shardWriteLog.get(v).getValue1().toArray(new Row[0]));
-        }
-        WriteQueryPlan<R, S>[] writeQueryPlansArray = writeQueryPlans.toArray(new WriteQueryPlan[0]);
-        R[][] rowArrayArray = rowListList.toArray((R[][]) new Row[0][]);
-        return BootstrapReplicaResponse.newBuilder().setReturnCode(0)
-                .setVersionNumber(primaryVersion)
-                .setWriteData(Utilities.objectToByteString(rowArrayArray))
-                .setWriteQueries(Utilities.objectToByteString(writeQueryPlansArray))
-                .build();
+            @Override
+            public void onNext(ReplicaWriteMessage replicaWriteMessage) {
+                int writeState = replicaWriteMessage.getWriteState();
+                if (writeState == DataStore.COLLECT) {
+                    assert(lastState == DataStore.COLLECT);
+                    versionNumber = replicaWriteMessage.getVersionNumber();
+                    shardNum = replicaWriteMessage.getShard();
+                    txID = replicaWriteMessage.getTxID();
+                    writeQueryPlan = (SimpleWriteQueryPlan<R, S>) Utilities.byteStringToObject(replicaWriteMessage.getSerializedQuery()); // TODO:  Only send this once.
+                    R[] rowChunk = (R[]) Utilities.byteStringToObject(replicaWriteMessage.getRowData());
+                    rowArrayList.add(rowChunk);
+                } else if (writeState == DataStore.PREPARE) {
+                    assert(lastState == DataStore.COLLECT);
+                    rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
+                    dataStore.shardLockMap.get(shardNum).writerLockLock();
+                    responseObserver.onNext(executeReplicaWrite(shardNum, writeQueryPlan, rowList));
+                    dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+                }
+                lastState = writeState;
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                logger.warn("DS{} SimpleReplica RPC Error Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
+                // TODO:  Implement.
+            }
+
+            @Override
+            public void onCompleted() {
+                responseObserver.onCompleted();
+            }
+
+            private ReplicaWriteResponse executeReplicaWrite(int shardNum, SimpleWriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+                if (dataStore.shardMap.containsKey(shardNum)) {
+                    S shard = dataStore.shardMap.get(shardNum);
+                    boolean success =  writeQueryPlan.write(shard, rows);
+                    if (success) {
+                        return ReplicaWriteResponse.newBuilder().setReturnCode(0).build();
+                    } else {
+                        return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
+                    }
+                } else {
+                    logger.warn("DS{} SimpleReplica got write request for absent shard {}", dataStore.dsID, shardNum);
+                    return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
+                }
+            }
+        };
     }
-
     @Override
     public StreamObserver<ReplicaWriteMessage> replicaWrite(StreamObserver<ReplicaWriteResponse> responseObserver) {
         return new StreamObserver<>() {
@@ -160,7 +191,8 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 }
             }
 
-            private void commitReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {                S shard;
+            private void commitReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+                S shard;
                 if (dataStore.readWriteAtomicity) {
                     shard = dataStore.multiVersionShardMap.get(shardNum).get(txID);
                 } else {
@@ -187,80 +219,26 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             }
         };
     }
-
-    @Override
-    public StreamObserver<ReplicaWriteMessage> simpleReplicaWrite(StreamObserver<ReplicaWriteResponse> responseObserver) {
-        return new StreamObserver<>() {
-            int shardNum;
-            int versionNumber;
-            long txID;
-            SimpleWriteQueryPlan<R, S> writeQueryPlan;
-            final List<R[]> rowArrayList = new ArrayList<>();
-            List<R> rowList;
-            int lastState = DataStore.COLLECT;
-
-            @Override
-            public void onNext(ReplicaWriteMessage replicaWriteMessage) {
-                int writeState = replicaWriteMessage.getWriteState();
-                if (writeState == DataStore.COLLECT) {
-                    assert(lastState == DataStore.COLLECT);
-                    versionNumber = replicaWriteMessage.getVersionNumber();
-                    shardNum = replicaWriteMessage.getShard();
-                    txID = replicaWriteMessage.getTxID();
-                    writeQueryPlan = (SimpleWriteQueryPlan<R, S>) Utilities.byteStringToObject(replicaWriteMessage.getSerializedQuery()); // TODO:  Only send this once.
-                    R[] rowChunk = (R[]) Utilities.byteStringToObject(replicaWriteMessage.getRowData());
-                    rowArrayList.add(rowChunk);
-                } else if (writeState == DataStore.PREPARE) {
-                    assert(lastState == DataStore.COLLECT);
-                    rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
-                    dataStore.shardLockMap.get(shardNum).writerLockLock();
-                    responseObserver.onNext(executeReplicaWrite(shardNum, writeQueryPlan, rowList));
-                    dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-                }
-                lastState = writeState;
-            }
-
-            @Override
-            public void onError(Throwable throwable) {
-                logger.warn("DS{} SimpleReplica RPC Error Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
-                // TODO:  Implement.
-            }
-
-            @Override
-            public void onCompleted() {
-                responseObserver.onCompleted();
-            }
-
-            private ReplicaWriteResponse executeReplicaWrite(int shardNum, SimpleWriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
-                if (dataStore.shardMap.containsKey(shardNum)) {
-                    S shard = dataStore.shardMap.get(shardNum);
-                    boolean success =  writeQueryPlan.write(shard, rows);
-                    if (success) {
-                        return ReplicaWriteResponse.newBuilder().setReturnCode(0).build();
-                    } else {
-                        return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
-                    }
-                } else {
-                    logger.warn("DS{} SimpleReplica got write request for absent shard {}", dataStore.dsID, shardNum);
-                    return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
-                }
-            }
-        };
-    }
-
     @Override
     public void dataStorePing(DataStorePingMessage request, StreamObserver<DataStorePingResponse> responseObserver) {
         responseObserver.onNext(DataStorePingResponse.newBuilder().build());
         responseObserver.onCompleted();
     }
-
-    private final Map<Pair<Long, Integer>, Semaphore> txSemaphores = new ConcurrentHashMap<>();
-    private final Map<Pair<Long, Integer>, Map<Integer, List<ByteString>>> txShuffledData = new ConcurrentHashMap<>();
-    private final Map<Pair<Long, Integer>, Map<Integer, List<Integer>>> txPartitionKeys = new ConcurrentHashMap<>();
-    private final Map<Pair<Long, Integer>, AtomicInteger> txCounts = new ConcurrentHashMap<>();
-
     @Override
     public void anchoredShuffle(AnchoredShuffleMessage m, StreamObserver<AnchoredShuffleResponse> responseObserver) {
+
+        /*This remote method is called once for each shard of the anchor table, and a call is related to a shard
+        * of a non-anchor table stored in the datastore responding to the remote call. The message contains:
+        *   - txID
+        *   - shardNum: shard of the non-anchor table stored here being interrogated
+        *   - plan: AnchoredReadQueryPlan generating this call
+        **/
+
+        /*
+        * A pair txID, non-anchor is created and the method checks that the datastore actually hosts the shard being
+        * queried
+        * */
+
         long txID = m.getTxID();
         int shardNum = m.getShardNum();
         AnchoredReadQueryPlan<S, Object> plan = (AnchoredReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
@@ -276,7 +254,58 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             return;
         }
 
+        /*
+        * The local txPartitionKeys is checked.
+        * If this mapping does not contain an entry having key "mapID" (<txID, non-anchor-shard>), such an entry is created
+        *   and associated with an empty Map<Integer, List<Integer>>.
+        *   The map is then immediately populated with the entry <AnchorShardID, PartitionKeys>, where AnchorShardID
+        *   is the identifier of the anchor shard associated with the caller creating the map and PartitionKeys is the
+        *   result of the user-defined AnchoredReadQueryPlan.getPartitionKeys( AnchorShard ).
+        * If the mapping does contain an entry having key "mapID" (created by a call associated with a different anchor
+        *   shard), the mapping is updated in a similar fashion by adding to the associated mapping the entry
+        *   <AnchorShardID, PartitionKeys>.
+        *
+        * Note that a call to this method, related to the same non anchor shard and transaction (i.e. to the same mapID)
+        * will be performed by all datastores interrogated for an anchor shard. At the end of the day, this method
+        * for this mapID will be called a number of times equal to the number of anchor shards being queried.
+        *
+        * For a generic call, the txPartitionKeys structure may contain an entry for the current mapID, whose associated
+        * value is a mapping containing entries associated with some anchor shards. Assuming there are 3 anchor shards,
+        * the last call will leave txPartitionKeys looking like something like this:
+        *
+        * Map < <txID, nonAnchorShard> , Map < AnchorShard1, <2,3,4,5> > >
+        *                                    < AnchorShard2, <1,6>     > >
+        *                                    < AnchorShard3, <9>       > >
+        *
+        * Note that no partition key belongs to two distinct shards for the same table.
+        * Note that a partition key can be associated to different shards if those shards are part of distinct tables.
+        *
+        * */
+
         txPartitionKeys.computeIfAbsent(mapID, k -> new ConcurrentHashMap<>()).put(m.getRepartitionShardNum(), m.getPartitionKeysList());
+
+        /*A semaphore with 0 permits is created, then the txCounts local structure is checked for an entry related to
+        * the current mapID. If such an entry does not exist, it is initialized equal to 0
+        * If this entry does exist (i.e. it has been created as a result of a call related to
+        * a different anchor shard for the same non anchor shard), then the value is incremented and checked.
+        *
+        * If the value is NOT equal to the number of anchor shards of the anchor table of the current query, then the
+        *   thread tries to acquire a permit from the semaphore, but since no permit has been released, it waits.
+        *
+        * If the value reaches the number of anchor shards of the anchor table, then the non-anchor shard is retrieved,
+        *   the user-defined AnchoredReadQueryPlan.scatter method is called, passing:
+        *       - The retrieved shard
+        *       - All Map<AnchorShardID, List<PartitionKeys>> entries contained in the txPartitionKeys mapping
+        *           that has been built before. Note that all lists content have been defined as a result of the
+        *           getPartitionKeys method og the AnchoredReadQueryPlan, therefore it is user-defined and has no
+        *           intrinsic propriety. It can be whatever list.
+        *   The results of the scatter are stored in the txShuffledData and enough permits are released in order to let
+        *   all previously blocked threads continue.
+        *
+        * TL;DR: The last call related to the transaction executes the scatter, all previous simply populate the
+        *   txPartitionKeys structure then wait.
+        *   */
+
         Semaphore s = txSemaphores.computeIfAbsent(mapID, k -> new Semaphore(0));
         if (txCounts.computeIfAbsent(mapID, k -> new AtomicInteger(0)).incrementAndGet() == m.getNumRepartitions()) {
             dataStore.ensureShardCached(shardNum);
@@ -303,6 +332,15 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         } else {
             s.acquireUninterruptibly();
         }
+
+        /*
+        * All threads related to the various anchor shards will retrieve the scatterResults, which are in the
+        * format Map<AnchorShardID, List<ByteString>>.
+        *
+        * Each call is related to an anchor shard and each one will retrieve the List related to its entry as
+        * ephemeralData and send it back to the caller.
+        *
+        * */
         Map<Integer, List<ByteString>> scatterResult = txShuffledData.get(mapID);
         assert(scatterResult.containsKey(m.getRepartitionShardNum()));
         List<ByteString> ephemeralData = scatterResult.get(m.getRepartitionShardNum());
@@ -316,7 +354,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         }
         responseObserver.onCompleted();
     }
-
     @Override
     public void shuffle(ShuffleMessage m, StreamObserver<ShuffleResponse> responseObserver) {
         long txID = m.getTxID();
@@ -357,5 +394,38 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             responseObserver.onNext(ShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setShuffleData(item).build());
         }
         responseObserver.onCompleted();
+    }
+
+
+    private BootstrapReplicaResponse bootstrapReplicaHandler(BootstrapReplicaMessage request) {
+        int shardNum = request.getShard();
+        dataStore.shardLockMap.get(shardNum).writerLockLock();
+        Integer replicaVersion = request.getVersionNumber();
+        Integer primaryVersion = dataStore.shardVersionMap.get(shardNum);
+        assert(primaryVersion != null);
+        assert(replicaVersion <= primaryVersion);
+        assert(dataStore.shardMap.containsKey(shardNum));  // TODO: Could fail during shard transfers?
+        Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
+        if (replicaVersion.equals(primaryVersion)) {
+            DataStoreDescription dsDescription = dataStore.zkCurator.getDSDescription(request.getDsID());
+            ManagedChannel channel = ManagedChannelBuilder.forAddress(dsDescription.host, dsDescription.port).usePlaintext().build();
+            DataStoreDataStoreGrpc.DataStoreDataStoreStub asyncStub = DataStoreDataStoreGrpc.newStub(channel);
+            ReplicaDescription rd = new ReplicaDescription(request.getDsID(), channel, asyncStub);
+            dataStore.replicaDescriptionsMap.get(shardNum).add(rd);
+        }
+        dataStore.shardLockMap.get(shardNum).writerLockUnlock();
+        List<WriteQueryPlan<R, S>> writeQueryPlans = new ArrayList<>();
+        List<R[]> rowListList = new ArrayList<>();
+        for (int v = replicaVersion + 1; v <= primaryVersion; v++) {
+            writeQueryPlans.add(shardWriteLog.get(v).getValue0());
+            rowListList.add((R[]) shardWriteLog.get(v).getValue1().toArray(new Row[0]));
+        }
+        WriteQueryPlan<R, S>[] writeQueryPlansArray = writeQueryPlans.toArray(new WriteQueryPlan[0]);
+        R[][] rowArrayArray = rowListList.toArray((R[][]) new Row[0][]);
+        return BootstrapReplicaResponse.newBuilder().setReturnCode(0)
+                .setVersionNumber(primaryVersion)
+                .setWriteData(Utilities.objectToByteString(rowArrayArray))
+                .setWriteQueries(Utilities.objectToByteString(writeQueryPlansArray))
+                .build();
     }
 }

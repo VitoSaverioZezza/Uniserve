@@ -18,21 +18,28 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoordinatorImplBase {
-
     private static final Logger logger = LoggerFactory.getLogger(ServiceDataStoreCoordinator.class);
-
     private final Coordinator coordinator;
-
     ServiceDataStoreCoordinator(Coordinator coordinator) {
         this.coordinator = coordinator;
     }
 
     @Override
-    public void registerDataStore(RegisterDataStoreMessage request,
-                                  StreamObserver<RegisterDataStoreResponse> responseObserver) {
+    public void registerDataStore(RegisterDataStoreMessage request, StreamObserver<RegisterDataStoreResponse> responseObserver) {
         responseObserver.onNext(registerDataStoreHandler(request));
         responseObserver.onCompleted();
     }
+    @Override
+    public void potentialDSFailure(PotentialDSFailureMessage request, StreamObserver<PotentialDSFailureResponse> responseObserver) {
+        responseObserver.onNext(potentialDSFailureHandler(request));
+        responseObserver.onCompleted();
+    }
+    @Override
+    public void tableInfo(DTableInfoMessage request, StreamObserver<DTableInfoResponse> responseObserver) {
+        responseObserver.onNext(tableIDHandler(request));
+        responseObserver.onCompleted();
+    }
+
 
     private RegisterDataStoreResponse registerDataStoreHandler(RegisterDataStoreMessage m) {
         String host = m.getHost();
@@ -68,13 +75,6 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         }
         return RegisterDataStoreResponse.newBuilder().setReturnCode(0).setDataStoreID(dsID).build();
     }
-
-    @Override
-    public void potentialDSFailure(PotentialDSFailureMessage request, StreamObserver<PotentialDSFailureResponse> responseObserver) {
-        responseObserver.onNext(potentialDSFailureHandler(request));
-        responseObserver.onCompleted();
-    }
-
     private PotentialDSFailureResponse potentialDSFailureHandler(PotentialDSFailureMessage request) {
         int dsID = request.getDsID();
         CoordinatorPingMessage m = CoordinatorPingMessage.newBuilder().build();
@@ -96,13 +96,6 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         }
         return PotentialDSFailureResponse.newBuilder().build();
     }
-
-    @Override
-    public void tableInfo(DTableInfoMessage request, StreamObserver<DTableInfoResponse> responseObserver) {
-        responseObserver.onNext(tableIDHandler(request));
-        responseObserver.onCompleted();
-    }
-
     private DTableInfoResponse tableIDHandler(DTableInfoMessage m) {
         String tableName = m.getTableName();
         if (coordinator.tableInfoMap.containsKey(tableName)) {

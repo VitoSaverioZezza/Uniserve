@@ -143,7 +143,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 }
                 lastState = writeState;
             }
-
             @Override
             public void onError(Throwable throwable) {
                 logger.warn("DS{} Replica RPC Error Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
@@ -157,7 +156,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                     t.releaseLock();
                 }
             }
-
             @Override
             public void onCompleted() {
                 responseObserver.onCompleted();
@@ -190,7 +188,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                     return ReplicaWriteResponse.newBuilder().setReturnCode(1).build();
                 }
             }
-
             private void commitReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
                 S shard;
                 if (dataStore.readWriteAtomicity) {
@@ -205,7 +202,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 shardWriteLog.put(newVersionNumber, new Pair<>(writeQueryPlan, rows));
                 dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
             }
-
             private void abortReplicaWrite(int shardNum, WriteQueryPlan<R, S> writeQueryPlan) {
                 if (dataStore.readWriteAtomicity) {
                     S shard = dataStore.multiVersionShardMap.get(shardNum).get(txID);

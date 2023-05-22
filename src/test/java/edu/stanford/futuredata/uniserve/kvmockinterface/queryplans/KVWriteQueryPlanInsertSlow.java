@@ -36,4 +36,14 @@ public class KVWriteQueryPlanInsertSlow implements WriteQueryPlan<KVRow, KVShard
     public void abort(KVShard shard) {
 
     }
+
+    @Override
+    public boolean simpleMap(List<KVRow> rows) {
+        return false;
+    }
+
+    @Override
+    public boolean map(List<KVRow> rows) {
+        return false;
+    }
 }

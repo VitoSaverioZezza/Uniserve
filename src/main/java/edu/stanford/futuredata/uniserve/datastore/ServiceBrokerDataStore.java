@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.*;
+import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.ManagedChannel;
@@ -27,165 +28,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
     ServiceBrokerDataStore(DataStore<R, S> dataStore) {
         this.dataStore = dataStore;
-    }
-
-
-    @Override
-    public StreamObserver<WriteSimpleTransformMessage> simpleWriteSimpleTransform(StreamObserver<WriteSimpleTransformResponse> responseObserver){
-        return new StreamObserver<>() {
-            int shardNum;
-            long txID;
-            SimpleWriteSimpleTransform<R, S> writeTransformQueryPlan;
-            List<R[]> rowArrayList = new ArrayList<>();
-            int lastState = DataStore.COLLECT;
-            List<R> rows;
-            List<StreamObserver<ReplicaWriteMessage>> replicaObservers = new ArrayList<>();
-
-            @Override
-            public void onNext(WriteSimpleTransformMessage writeQueryMessage) {
-                int writeState = writeQueryMessage.getWriteState();
-                if (writeState == DataStore.COLLECT) {
-                    assert (lastState == DataStore.COLLECT);
-                    shardNum = writeQueryMessage.getShard();
-                    dataStore.createShardMetadata(shardNum);
-                    txID = writeQueryMessage.getTxID();
-                    writeTransformQueryPlan = (SimpleWriteSimpleTransform<R, S>) Utilities.byteStringToObject(writeQueryMessage.getSerializedQuery()); // TODO:  Only send this once.
-                    R[] rowChunk = (R[]) Utilities.byteStringToObject(writeQueryMessage.getRowData());
-                    rowArrayList.add(rowChunk);
-                } else if (writeState == DataStore.PREPARE) {
-                    assert (lastState == DataStore.COLLECT);
-                    rows = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
-                    if (dataStore.shardLockMap.containsKey(shardNum)) {
-                        long tStart = System.currentTimeMillis();
-                        dataStore.shardLockMap.get(shardNum).writerLockLock();
-                        responseObserver.onNext(executeWriteQuery(shardNum, txID, writeTransformQueryPlan));
-                        logger.info("DS{} SimpleWrite {} Execution Time: {}", dataStore.dsID, txID, System.currentTimeMillis() - tStart);
-                    } else {
-                        responseObserver.onNext(WriteSimpleTransformResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());
-                    }
-                }
-                lastState = writeState;
-            }
-
-            @Override
-            public void onError(Throwable throwable) {
-                logger.warn("DS{} Primary SimpleWrite RPC Error Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
-                // TODO: Implement.
-            }
-
-            @Override
-            public void onCompleted() {
-                responseObserver.onCompleted();
-            }
-
-            private WriteSimpleTransformResponse executeWriteQuery(int shardNum, long txID, SimpleWriteSimpleTransform<R, S> writeTransformQueryPlan) {
-                //Check if the datastore stores the shard to be written, if not, trigger retry
-                if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
-                    dataStore.ensureShardCached(shardNum);
-                    S shard = dataStore.shardMap.get(shardNum);
-                    assert(shard != null);
-                    List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs =
-                            dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
-                    int numReplicas = replicaStubs.size();
-                    R[] rowArray;
-                    rowArray = (R[]) rows.toArray(new Row[0]);
-                    AtomicBoolean success = new AtomicBoolean(true);
-
-                    /*
-                    * Perform user defined transformation, the user must ensure that the transformation
-                    * does not change the partition key of the rows. The transformation must modify the shard
-                    * */
-                    boolean transformSuccess = writeTransformQueryPlan.transform(rows);
-                    if(!transformSuccess){
-                        dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-                        logger.warn("DS{} Primary transformation request failed for shard {}", dataStore.dsID, shardNum);
-                        return WriteSimpleTransformResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
-                    }
-                    boolean primaryWriteSuccess = writeTransformQueryPlan.write(shard, rows);
-
-                    int newVersionNumber = dataStore.shardVersionMap.get(shardNum) + 1;
-                    if (rows.size() < 10000) {
-                        Map<Integer, Pair<WriteQueryPlan<R, S>, List<R>>> shardWriteLog = dataStore.writeLog.get(shardNum);
-                        shardWriteLog.put(newVersionNumber, new Pair<>(null, rows)); // TODO: Fix
-                    }
-                    dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
-                    // Upload the updated shard.
-                    if (dataStore.dsCloud != null) {
-                        dataStore.uploadShardToCloud(shardNum);
-                    }
-
-                    dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-
-                    /*
-                    * Eventually consistent replica write. It recycles the same replication service used for
-                    * simple writes since the transformation has been already executed before.
-                    */
-                    CountDownLatch replicaLatch = new CountDownLatch(replicaStubs.size());
-                    for (DataStoreDataStoreGrpc.DataStoreDataStoreStub stub : replicaStubs) {
-                        StreamObserver<ReplicaWriteMessage> observer = stub.simpleReplicaWrite(new StreamObserver<>() {
-                            @Override
-                            public void onNext(ReplicaWriteResponse replicaResponse) {
-                                if (replicaResponse.getReturnCode() != 0) {
-                                    logger.warn("DS{} SimpleReplica Prepare Failed Shard {}", dataStore.dsID, shardNum);
-                                    success.set(false);
-                                }
-                                replicaLatch.countDown();
-                            }
-
-                            @Override
-                            public void onError(Throwable throwable) {
-                                logger.warn("DS{} SimpleReplica Prepare RPC Failed Shard {} {}", dataStore.dsID, shardNum, throwable.getMessage());
-                                success.set(false);
-                                replicaLatch.countDown();
-                            }
-
-                            @Override
-                            public void onCompleted() {}
-                        });
-                        final int stepSize = 10000;
-                        for (int i = 0; i < rowArray.length; i += stepSize) {
-                            ByteString serializedQuery = Utilities.objectToByteString(writeTransformQueryPlan);
-                            R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + stepSize));
-                            ByteString rowData = Utilities.objectToByteString(rowSlice);
-                            ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
-                                    .setShard(shardNum)
-                                    .setSerializedQuery(serializedQuery)
-                                    .setRowData(rowData)
-                                    .setVersionNumber(dataStore.shardVersionMap.get(shardNum))
-                                    .setWriteState(DataStore.COLLECT)
-                                    .setTxID(txID)
-                                    .build();
-                            observer.onNext(rm);
-                        }
-                        ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
-                                .setWriteState(DataStore.PREPARE)
-                                .build();
-                        observer.onNext(rm);
-                        replicaObservers.add(observer);
-                    }
-                    try {
-                        replicaLatch.await();
-                    } catch (InterruptedException e) {
-                        logger.error("Write SimpleReplication Interrupted: {}", e.getMessage());
-                        assert (false);
-                    }
-
-                    int returnCode;
-                    if (primaryWriteSuccess) {
-                        returnCode = Broker.QUERY_SUCCESS;
-                    } else {
-                        returnCode = Broker.QUERY_FAILURE;
-                    }
-
-                    return WriteSimpleTransformResponse.newBuilder().setReturnCode(returnCode).build();
-                } else {
-                    dataStore.shardLockMap.get(shardNum).writerLockUnlock();
-                    logger.warn("DS{} Primary got SimpleWrite request for unassigned shard {}", dataStore.dsID, shardNum);
-                    return WriteSimpleTransformResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
-                }
-            }
-
-        };
     }
 
     @Override
@@ -553,13 +395,61 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         };
     }
 
+    @Override
+    public StreamObserver<MapQueryMessage> mapQuery(StreamObserver<MapQueryResponse> responseObserver) {
+        return new StreamObserver<>() {
+            final List<R[]> rowSlicesToBeTransformed = new ArrayList<>();
+            MapQueryPlan<R> mapQueryPlan;
+
+            @Override
+            public void onNext(MapQueryMessage mapQueryMessage) {
+                mapQueryPlan = (MapQueryPlan<R>) Utilities.byteStringToObject(mapQueryMessage.getSerializedQuery());
+                R[] rowChunk = (R[]) Utilities.byteStringToObject(mapQueryMessage.getRowData());
+                rowSlicesToBeTransformed.add(rowChunk);
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                responseObserver.onError(new Exception("gRPC error while communicating row chunks"));
+                responseObserver.onCompleted();
+            }
+
+            @Override
+            public void onCompleted() {
+                for (R[] rowArray : rowSlicesToBeTransformed) {
+                    List<R> subList = new ArrayList<>();
+                    for(R row: rowArray){
+                        subList.add(row);
+                    }
+
+                    boolean mapSuccess = mapQueryPlan.map(subList);
+
+                    if (mapSuccess) {
+                        R[] result = (R[]) new Row[subList.size()];
+                        for (int i = 0; i<result.length; i++){
+                            result[i] = subList.get(i);
+                        }
+                        ByteString resultData = Utilities.objectToByteString(result);
+                        MapQueryResponse m = MapQueryResponse.newBuilder()
+                                .setTransformedData(resultData)
+                                .setState(0)
+                                .build();
+                        responseObserver.onNext(m);
+                    } else {
+                        responseObserver.onError(new Exception("Map function error"));
+                        break;
+                    }
+                }
+                responseObserver.onCompleted();
+            }
+        };
+    }
 
     @Override
     public void anchoredReadQuery(AnchoredReadQueryMessage request,  StreamObserver<AnchoredReadQueryResponse> responseObserver) {
         responseObserver.onNext(anchoredReadQueryHandler(request));
         responseObserver.onCompleted();
     }
-
     /**
      * This method is executed once for each shard of the anchor table for a given AnchoredReadQueryPlan
      *

@@ -4,7 +4,7 @@ import edu.stanford.futuredata.uniserve.interfaces.Row;
 
 public class KVRow implements Row {
     private final int key;
-    private final int value;
+    private int value;
 
     public KVRow(int key, int value) {
         this.key = key;
@@ -22,5 +22,9 @@ public class KVRow implements Row {
 
     public int getValue() {
         return value;
+    }
+
+    public void incrementValue(){
+        value++;
     }
 }

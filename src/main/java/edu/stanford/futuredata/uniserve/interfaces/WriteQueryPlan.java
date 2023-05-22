@@ -18,4 +18,7 @@ public interface WriteQueryPlan<R extends Row, S extends Shard> extends Serializ
     /**Abort the query.
      * @param shard the shard storing the result of the operation to be rolled back*/
     void abort(S shard);
+
+    boolean simpleMap(List<R> rows);
+    boolean map(List<R> rows);
 }

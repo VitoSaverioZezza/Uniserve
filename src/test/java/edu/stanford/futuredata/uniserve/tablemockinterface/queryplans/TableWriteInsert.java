@@ -35,4 +35,14 @@ public class TableWriteInsert implements WriteQueryPlan<TableRow, TableShard> {
     public void abort(TableShard shard) {
 
     }
+
+    @Override
+    public boolean simpleMap(List<TableRow> rows) {
+        return false;
+    }
+
+    @Override
+    public boolean map(List<TableRow> rows) {
+        return false;
+    }
 }

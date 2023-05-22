@@ -253,6 +253,56 @@ public class Broker {
         return queryStatus.get() == QUERY_SUCCESS;
     }
 
+    public<R extends Row> List<R> mapQuery(MapQueryPlan<R> mapQueryPlan, List<R> rows){
+        long tStart = System.currentTimeMillis();
+
+        List<R> results = Collections.synchronizedList(new ArrayList<>());
+        Map<Integer, List<R>> shardRowListMap = new HashMap<>();
+        TableInfo tableInfo = getTableInfo(mapQueryPlan.getQueriedTable());
+        for (R row: rows) {
+            int partitionKey = row.getPartitionKey();
+            assert(partitionKey >= 0);
+            int shard = keyToShard(tableInfo.id, tableInfo.numShards, partitionKey);
+            shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
+        }
+
+        Map<Integer, R[]> shardRowArrayMap =
+                shardRowListMap
+                        .entrySet()
+                        .stream()
+                        .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
+
+        List<MapQueryThread<R>> mapQueryThreads = new ArrayList<>();
+        CountDownLatch queryLatch = new CountDownLatch(shardRowArrayMap.size());
+        AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
+
+        for (Integer shardNum: shardRowArrayMap.keySet()) {
+            R[] rowArray = shardRowArrayMap.get(shardNum);
+            MapQueryThread<R> t = new MapQueryThread<>(
+                    results,
+                    shardNum,
+                    mapQueryPlan,
+                    rowArray,
+                    queryLatch,
+                    queryStatus
+            );
+            t.start();
+            mapQueryThreads.add(t);
+        }
+
+        for (MapQueryThread<R> t: mapQueryThreads) {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                logger.error("Map query interrupted: {}", e.getMessage());
+                assert(false);
+            }
+        }
+        logger.info("Map completed. Rows: {}. Time: {}ms", rows.size(), System.currentTimeMillis() - tStart);
+        assert (queryStatus.get() == QUERY_SUCCESS);
+        return results;
+    }
+
     /**Executes an AnchoredReadQueryPlan
      *
      * Calls the remote BrokerDataStore service anchoredReadQuery for each shard of the anchor table.
@@ -419,7 +469,6 @@ public class Broker {
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;
     }
-
     public <S extends Shard, V> V shuffleReadQuery(ShuffleReadQueryPlan<S, V> plan) {
         long txID = txIDs.getAndIncrement();
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
@@ -492,53 +541,6 @@ public class Broker {
         long aggEnd = System.nanoTime();
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;
-    }
-
-    /**Extracts all shards involved in the query and for each of them starts a thread that will select a random datastore hosting the
-     * shard. The datastore will apply the transformation to the rows contained in the shard it hosts and will then write the results
-     * before replicating them with eventually consistent guarantees.
-     * The transformation is carried out by the randomly selected primary datastore, ensuring that (1) the load is split
-     * across different data stores and (2) no transformation is performed twice since it is carried out before replication.
-     * TODO: test this.
-     * @param transformQueryPlan the query plan specifying the write and transform operations
-     * @param rows the rows to be written across all shards
-     * @return true if the query has been successfully executed
-     * */
-    public <R extends Row, S extends Shard> boolean simpleTransformSimpleWriteQuery(SimpleWriteSimpleTransform<R,S> transformQueryPlan, List<R> rows){
-        long tStart = System.currentTimeMillis();
-        Map<Integer, List<R>> shardRowListMap = new HashMap<>();
-        TableInfo tableInfo = getTableInfo(transformQueryPlan.getQueriedTable());
-        for (R row: rows) {
-            int partitionKey = row.getPartitionKey();
-            assert(partitionKey >= 0);
-            int shard = keyToShard(tableInfo.id, tableInfo.numShards, partitionKey);
-            shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
-        }
-        Map<Integer, R[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
-                collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
-        List<SimpleWriteSimpleTransformThread<R, S>> writeQueryThreads = new ArrayList<>();
-        long txID = txIDs.getAndIncrement();
-        AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
-        AtomicBoolean statusWritten = new AtomicBoolean(false);
-        for (Integer shardNum: shardRowArrayMap.keySet()) {
-            R[] rowArray = shardRowArrayMap.get(shardNum);
-            SimpleWriteSimpleTransformThread<R, S> t = new SimpleWriteSimpleTransformThread<>(shardNum, transformQueryPlan, rowArray, txID, queryStatus, statusWritten);
-            t.start();
-            writeQueryThreads.add(t);
-        }
-        for (SimpleWriteSimpleTransformThread<R, S> t: writeQueryThreads) {
-            try {
-                t.join();
-            } catch (InterruptedException e) {
-                logger.error("SimpleWrite query interrupted: {}", e.getMessage());
-                assert(false);
-            }
-        }
-        lastCommittedVersion = txID;
-        logger.info("SimpleWritne completed. Rows: {}. Version: {} Time: {}ms", rows.size(), lastCommittedVersion,
-                System.currentTimeMillis() - tStart);
-        assert (queryStatus.get() != QUERY_RETRY);
-        return queryStatus.get() == QUERY_SUCCESS;
     }
     /*
      * PRIVATE FUNCTIONS
@@ -650,6 +652,8 @@ public class Broker {
             super.start();
         }
     }
+
+
     /**An object of this class is created for each shard involved in a write query thread. This thread is responsible
      * for randomly selecting a random datastore that will act as primary datastore for the shard being queried among
      * those datastores hosting the shard and executing the query itself while also monitoring the various phases
@@ -878,104 +882,91 @@ public class Broker {
         }
     }
 
-    /**Manages an eventually consistent write with row transformation query of a single shard by communicating with a
-     * randomly selected primary datastore.
-     * */
-    private class SimpleWriteSimpleTransformThread<R extends Row, S extends Shard> extends Thread{
-        private final int shardNum;
-        private final SimpleWriteSimpleTransform<R, S> writeQueryPlan;
-        private final R[] rowArray;
-        private final long txID;
-        private AtomicInteger queryStatus;
-        private AtomicBoolean statusWritten;
+    private class MapQueryThread<R extends Row> extends Thread{
+        List<R> results;
+        int shardID;
+        MapQueryPlan<R> mapQueryPlan;
+        R[] rowArray;
+        CountDownLatch queryLatch;
+        AtomicInteger queryStatus;
 
-        SimpleWriteSimpleTransformThread(int shardNum, SimpleWriteSimpleTransform<R, S> writeQueryPlan, R[] rowArray, long txID,
-                               AtomicInteger queryStatus, AtomicBoolean statusWritten) {
-            this.shardNum = shardNum;
-            this.writeQueryPlan = writeQueryPlan;
+        MapQueryThread(List<R> results, int shardID, MapQueryPlan<R> mapQueryPlan, R[] rowArray,CountDownLatch queryLatch, AtomicInteger queryStatus){
+            this.mapQueryPlan = mapQueryPlan;
+            this.results = results;
+            this.shardID = shardID;
             this.rowArray = rowArray;
-            this.txID = txID;
+            this.queryLatch = queryLatch;
             this.queryStatus = queryStatus;
-            this.statusWritten = statusWritten;
         }
 
         @Override
-        public void run() { simpleWriteSimpleTransform(); }
-
-        private void simpleWriteSimpleTransform() {
-            AtomicInteger subQueryStatus = new AtomicInteger(QUERY_RETRY);
-            while (subQueryStatus.get() == QUERY_RETRY) {
-                BrokerDataStoreGrpc.BrokerDataStoreBlockingStub blockingStub = getStubForShard(shardNum);
+        public void run(){
+            R[] originalData = rowArray.clone();
+            AtomicInteger mapStatus = new AtomicInteger(QUERY_RETRY);
+            while(mapStatus.get() == QUERY_RETRY){
+                final List<R[]> partialResults = new ArrayList<>();
+                CountDownLatch finishLatch = new CountDownLatch(1);
+                BrokerDataStoreGrpc.BrokerDataStoreBlockingStub blockingStub = getStubForShard(shardID);
                 BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(blockingStub.getChannel());
-                final CountDownLatch prepareLatch = new CountDownLatch(1);
-                final CountDownLatch finishLatch = new CountDownLatch(1);
-                StreamObserver<WriteSimpleTransformMessage> observer =
-                        stub.simpleWriteSimpleTransform(new StreamObserver<>() {
-                            @Override
-                            public void onNext(WriteSimpleTransformResponse writeQueryResponse) {
-                                subQueryStatus.set(writeQueryResponse.getReturnCode());
-                                prepareLatch.countDown();
-                            }
 
-                            @Override
-                            public void onError(Throwable th) {
-                                logger.warn("SimpleWrite query RPC failed for shard {}", shardNum);
-                                subQueryStatus.set(QUERY_FAILURE);
-                                prepareLatch.countDown();
-                                finishLatch.countDown();
-                            }
+                StreamObserver<MapQueryMessage> observer = stub.mapQuery(new StreamObserver<MapQueryResponse>() {
+                    @Override
+                    public void onNext(MapQueryResponse mapQueryResponse) {
+                        mapStatus.set(mapQueryResponse.getState());
+                        if(mapStatus.get() == DataStore.COLLECT){
+                            partialResults.add((R[]) Utilities.byteStringToObject(mapQueryResponse.getTransformedData()));
+                        }
+                    }
 
-                            @Override
-                            public void onCompleted() {
-                                finishLatch.countDown();
-                            }
-                        });
-                final int STEPSIZE = 1000;
-                for (int i = 0; i < rowArray.length; i += STEPSIZE) {
-                    ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
-                    R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
+                    @Override
+                    public void onError(Throwable throwable) {
+                        mapStatus.set(QUERY_FAILURE);
+                        finishLatch.countDown();
+                    }
+
+                    @Override
+                    public void onCompleted(){
+                        finishLatch.countDown();
+                    }
+                });
+                int STEPSIZE = 10000;
+                for (int i = 0; i < originalData.length; i += STEPSIZE) {
+                    ByteString serializedQuery = Utilities.objectToByteString(mapQueryPlan);
+                    R[] rowSlice = Arrays.copyOfRange(originalData, i, Math.min(originalData.length, i + STEPSIZE));
                     ByteString rowData = Utilities.objectToByteString(rowSlice);
-                    WriteSimpleTransformMessage rowMessage = WriteSimpleTransformMessage.newBuilder()
-                            .setShard(shardNum)
+                    MapQueryMessage rowMessage = MapQueryMessage.newBuilder()
                             .setSerializedQuery(serializedQuery)
                             .setRowData(rowData)
-                            .setTxID(txID)
-                            .setWriteState(DataStore.COLLECT)
+                            .setState(DataStore.COLLECT)
                             .build();
                     observer.onNext(rowMessage);
                 }
-                WriteSimpleTransformMessage prepare = WriteSimpleTransformMessage.newBuilder()
-                        .setWriteState(DataStore.PREPARE)
-                        .build();
-                observer.onNext(prepare);
-                try {
-                    prepareLatch.await();
-                } catch (InterruptedException e) {
-                    logger.error("SimpleWriteSimpleTransform Interrupted: {}", e.getMessage());
-                    assert (false);
+                observer.onCompleted();
+                try{
+                    finishLatch.await();
+                }catch (Exception e){
+                    logger.error("Map interrupted {}", e.getMessage());
                 }
-                if (subQueryStatus.get() == QUERY_RETRY) {
+                if (mapStatus.get() == QUERY_RETRY) {
                     try {
-                        observer.onCompleted();
+                        originalData = rowArray.clone();
                         Thread.sleep(shardMapDaemonSleepDurationMillis);
                         continue;
                     } catch (InterruptedException e) {
-                        logger.error("SimpleWriteSimpleTransform Interrupted: {}", e.getMessage());
+                        logger.error("Map Interrupted: {}", e.getMessage());
                         assert (false);
                     }
                 }
-                assert(subQueryStatus.get() != QUERY_RETRY);
-                if (subQueryStatus.get() == QUERY_FAILURE) {
+                if (mapStatus.get() == QUERY_FAILURE) {
                     queryStatus.set(QUERY_FAILURE);
                 }
-                assert(queryStatus.get() != QUERY_RETRY);
-                observer.onCompleted();
-                try {
-                    finishLatch.await();
-                } catch (InterruptedException e) {
-                    logger.error("SimpleWriteSimpleTransform Interrupted: {}", e.getMessage());
-                    assert (false);
+                assert (mapStatus.get() == DataStore.COLLECT);
+                for(R[] rowArray: partialResults){
+                    for(R row: rowArray){
+                        results.add(row);
+                    }
                 }
+                return;
             }
         }
     }

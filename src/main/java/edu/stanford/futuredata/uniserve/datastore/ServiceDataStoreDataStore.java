@@ -352,6 +352,20 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
     }
     @Override
     public void shuffle(ShuffleMessage m, StreamObserver<ShuffleResponse> responseObserver) {
+
+        /*For each table, the shards to be queried are iterated and for each shard a datastore is
+        * queried via the remote shuffle method. The message triggering the call contains the following
+        * fields:
+        * - shardNum: the identifier of the queried shard
+        * - numRepartition: the total number of datastores
+        * - repartitionNum: the datastore identifier of the client datastore
+        * - serializedQuery
+        * - txID
+        *
+        * The current datastore checks the requested shard is stored here. If so, it creates (if needed) a semaphore
+        * having 0 permits, associated with the pair txID-requestedShardID
+        * */
+
         long txID = m.getTxID();
         int shardNum = m.getShardNum();
         ShuffleReadQueryPlan<S, Object> plan = (ShuffleReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
@@ -366,7 +380,19 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             return;
         }
         Semaphore s = txSemaphores.computeIfAbsent(mapID, k -> new Semaphore(0));
+
+        /*An atomic integer associated with the pair txID-queriedShardID is used to check that one and
+        * only one ds executes the if block (in particular, the first one). The other datastore requests will wait
+        * until the one executing the block completes its execution*/
+
         if (txCounts.computeIfAbsent(mapID, k -> new AtomicInteger(0)).compareAndSet(0, 1)) {
+
+            /*The requested shard is retrieved and passed to the user-defined scatter method along with the total
+            * number of datastores involved in the query (i.e. all datastores) and the results are in the form of a
+            * Map < dsID, List<ByteString objects that are the result associated with the id>>
+            *
+            *  */
+
             dataStore.ensureShardCached(shardNum);
             S shard = dataStore.shardMap.get(shardNum);
             assert (shard != null);
@@ -378,6 +404,9 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         } else {
             s.acquireUninterruptibly();
         }
+
+        /*Each datastore retrieves the results of the scatter associated with its ID and sends them back to the client*/
+
         Map<Integer, List<ByteString>> scatterResult = txShuffledData.get(mapID);
         assert(scatterResult.containsKey(m.getRepartitionNum()));
         List<ByteString> ephemeralData = scatterResult.get(m.getRepartitionNum());

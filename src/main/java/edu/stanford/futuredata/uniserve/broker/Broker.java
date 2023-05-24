@@ -473,6 +473,10 @@ public class Broker {
         long txID = txIDs.getAndIncrement();
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
+
+        /*Builds the targetShard mapping, consisting of:
+        * Map < tableName, List < Shard identifiers to be queried on the table > >*/
+
         for (Map.Entry<String, List<Integer>> entry : partitionKeys.entrySet()) {
             String tableName = entry.getKey();
             List<Integer> tablePartitionKeys = entry.getValue();
@@ -498,6 +502,24 @@ public class Broker {
         CountDownLatch latch = new CountDownLatch(numReducers);
         int reducerNum = 0;
         for (int dsID : dsIDs) {
+            /*Each datastore receives a call to the shuffleReadQuery method, with message containing:
+            * - repartitionNum: the dsID
+            * - serializedQuery
+            * - numRepartitions: the total number of datastores
+            * - txID
+            * - targetShards: the Map<tableName, List<Shards ids queried on the table>>
+            *
+            * each call returns a single ByteString object that is the result of the server's execution of a
+            * scatter-gather routine. In particular:
+            * - each datastore queries all shards
+            * - a single scatter operation is performed for each shard, returning a map object that binds server
+            *       identifiers to a list of results
+            * - each server performs a combine operation
+            * - the combine operation takes as input all the results of all shards' scatter operation for the
+            *       datastore executing the gather method
+            *
+            * The result of all the scatter-gather are stored in the intermediate structure
+            * */
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             ShuffleReadQueryMessage m = ShuffleReadQueryMessage.newBuilder().
@@ -532,6 +554,8 @@ public class Broker {
             };
             stub.shuffleReadQuery(m, responseObserver);
         }
+        /*Once all datastores have executed the gather operation, their results are passed to the user-defined
+        * combine operator and the result is returned to the caller.*/
         try {
             latch.await();
         } catch (InterruptedException ignored) {

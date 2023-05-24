@@ -765,6 +765,10 @@ public class LocalKVStoreTests {
                         insertList.add(new KVRow(i, finalThreadNum));
                     }
                     WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
+                    List<KVRow> mapList = broker.mapQuery(new KVIncrementValueMap("table"), insertList);
+                    for(int i = 0; i< numShards; i++){
+                        assertEquals(insertList.get(i).getValue() + 1, mapList.get(i).getValue());
+                    }
                     assertTrue(broker.writeQuery(writeQueryPlan, insertList));
                 }
             });

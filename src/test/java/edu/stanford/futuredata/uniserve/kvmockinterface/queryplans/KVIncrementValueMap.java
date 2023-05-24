@@ -11,6 +11,7 @@ public class KVIncrementValueMap implements MapQueryPlan<KVRow> {
 
     private final String tableName;
 
+    public KVIncrementValueMap(String tableName){this.tableName = tableName;}
     public KVIncrementValueMap() {
         this.tableName = "table1";
     }

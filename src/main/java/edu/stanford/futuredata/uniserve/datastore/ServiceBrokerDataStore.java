@@ -673,18 +673,44 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         responseObserver.onCompleted();
     }
     private ShuffleReadQueryResponse shuffleReadQueryHandler(ShuffleReadQueryMessage m) {
+
+        /*The message triggering the execution contains:
+        * - repartitionNum: this datastore's dsID
+        * - serializedQuery
+        * - numRepartitions: the total number of datastores
+        * - txID
+        * - targetShards: the Map<tableName, List<Shards ids queried on the table>>*/
+
         ShuffleReadQueryPlan<S, Object> plan =
                 (ShuffleReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         Map<String, List<Integer>> allTargetShards = (Map<String, List<Integer>>) Utilities.byteStringToObject(m.getTargetShards());
         Map<String, List<ByteString>> ephemeralData = new HashMap<>();
         Map<String, S> ephemeralShards = new HashMap<>();
         for (String tableName: plan.getQueriedTables()) {
+            /*An ephemeral shard is created for each table being queried and these structures are
+            * stored in the ephemeralShards mapping.
+            *
+            * A count down latch is initialized, needing a number of permits equal to the number of queried tables*/
             S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
             ephemeralShards.put(tableName, ephemeralShard);
             List<Integer> targetShards = allTargetShards.get(tableName);
             List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();
             CountDownLatch latch = new CountDownLatch(targetShards.size());
             for (int targetShard : targetShards) {
+                /*For each table, the shards to be queried are iterated and for each shard a datastore is
+                * queried via the remote shuffle method. The message triggering the call contains the following
+                * fields:
+                * - shardNum: the identifier of the queried shard
+                * - numRepartition: the total number of datastores
+                * - repartitionNum: the datastore identifier of the client datastore
+                * - serializedQuery
+                * - txID
+                *
+                * The server returns a stream of ByteString objects obtained as result of the user-defined
+                * scatter method. The scatter method executes once for each shard and returns a list of ByteString
+                * for each datastore. The current datastore only receives the results associated with its identifier.
+                *
+                * The results are stored per table*/
                 int targetDSID = dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
                 ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                 DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
@@ -727,8 +753,19 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             } catch (InterruptedException ignored) {
             }
             ephemeralData.put(tableName, tableEphemeralData);
-
         }
+
+        /*Once all the shards have been queried, all the scatter's results associated with this identifier are stored
+         * in the ephemeral data mapping
+         * This map object is passed as argument to the user-defined gather operation, along with the mapping between
+         * table identifiers and ephemeral shard objects created before
+         *
+         * Map<tableName, List<Scatter results associated with shards of the current table-ds pair>>
+         * Map<tableName, ephemeral Shard associated to the table in this datastore>
+         *
+         * The gather returns a single bytestring object, which is forwarded to the client (broker)
+         * */
+
         ByteString b = plan.gather(ephemeralData, ephemeralShards);
         ephemeralShards.values().forEach(S::destroy);
         return ShuffleReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();

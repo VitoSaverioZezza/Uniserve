@@ -33,7 +33,8 @@ public interface AnchoredReadQueryPlan<S extends Shard, T> extends Serializable 
 
 
     /**
-     * A scatter is executed for each shard of all non-anchor tables and provides a result for each shard of the anchor table.
+     * A scatter is executed for each shard of all non-anchor tables and provides a result for each shard of the anchor
+     * table.
      * In particular:
      * A single scatter will return a List of ByteStrings for each shard of the anchor table.
      * The operation has access to the partition keys associated with each anchor-shard.

@@ -18,7 +18,6 @@ service BrokerDataStore {
     rpc ShuffleReadQuery (ShuffleReadQueryMessage) returns (ShuffleReadQueryResponse) {}
 
     rpc MapQuery(stream MapQueryMessage) returns (stream MapQueryResponse) {}
-
 }
 message MapQueryMessage{
     bytes serializedQuery = 1;

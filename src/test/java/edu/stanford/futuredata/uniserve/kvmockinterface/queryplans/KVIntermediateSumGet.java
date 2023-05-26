@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**Sub query for KVFilterSumGet*/
 public class KVIntermediateSumGet implements AnchoredReadQueryPlan<KVShard, Map<String, Map<Integer, Integer>>> {
 
     private final List<Integer> keys;
@@ -49,6 +50,7 @@ public class KVIntermediateSumGet implements AnchoredReadQueryPlan<KVShard, Map<
         return null;
     }
 
+    /**Being an intermediate query, the results of the gather are stored in a shard*/
     @Override
     public void gather(KVShard localShard, Map<String, List<ByteString>> ephemeralData, Map<String, KVShard> ephemeralShards, KVShard bob) {
         int sum = 0;

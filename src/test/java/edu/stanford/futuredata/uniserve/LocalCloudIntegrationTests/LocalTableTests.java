@@ -7,6 +7,7 @@ import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.VolatileShuffleQueryPlan;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableQueryEngine;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableRow;
@@ -15,6 +16,7 @@ import edu.stanford.futuredata.uniserve.tablemockinterface.TableShardFactory;
 import edu.stanford.futuredata.uniserve.tablemockinterface.queryplans.TableReadMostFrequent;
 import edu.stanford.futuredata.uniserve.tablemockinterface.queryplans.TableReadPopularState;
 import edu.stanford.futuredata.uniserve.tablemockinterface.queryplans.TableWriteInsert;
+import edu.stanford.futuredata.uniserve.tablemockinterface.queryplans.VolatileTableReadMostFrequent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -122,7 +124,9 @@ public class LocalTableTests {
         assertTrue(broker.writeQuery(new TableWriteInsert("peopleTable"), rows));
 
         ShuffleReadQueryPlan<TableShard, Integer> r = new TableReadPopularState("peopleTable", "stateTable");
+        VolatileShuffleQueryPlan<TableRow, TableShard, Integer> vr = new VolatileTableReadMostFrequent("peopleTable");
         assertEquals(9, broker.shuffleReadQuery(r));
+        assertEquals(9, broker.volatileShuffleQuery(vr,rows));
 
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();

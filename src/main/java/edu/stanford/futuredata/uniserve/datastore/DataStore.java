@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.datastore;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
@@ -81,6 +82,9 @@ public class DataStore<R extends Row, S extends Shard> {
     public static final int PREPARE = 1;
     public static final int COMMIT = 2;
     public static final int ABORT = 3;
+
+    private final Map<Long, List<ByteString>> volatileData = new ConcurrentHashMap<>();
+    private final Map<Long, List<ByteString>> volatileScatterData = new ConcurrentHashMap<>();
 
     ConsistentHash consistentHash;
 
@@ -376,5 +380,39 @@ public class DataStore<R extends Row, S extends Shard> {
                 }
             }
         }
+    }
+
+    /** retrieves serialized R[] objects given the transaction identifier */
+    public List<ByteString> getVolatileData(long transactionID){
+        return volatileData.get(Long.valueOf(transactionID));
+    }
+    /** Stores serialized R[] objects to be later retrieved given the transaction identifier*/
+    public boolean addVolatileData(long transactionID, ByteString data){
+        try{
+            volatileData.get(Long.valueOf(transactionID)).add(data);
+            return true;
+        }catch (Exception e){
+            logger.warn("Impossible to store volatile data for DS {} transaction {}", dsID, transactionID);
+            logger.warn("exception: {}", e.getMessage());
+            return false;
+        }
+    }
+    public void removeVolatileData(long transactionID){
+        volatileData.remove(Long.valueOf(transactionID));
+    }
+
+    public List<ByteString> getVolatileScatterData(long transactionID){return volatileScatterData.get(transactionID);}
+    public boolean addVolatileScatterData(long transactionID, ByteString data){
+        try{
+            volatileScatterData.get(Long.valueOf(transactionID)).add(data);
+            return true;
+        }catch (Exception e){
+            logger.warn("Impossible to store volatile scatter data for DS {} transaction {}", dsID, transactionID);
+            logger.warn("exception: {}", e.getMessage());
+            return false;
+        }
+    }
+    public void removeVolatileScatterData(long transactionID){
+        volatileScatterData.remove(Long.valueOf(transactionID));
     }
 }

@@ -20,7 +20,17 @@ service DataStoreDataStore {
     rpc AnchoredShuffle (AnchoredShuffleMessage) returns (stream AnchoredShuffleResponse) {}
     // Get data for a shuffle.
     rpc Shuffle (ShuffleMessage) returns (stream ShuffleResponse) {}
+    rpc StoreVolatileShuffledData(stream StoreVolatileShuffleDataMessage) returns (StoreVolatileShuffleDataResponse){}
 }
+message StoreVolatileShuffleDataMessage{
+    int32 state = 1;
+    bytes data = 2;
+    int64 transactionID = 3;
+}
+message StoreVolatileShuffleDataResponse{
+    int32 state = 1;
+}
+
 
 message ReplicaWriteMessage {
     int32 shard = 1;

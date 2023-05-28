@@ -421,6 +421,41 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         responseObserver.onCompleted();
     }
 
+    @Override
+    public StreamObserver<StoreVolatileShuffleDataMessage> storeVolatileShuffledData(
+            StreamObserver<StoreVolatileShuffleDataResponse> responseObserver){
+        return new StreamObserver<StoreVolatileShuffleDataMessage>() {
+            final ArrayList<ByteString> volatileScatterData = new ArrayList<>();
+            Long txID;
+
+            @Override
+            public void onNext(StoreVolatileShuffleDataMessage message) {
+                if(message.getState() == 0){
+                    volatileScatterData.add(message.getData());
+                    txID = message.getTransactionID();
+                } else if (message.getState() == 1) {
+                    for(ByteString dataItem : volatileScatterData){
+                        dataStore.addVolatileScatterData(txID, dataItem);
+                    }
+                    responseObserver.onNext(StoreVolatileShuffleDataResponse.newBuilder().setState(0).build());
+                    responseObserver.onCompleted();
+                }
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                logger.error("volatile store of scattered data failed for transaction {} on datastore {}", txID, dataStore.dsID);
+                responseObserver.onError(throwable);
+                responseObserver.onCompleted();
+            }
+
+            @Override
+            public void onCompleted() {
+                responseObserver.onCompleted();
+            }
+        };
+    }
+
 
     private BootstrapReplicaResponse bootstrapReplicaHandler(BootstrapReplicaMessage request) {
         int shardNum = request.getShard();
@@ -453,4 +488,5 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 .setWriteQueries(Utilities.objectToByteString(writeQueryPlansArray))
                 .build();
     }
+
 }

@@ -103,5 +103,16 @@ public class LocalDataStoreCloud implements DataStoreCloud {
         }
         Files.delete(path);
     }
+
+    public void clear() throws IOException{
+        Path path = Path.of(this.root);
+        if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+            try (DirectoryStream<Path> entries = Files.newDirectoryStream(path)) {
+                for (Path entry : entries) {
+                    deleteDirectoryRecursion(entry);
+                }
+            }
+        }
+    }
 }
 

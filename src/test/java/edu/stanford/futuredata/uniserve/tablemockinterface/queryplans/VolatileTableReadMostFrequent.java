@@ -11,7 +11,7 @@ import org.javatuples.Pair;
 
 import java.util.*;
 
-public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<TableRow, TableShard, Integer> {
+public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<TableRow, Integer> {
 
     private final String table;
 
@@ -29,33 +29,17 @@ public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<T
     @Override
     public Map<Integer, List<ByteString>> scatter(List<TableRow> data, int actorCount) {
         Map<Integer, ArrayList<Map<String, Integer>>> partitionedTables = new HashMap<>();
-
         /*
-         *
          * Map < Hash(row.v) % numActors,  List < rows having the same key > >
-         *
          * */
-
-
-        /*Iterates all queried shard's rows, retrieving the value in the column "v" and hashes it.
-         * The reminder of the division between this value and the number of datastores in the query is
-         * stored in the partitionKey variable and used as key for the Map built before. The associated value is
-         * the row being currently iterated on
-         * */
-
         for (TableRow row: data) {
             int partitionKey = ConsistentHash.hashFunction(row.getRow().get("v")) % actorCount;
             partitionedTables.computeIfAbsent(partitionKey, k -> new ArrayList<>()).add(row.getRow());
         }
-
-        /*
-         *
-         * Map< Hash(row.v) % numActors, (ByteString) List < rows having the same key > >
-         *
-         * */
-
+        /* Map< Hash(row.v) % numActors, (ByteString) List < rows having the same key > >*/
         HashMap<Integer, List<ByteString>> serializedTables = new HashMap<>();
         partitionedTables.forEach((k, v) -> serializedTables.put(k, List.of(Utilities.objectToByteString(v))));
+        /*These ByteStrings, once deserialized, are Map<String, Integer>*/
 
         for (int i = 0; i < actorCount; i++) {
             if(!serializedTables.containsKey(i)) {
@@ -75,10 +59,12 @@ public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<T
 
         Map<Integer, Integer> frequencies = new HashMap<>();
         for (ByteString b: scatteredData) {
-            List<Map<String, Integer>> table = (List<Map<String, Integer>>) Utilities.byteStringToObject(b);
-            for (Map<String, Integer> row : table) {
-                Integer val = row.get("v");
-                frequencies.merge(val, 1, Integer::sum);
+            List<Map<String, Integer>> table = (ArrayList<Map<String, Integer>>) Utilities.byteStringToObject(b);
+            if(!table.isEmpty()) {
+                for (Map<String, Integer> row : table) {
+                    Integer val = row.get("v");
+                    frequencies.merge(val, 1, Integer::sum);
+                }
             }
         }
 

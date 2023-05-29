@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
+import edu.stanford.futuredata.uniserve.datastore.DataStoreCloud;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.VolatileShuffleQueryPlan;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
@@ -58,10 +59,13 @@ public class LocalTableTests {
         assertTrue(coordinator.startServing());
         int numDataStores = 4;
         List<DataStore<TableRow, TableShard>> dataStores = new ArrayList<>();
+        List<LocalDataStoreCloud> dsClouds = new ArrayList<>();
         for (int i = 0; i < numDataStores; i++) {
-            DataStore<TableRow, TableShard>  dataStore = new DataStore<>(new LocalDataStoreCloud(),
+            LocalDataStoreCloud dsCloud = new LocalDataStoreCloud();
+            DataStore<TableRow, TableShard>  dataStore = new DataStore<>(dsCloud,
                     new TableShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
             );
+            dsClouds.add(dsCloud);
             dataStore.runPingDaemon = false;
             assertTrue(dataStore.startServing());
             dataStores.add(dataStore);
@@ -78,8 +82,17 @@ public class LocalTableTests {
         assertTrue(broker.writeQuery(new TableWriteInsert("table1"), rows));
 
         ShuffleReadQueryPlan<TableShard, Integer> r = new TableReadMostFrequent("table1");
+        VolatileShuffleQueryPlan<TableRow, Integer> vr = new VolatileTableReadMostFrequent("table1");
         assertEquals(0, broker.shuffleReadQuery(r));
+        assertEquals(0, broker.volatileShuffleQuery(vr, rows));
 
+        for(LocalDataStoreCloud dsCloud: dsClouds){
+            try{
+                dsCloud.clear();
+            }catch (Exception ignored){
+                ;
+            }
+        }
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();
@@ -124,9 +137,7 @@ public class LocalTableTests {
         assertTrue(broker.writeQuery(new TableWriteInsert("peopleTable"), rows));
 
         ShuffleReadQueryPlan<TableShard, Integer> r = new TableReadPopularState("peopleTable", "stateTable");
-        VolatileShuffleQueryPlan<TableRow, TableShard, Integer> vr = new VolatileTableReadMostFrequent("peopleTable");
         assertEquals(9, broker.shuffleReadQuery(r));
-        assertEquals(9, broker.volatileShuffleQuery(vr,rows));
 
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();

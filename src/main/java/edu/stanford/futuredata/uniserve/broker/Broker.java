@@ -567,11 +567,12 @@ public class Broker {
         return ret;
     }
 
-    public<S extends Shard, R extends Row, V> V volatileShuffleQuery(VolatileShuffleQueryPlan<R,S,V> plan, List<R> rows){
-        /*The "S extends Shard" is needed to accept the query plan parameter, not because the shard has something
-        * to do as code*/
-        long tStart = System.currentTimeMillis();
+    public<R extends Row, V> V volatileShuffleQuery(VolatileShuffleQueryPlan<R,V> plan, List<R> rows){
         long txID = txIDs.getAndIncrement();
+
+        /* Map shardID to rows, this mapping will be used to determine which actor will store the volatile
+        * raw data to be later shuffled */
+
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
         TableInfo tableInfo = getTableInfo(plan.getQueriedTables());
         for (R row: rows) {
@@ -580,30 +581,36 @@ public class Broker {
             int shard = keyToShard(tableInfo.id, tableInfo.numShards, partitionKey);
             shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
         }
-
         Map<Integer, R[]> shardRowArrayMap =
                 shardRowListMap
                         .entrySet()
                         .stream()
                         .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
 
-        List<VolatileShuffleQueryThread<R>> shuffleQueryThreads = new ArrayList<>();
+        /* Send the raw data to the actors that will keep them in memory for later shuffling operation. The
+        * ids of the actors storing the raw data are added to the dsIDsScatter list. Proceed once all data has
+        * been forwarded. If one send operation failed, signal to all other actors to delete the volatile data
+        * associated to this transaction and return. The raw data will be stored by the receiving actor as a List
+        * of serialized arrays of Rows, the same ones prepared in the thread (List<Serialized(R[])>)
+        * */
+
+        List<StoreVolatileDataThread<R>> storeVolatileDataThreads = new ArrayList<>();
         AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
         List<Integer> dsIDsScatter = new ArrayList<>();
         for (Integer shardNum: shardRowArrayMap.keySet()) {
             R[] rowArray = shardRowArrayMap.get(shardNum);
             Integer dsID = consistentHash.getRandomBucket(shardNum);
             if(!dsIDsScatter.contains(dsID)){dsIDsScatter.add(dsID);}
-            VolatileShuffleQueryThread<R> t = new VolatileShuffleQueryThread<>(
+            StoreVolatileDataThread<R> t = new StoreVolatileDataThread<>(
                     dsID,
                     txID,
                     rowArray,
                     queryStatus
             );
             t.start();
-            shuffleQueryThreads.add(t);
+            storeVolatileDataThreads.add(t);
         }
-        for (VolatileShuffleQueryThread<R> t: shuffleQueryThreads) {
+        for (StoreVolatileDataThread<R> t: storeVolatileDataThreads) {
             try {
                 t.join();
             } catch (InterruptedException e) {
@@ -611,9 +618,8 @@ public class Broker {
                 assert(false);
             }
         }
-        /*All datastores hold the data to be shuffled as serialized row chunks List<(ByteString) R[]>*/
         if(queryStatus.get()==Broker.QUERY_FAILURE){
-            boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID);
+            boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID, null);
             if(!successfulCleanup){
                 logger.error("Unsuccessful cleanup of shuffled data for transaction {}", txID);
                 assert (false);
@@ -622,251 +628,82 @@ public class Broker {
             return null;
         }
 
-        /*start scatter operations. The scatter returns Map<dsID, List<ByteString>>, the
-        * ByteString objects are stored in the remote actor as they are returned
+        /* Start the scatter operations by sending a signal and the query plan to all actors holding raw data.
+        * Each scatter execution returns a Map<dsID, List<ByteString>>, and the data gets forwarded to the appropriate
+        * actors. The ids of the actors storing shuffled data are returned to the broker and stored in the
+        * gatherDSids list. Resume once all scatter operations have been carried out. If one fails, both the
+        * shuffled and raw data associated to this transaction is deleted from the memory of the actors.
         * */
-        List<ScatterQueryThread<R,S,V>> scatterQueryThreads = new ArrayList<>();
-        List<Integer> gatherDSids = Collections.synchronizedList(new ArrayList<>());
 
+        List<ScatterVolatileDataThread<R,V>> scatterVolatileDataThreads = new ArrayList<>();
+        List<Integer> gatherDSids = Collections.synchronizedList(new ArrayList<>());
         for(Integer dsID: dsIDsScatter){
-            ScatterQueryThread<R,S,V> t = new ScatterQueryThread<R,S,V>(dsID, txID, gatherDSids, queryStatus, plan);
+            ScatterVolatileDataThread<R,V> t = new ScatterVolatileDataThread<R,V>(dsID, txID, gatherDSids, queryStatus, plan);
             t.start();
-            scatterQueryThreads.add(t);
+            scatterVolatileDataThreads.add(t);
         }
-        for(ScatterQueryThread<R,S,V> t: scatterQueryThreads){
+        for(ScatterVolatileDataThread<R,V> t: scatterVolatileDataThreads){
             try {
                 t.join();
             }catch (InterruptedException e ){
-                logger.error("Volatile shuffle query interrupted: {}", e.getMessage());
+                logger.error("Broker: Volatile scatter query interrupted: {}", e.getMessage());
                 assert(false);
                 queryStatus.set(Broker.QUERY_FAILURE);
             }
         }
         if(queryStatus.get()==Broker.QUERY_FAILURE){
-            boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID) && volatileGatherCleanup(gatherDSids, txID);
+            boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID, gatherDSids);
             if(!successfulCleanup){
-                logger.error("Unsuccessful cleanup of volatile data for transaction {}", txID);
+                logger.error("Broker: Unsuccessful cleanup of volatile data for unsuccessful transaction {} (scatter failed)", txID);
                 assert (false);
             }
             return null;
         }
 
-
-        /*Succesfull scatter operation
-        * Trigger and retrieve all gather results from all datastores whose IDs have been stored
-        * in the gatherDSids list
+        /*All scatter operations have been successfully carried out and the shuffled data is stored in memory
+        * by the actors that will execute the gather operation. The ids of the actors storing this data are stored in
+        * the gatherDSids list. The Broker now triggers the gather operations and retrieves all results from
+        * the actors. All actors must return before the eecution resumes.
+        * If one gather fails, all volatile data is deleted.
         * */
 
-        List<GatherQueryThread<R,S,V>> gatherQueryThreads = new ArrayList<>();
+        List<GatherVolatileDataThread<R,V>> gatherVolatileDataThreads = new ArrayList<>();
         List<ByteString> gatherResults = Collections.synchronizedList(new ArrayList<>());
         for(Integer dsID: gatherDSids){
-            GatherQueryThread<R,S,V> t = new GatherQueryThread<R,S,V>(dsID, txID, gatherResults, queryStatus, plan);
+            GatherVolatileDataThread<R,V> t = new GatherVolatileDataThread<R,V>(dsID, txID, gatherResults, queryStatus, plan);
             t.start();
-            gatherQueryThreads.add(t);
+            gatherVolatileDataThreads.add(t);
         }
-        for(GatherQueryThread<R,S,V> t: gatherQueryThreads){
+        for(GatherVolatileDataThread<R,V> t: gatherVolatileDataThreads){
             try {
                 t.join();
             }catch (InterruptedException e){
-                logger.error("Volatile gather query interrupted: {}", e.getMessage());
+                logger.error("Broker: Volatile gather query interrupted: {}", e.getMessage());
                 assert(false);
             }
         }
         if(queryStatus.get()==Broker.QUERY_FAILURE){
-            boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID) && volatileGatherCleanup(gatherDSids, txID);
+            boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID, gatherDSids);
             if(!successfulCleanup){
-                logger.error("Unsuccessful cleanup of volatile data for transaction {}", txID);
+                logger.error("Unsuccessful cleanup of volatile data for unsuccessful transaction {}", txID);
                 assert (false);
             }
             return null;
         }
 
+        /* The values returned by the gather operations are given as parameter to the combine operator and the returned
+        * value is given to the caller as the query result after all volatile data is deleted.
+         */
+
+        long aggStart = System.nanoTime();
         V result = plan.combine(gatherResults);
-        boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID) && volatileGatherCleanup(gatherDSids, txID);
+        long aggEnd = System.nanoTime();
+        aggregationTimes.add((aggEnd - aggStart) / 1000L);
+        boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID, gatherDSids);
         if(!successfulCleanup){
-            logger.error("Unsuccessful cleanup of volatile data for transaction {}", txID);
+            logger.error("Broker: Unsuccessful cleanup of volatile data for successful transaction {}", txID);
         }
         return result;
-    }
-
-    private boolean volatileShuffleCleanup(List<Integer> dsIDsScatter, long txID){
-        CountDownLatch failureLatch = new CountDownLatch(dsIDsScatter.size());
-        AtomicInteger outcome = new AtomicInteger(0);
-        for(Integer dsID: dsIDsScatter){
-            ManagedChannel channel = dsIDToChannelMap.get(dsID);
-            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
-            AbortVolatileShuffleQueryMessage message = AbortVolatileShuffleQueryMessage.newBuilder().setTransactionID(txID).build();
-            StreamObserver<AbortVolatileShuffleQueryResponse> observer = new StreamObserver<>() {
-                @Override
-                public void onNext(AbortVolatileShuffleQueryResponse abortVolatileShuffleQueryResponse) {
-                    ;
-                }
-
-                @Override
-                public void onError(Throwable throwable) {
-                    logger.error("Abort Shuffle Failed for transaction id {}", txID);
-                    outcome.set(1);
-                    failureLatch.countDown();
-                }
-
-                @Override
-                public void onCompleted() {
-                    failureLatch.countDown();
-                }
-            };
-            stub.abortVolatileShuffleQuery(message, observer);
-        }
-        try {
-            failureLatch.await();
-        }catch (InterruptedException e){
-            logger.error("Abort Shuffle Failed for transaction id {}", txID);
-            return false;
-        }
-        return outcome.get() == 0;
-    }
-    private boolean volatileGatherCleanup(List<Integer> gatherDSids, long txID){
-        final CountDownLatch secondFailureLatch = new CountDownLatch(gatherDSids.size());
-        final AtomicInteger outcome = new AtomicInteger(0);
-        for(Integer dsID: gatherDSids){
-            ManagedChannel channel = dsIDToChannelMap.get(dsID);
-            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
-            AbortVolatileGatherQueryMessage message = AbortVolatileGatherQueryMessage.newBuilder().setTransactionID(txID).build();
-            StreamObserver<AbortVolatileGatherQueryResponse> observer = new StreamObserver<AbortVolatileGatherQueryResponse>() {
-                @Override
-                public void onNext(AbortVolatileGatherQueryResponse abortVolatileGatherQueryResponse) {
-                    ;
-                }
-
-                @Override
-                public void onError(Throwable throwable) {
-                    logger.error("Abort Gather Failed for transaction id {}", txID);
-                    outcome.set(1);
-                }
-
-                @Override
-                public void onCompleted() {
-                    secondFailureLatch.countDown();
-                }
-            };
-            stub.abortVolatileGatherQuery(message, observer);
-        }
-        try{
-            secondFailureLatch.await();
-        }catch (InterruptedException e){
-            logger.error("Abort Shuffle Failed for transaction id {}", txID);
-            return false;
-        }
-        return outcome.get() == 0;
-    }
-    /*
-     * PRIVATE FUNCTIONS
-     */
-
-    /**Retrieves a TableInfo object associated with the given table name.
-     * TODO: Error handling should be not be carried out via assert statements
-     * @param tableName The name of the queried table
-     * @return The table info object associated with the given name
-     * */
-    private TableInfo getTableInfo(String tableName) {
-        if (tableInfoMap.containsKey(tableName)) {
-            return tableInfoMap.get(tableName);
-        } else {
-            TableInfoResponse r = coordinatorBlockingStub.
-                    tableInfo(TableInfoMessage.newBuilder().setTableName(tableName).build());
-            assert(r.getReturnCode() == QUERY_SUCCESS);
-            TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards());
-            tableInfoMap.put(tableName, t);
-            return t;
-        }
-    }
-    /**Given a Table identifier, its number of shards and a row's partition key, returns the shard identifier
-     * associated with the table's shard containing the row having given partition key
-     * @param tableID The queried table identifier
-     * @param numShards the number of shards the table has
-     * @param partitionKey the partition key of the row to be retrieved
-     * @return the shard identifier hosting the given row in the given table*/
-    private static int keyToShard(int tableID, int numShards, int partitionKey) {
-        return tableID * SHARDS_PER_TABLE + (partitionKey % numShards);
-    }
-    /**Retrieve a blocking stub for communication between the Broker object calling the method and a randomly selected
-     * datastore hosting the given shard identifier
-     * @param shard the shard identifier for which a stub is needed
-     * @return a blocking stub for the broker-datastore service of a random datastore storing the given shard*/
-    private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub getStubForShard(int shard) {
-        int dsID = consistentHash.getRandomBucket(shard);
-        ManagedChannel channel = dsIDToChannelMap.get(dsID);
-        assert(channel != null);
-        return BrokerDataStoreGrpc.newBlockingStub(channel);
-    }
-
-
-    /**Sends the statistics to the Coordinator via the appropriate Broker-Coordinator service*/
-    public void sendStatisticsToCoordinator() {
-        ByteString queryStatisticsSer = Utilities.objectToByteString(queryStatistics);
-        QueryStatisticsMessage m = QueryStatisticsMessage.newBuilder().setQueryStatistics(queryStatisticsSer).build();
-        QueryStatisticsResponse r = coordinatorBlockingStub.queryStatistics(m);
-    }
-
-    /**Periodically sends statistics to the Coordinator*/
-    private class QueryStatisticsDaemon extends Thread {
-        @Override
-        public void run() {
-            while (runQueryStatisticsDaemon) {
-                sendStatisticsToCoordinator();
-                queryStatistics = new ConcurrentHashMap<>();
-                try {
-                    Thread.sleep(queryStatisticsDaemonSleepDurationMillis);
-                } catch (InterruptedException e) {
-                    break;
-                }
-            }
-        }
-    }
-    /**Periodically updates the dsIDToChannelMap and the consistentHash attributes.
-     * The first is updated by virtue of the datastores identifiers being monotonically increasing, the latter is
-     * updated by retrieving the value from the ZooKeeper service*/
-    private class ShardMapUpdateDaemon extends Thread {
-        private void updateMap() {
-            ConsistentHash consistentHash = zkCurator.getConsistentHashFunction();
-            Map<Integer, ManagedChannel> dsIDToChannelMap = new HashMap<>();
-            int dsID = 0;
-            while (true) {
-                DataStoreDescription d = zkCurator.getDSDescriptionFromDSID(dsID);
-                if (d == null) {
-                    break;
-                } else if (d.status.get() == DataStoreDescription.ALIVE) {
-                    ManagedChannel channel = Broker.this.dsIDToChannelMap.containsKey(dsID) ?
-                            Broker.this.dsIDToChannelMap.get(dsID) :
-                            ManagedChannelBuilder.forAddress(d.host, d.port).usePlaintext().build();
-                    dsIDToChannelMap.put(dsID, channel);
-                } else if (d.status.get() == DataStoreDescription.DEAD) {
-                    if (Broker.this.dsIDToChannelMap.containsKey(dsID)) {
-                        Broker.this.dsIDToChannelMap.get(dsID).shutdown();
-                    }
-                }
-                dsID++;
-            }
-            Broker.this.dsIDToChannelMap = dsIDToChannelMap;
-            Broker.this.consistentHash = consistentHash;
-        }
-
-        @Override
-        public void run() {
-            while (runShardMapUpdateDaemon) {
-                updateMap();
-                try {
-                    Thread.sleep(shardMapDaemonSleepDurationMillis);
-                } catch (InterruptedException e) {
-                    break;
-                }
-            }
-        }
-
-        @Override
-        public synchronized void start() {
-            updateMap();
-            super.start();
-        }
     }
 
 
@@ -1186,13 +1023,13 @@ public class Broker {
             }
         }
     }
-    private class VolatileShuffleQueryThread<R extends Row> extends Thread{
+    private class StoreVolatileDataThread<R extends Row> extends Thread{
         private final Integer dsID;
         private final long txID;
         private final R[] rowArray;
         private final AtomicInteger queryStatus;
 
-        VolatileShuffleQueryThread(Integer dsID,
+        StoreVolatileDataThread(Integer dsID,
                                    long txID,
                                    R[] rowArray,
                                    AtomicInteger queryStatus){
@@ -1204,10 +1041,10 @@ public class Broker {
 
         @Override
         public void run(){
-            distributeData();
+            storeVolatileData();
         }
 
-        private void distributeData(){
+        private void storeVolatileData(){
             AtomicInteger subQueryStatus = new AtomicInteger(QUERY_RETRY);
             while (subQueryStatus.get() == QUERY_RETRY) {
                 ManagedChannel channel = dsIDToChannelMap.get(dsID);
@@ -1217,17 +1054,19 @@ public class Broker {
 
                 final CountDownLatch prepareLatch = new CountDownLatch(1);
 
-                StreamObserver<CollectVolatileShuffleQueryMessage> observer =
-                        stub.collectVolatileShuffleQuery(new StreamObserver<CollectVolatileShuffleQueryResponse>() {
+                StreamObserver<StoreVolatileDataMessage> observer =
+                        stub.storeVolatileData(new StreamObserver<StoreVolatileDataResponse>() {
                             @Override
-                            public void onNext(CollectVolatileShuffleQueryResponse writeQueryResponse) {
-                                subQueryStatus.set(writeQueryResponse.getState());
+                            public void onNext(StoreVolatileDataResponse storeVolatileDataResponse) {
+                                subQueryStatus.set(storeVolatileDataResponse.getState());
+                                prepareLatch.countDown();
                             }
 
                             @Override
                             public void onError(Throwable th) {
-                                logger.warn("Volatile shuffle query RPC failed for datastore {}", dsID);
+                                logger.warn("StoreVolatileDataThread: Volatile shuffle query RPC failed for datastore {}", dsID);
                                 subQueryStatus.set(QUERY_FAILURE);
+                                prepareLatch.countDown();
                             }
 
                             @Override
@@ -1239,21 +1078,20 @@ public class Broker {
                 for (int i = 0; i < rowArray.length; i += STEPSIZE) {
                     R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + STEPSIZE));
                     ByteString rowData = Utilities.objectToByteString(rowSlice);
-                    CollectVolatileShuffleQueryMessage rowMessage = CollectVolatileShuffleQueryMessage.newBuilder()
+                    StoreVolatileDataMessage rowMessage = StoreVolatileDataMessage.newBuilder()
                             .setData(rowData)
                             .setTransactionID(txID)
                             .setState(DataStore.COLLECT)
                             .build();
                     observer.onNext(rowMessage);
                 }
-                CollectVolatileShuffleQueryMessage confirmMessage = CollectVolatileShuffleQueryMessage.newBuilder()
+                StoreVolatileDataMessage confirmMessage = StoreVolatileDataMessage.newBuilder()
                         .setState(DataStore.COMMIT).build();
                 observer.onNext(confirmMessage);
-
                 try {
                     prepareLatch.await();
                 } catch (InterruptedException e) {
-                    logger.error("SimpleWrite Interrupted: {}", e.getMessage());
+                    logger.error("StoreVolatileDataThread: Volatile Shuffle Interrupted: {}", e.getMessage());
                     assert (false);
                 }
 
@@ -1261,23 +1099,26 @@ public class Broker {
                 if (subQueryStatus.get() == QUERY_FAILURE) {
                     queryStatus.set(QUERY_FAILURE);
                 }
+
+                //Communication closed by the client after the response message has been received
+
                 observer.onCompleted();
             }
         }
     }
-    private class ScatterQueryThread<R extends Row, S extends Shard, V> extends Thread{
+    private class ScatterVolatileDataThread<R extends Row, V> extends Thread{
         private final long txID;
         private final List<Integer> gatherDSlist;
         private final AtomicInteger queryStatus;
         private final Integer dsID;
-        private final VolatileShuffleQueryPlan<R, S, V>  plan;
+        private final VolatileShuffleQueryPlan<R, V>  plan;
 
-        public ScatterQueryThread(
+        public ScatterVolatileDataThread(
                 Integer dsID,
                 long txID,
                 List<Integer> gatherDSlist,
                 AtomicInteger queryStatus,
-                VolatileShuffleQueryPlan<R, S, V>  plan){
+                VolatileShuffleQueryPlan<R, V>  plan){
             this.gatherDSlist = gatherDSlist;
             this.queryStatus = queryStatus;
             this.txID = txID;
@@ -1287,36 +1128,38 @@ public class Broker {
 
         @Override
         public void run(){
-            volatileScatter();
+            scatterVolatileData();
         }
 
-        private void volatileScatter(){
+        private void scatterVolatileData(){
             CountDownLatch latch = new CountDownLatch(1);
             ByteString serializedPlan = Utilities.objectToByteString(plan);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
-            VolatileScatterQueryMessage startScatterMessage = VolatileScatterQueryMessage.newBuilder()
+            ScatterVolatileDataMessage startScatterMessage = ScatterVolatileDataMessage.newBuilder()
                     .setTransactionID(txID)
                     .setPlan(serializedPlan)
                     .setActorCount(dsIDToChannelMap.keySet().size())
                     .build();
-            StreamObserver<VolatileScatterQueryResponse> responseObserver = new StreamObserver<VolatileScatterQueryResponse>() {
+            StreamObserver<ScatterVolatileDataResponse> responseObserver = new StreamObserver<ScatterVolatileDataResponse>() {
                 @Override
-                public void onNext(VolatileScatterQueryResponse volatileScatterQueryResponse) {
-                    if(volatileScatterQueryResponse.getState() == Broker.QUERY_FAILURE){
+                public void onNext(ScatterVolatileDataResponse scatterVolatileDataResponse) {
+                    if(scatterVolatileDataResponse.getState() == Broker.QUERY_FAILURE){
                         queryStatus.set(Broker.QUERY_FAILURE);
+                        latch.countDown();
                     }else{
-                        ByteString serializedGatherDSids = volatileScatterQueryResponse.getIdsDsGather();
+                        ByteString serializedGatherDSids = scatterVolatileDataResponse.getIdsDsGather();
                         List<Integer> receivedGatherDSids = (ArrayList<Integer>) Utilities.byteStringToObject(serializedGatherDSids);
                         for(Integer gDSid: receivedGatherDSids){
                             gatherDSlist.add(gDSid);
                         }
+                        latch.countDown();
                     }
                 }
 
                 @Override
                 public void onError(Throwable throwable) {
-                    logger.error("Volatile scatter communication failed for dsID {}", dsID);
+                    logger.error("Broker.ScatterVolatileDataThread: Volatile scatter communication failed for dsID {}", dsID);
                     queryStatus.set(Broker.QUERY_FAILURE);
                     latch.countDown();
                 }
@@ -1326,28 +1169,27 @@ public class Broker {
                     latch.countDown();
                 }
             };
-            stub.volatileScatterQuery(startScatterMessage, responseObserver);
+            stub.scatterVolatileData(startScatterMessage, responseObserver);
             try{
                 latch.await();
             }catch (InterruptedException e){
-                logger.error("Error in startScatter");
+                logger.error("Broker.ScatterVolatileDataThread: Error in scatterVolatileData");
                 assert(false);
             }
         }
-
     }
-    private class GatherQueryThread<R extends Row,S extends Shard, V> extends Thread{
+    private class GatherVolatileDataThread<R extends Row, V> extends Thread{
         private final Integer dsID;
         private final long txID;
         private final List<ByteString> gatherResults;
         private final AtomicInteger queryStatus;
-        private final VolatileShuffleQueryPlan<R,S,V> plan;
+        private final VolatileShuffleQueryPlan<R,V> plan;
 
-        public GatherQueryThread(Integer dsID,
+        public GatherVolatileDataThread(Integer dsID,
                                  long txID,
                                  List<ByteString> gatherResults,
                                  AtomicInteger queryStatus,
-                                 VolatileShuffleQueryPlan<R,S,V> plan){
+                                 VolatileShuffleQueryPlan<R,V> plan){
             this.dsID=dsID;
             this.txID=txID;
             this.gatherResults=gatherResults;
@@ -1357,32 +1199,32 @@ public class Broker {
 
         @Override
         public void run(){
-            volatileGather();
+            gatherVolatileData();
         }
 
-        private void volatileGather(){
+        private void gatherVolatileData(){
             CountDownLatch gatherLatch = new CountDownLatch(1);
             ByteString serializedPlan = Utilities.objectToByteString(plan);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
-            VolatileGatherQueryMessage startGatherMessage = VolatileGatherQueryMessage.newBuilder()
+            GatherVolatileDataMessage startGatherMessage = GatherVolatileDataMessage.newBuilder()
                     .setTransactionID(txID)
                     .setPlan(serializedPlan)
                     .build();
-            StreamObserver<VolatileGatherQueryResponse> responseObserver = new StreamObserver<VolatileGatherQueryResponse>() {
+            StreamObserver<GatherVolatileDataResponse> responseObserver = new StreamObserver<GatherVolatileDataResponse>() {
                 @Override
-                public void onNext(VolatileGatherQueryResponse volatileGatherQueryResponse) {
-                    if(volatileGatherQueryResponse.getState() == Broker.QUERY_FAILURE){
+                public void onNext(GatherVolatileDataResponse gatherVolatileDataResponse) {
+                    if(gatherVolatileDataResponse.getState() == Broker.QUERY_FAILURE){
                         queryStatus.set(Broker.QUERY_FAILURE);
                     }else{
-                        ByteString result = volatileGatherQueryResponse.getGatherResult();
+                        ByteString result = gatherVolatileDataResponse.getGatherResult();
                         gatherResults.add(result);
                     }
                 }
 
                 @Override
                 public void onError(Throwable throwable) {
-                    logger.error("Volatile gather communication failed for dsID {}", dsID);
+                    logger.error("Broker.GatherVolatileDataThread: Volatile gather communication failed for dsID {}", dsID);
                     queryStatus.set(Broker.QUERY_FAILURE);
                 }
 
@@ -1391,12 +1233,189 @@ public class Broker {
                     gatherLatch.countDown();
                 }
             };
-            stub.volatileGatherQuery(startGatherMessage, responseObserver);
+            stub.gatherVolatileData(startGatherMessage, responseObserver);
             try{
                 gatherLatch.await();
             }catch(InterruptedException e){
-                logger.error("Volatile gather failed for dsID {}", dsID);
+                logger.error("Broker.GatherVolatileDataThread: Volatile gather failed for dsID {}", dsID);
             }
+        }
+    }
+
+
+
+    /**Retrieves a TableInfo object associated with the given table name.
+     * TODO: Error handling should be not be carried out via assert statements
+     * @param tableName The name of the queried table
+     * @return The table info object associated with the given name
+     * */
+    private TableInfo getTableInfo(String tableName) {
+        if (tableInfoMap.containsKey(tableName)) {
+            return tableInfoMap.get(tableName);
+        } else {
+            TableInfoResponse r = coordinatorBlockingStub.
+                    tableInfo(TableInfoMessage.newBuilder().setTableName(tableName).build());
+            assert(r.getReturnCode() == QUERY_SUCCESS);
+            TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards());
+            tableInfoMap.put(tableName, t);
+            return t;
+        }
+    }
+    /**Given a Table identifier, its number of shards and a row's partition key, returns the shard identifier
+     * associated with the table's shard containing the row having given partition key
+     * @param tableID The queried table identifier
+     * @param numShards the number of shards the table has
+     * @param partitionKey the partition key of the row to be retrieved
+     * @return the shard identifier hosting the given row in the given table*/
+    private static int keyToShard(int tableID, int numShards, int partitionKey) {
+        return tableID * SHARDS_PER_TABLE + (partitionKey % numShards);
+    }
+    /**Retrieve a blocking stub for communication between the Broker object calling the method and a randomly selected
+     * datastore hosting the given shard identifier
+     * @param shard the shard identifier for which a stub is needed
+     * @return a blocking stub for the broker-datastore service of a random datastore storing the given shard*/
+    private BrokerDataStoreGrpc.BrokerDataStoreBlockingStub getStubForShard(int shard) {
+        int dsID = consistentHash.getRandomBucket(shard);
+        ManagedChannel channel = dsIDToChannelMap.get(dsID);
+        assert(channel != null);
+        return BrokerDataStoreGrpc.newBlockingStub(channel);
+    }
+    private boolean volatileShuffleCleanup(List<Integer> dsIDsScatter, long txID, List<Integer> gatherDSids){
+        CountDownLatch failureLatch = new CountDownLatch(dsIDsScatter.size());
+        AtomicInteger outcome = new AtomicInteger(0);
+        for(Integer dsID: dsIDsScatter){
+            ManagedChannel channel = dsIDToChannelMap.get(dsID);
+            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+            RemoveVolatileDataMessage message = RemoveVolatileDataMessage.newBuilder().setTransactionID(txID).build();
+            StreamObserver<RemoveVolatileDataResponse> observer = new StreamObserver<>() {
+                @Override
+                public void onNext(RemoveVolatileDataResponse removeVolatileDataResponse) {
+                    ;
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    logger.error("Broker: removeVolatileData Failed for transaction id {}", txID);
+                    outcome.set(1);
+                    failureLatch.countDown();
+                }
+
+                @Override
+                public void onCompleted() {
+                    failureLatch.countDown();
+                }
+            };
+            stub.removeVolatileData(message, observer);
+        }
+        try {
+            failureLatch.await();
+        }catch (InterruptedException e){
+            logger.error("Broker: RemoveVolatileData Failed for transaction id {}", txID);
+            return false;
+        }
+        if(gatherDSids == null || outcome.get() != 0) {
+            return outcome.get() == 0;
+        }
+        final CountDownLatch secondFailureLatch = new CountDownLatch(gatherDSids.size());
+        for(Integer dsID: gatherDSids){
+            ManagedChannel channel = dsIDToChannelMap.get(dsID);
+            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+            RemoveVolatileDataMessage message = RemoveVolatileDataMessage.newBuilder().setTransactionID(txID).build();
+            StreamObserver<RemoveVolatileDataResponse> observer = new StreamObserver<RemoveVolatileDataResponse>() {
+                @Override
+                public void onNext(RemoveVolatileDataResponse removeVolatileDataResponse) {
+                    ;
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    logger.error("Broker: removeVolatileScatteredData Failed for transaction id {}", txID);
+                    outcome.set(1);
+                }
+
+                @Override
+                public void onCompleted() {
+                    secondFailureLatch.countDown();
+                }
+            };
+            stub.removeVolatileScatteredData(message, observer);
+        }
+        try{
+            secondFailureLatch.await();
+        }catch (InterruptedException e){
+            logger.error("Broker: removeVolatileScatteredData Failed for transaction id {}", txID);
+            return false;
+        }
+        return outcome.get() == 0;
+    }
+
+
+    /**Sends the statistics to the Coordinator via the appropriate Broker-Coordinator service*/
+    public void sendStatisticsToCoordinator() {
+        ByteString queryStatisticsSer = Utilities.objectToByteString(queryStatistics);
+        QueryStatisticsMessage m = QueryStatisticsMessage.newBuilder().setQueryStatistics(queryStatisticsSer).build();
+        QueryStatisticsResponse r = coordinatorBlockingStub.queryStatistics(m);
+    }
+
+    /**Periodically sends statistics to the Coordinator*/
+    private class QueryStatisticsDaemon extends Thread {
+        @Override
+        public void run() {
+            while (runQueryStatisticsDaemon) {
+                sendStatisticsToCoordinator();
+                queryStatistics = new ConcurrentHashMap<>();
+                try {
+                    Thread.sleep(queryStatisticsDaemonSleepDurationMillis);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }
+    }
+    /**Periodically updates the dsIDToChannelMap and the consistentHash attributes.
+     * The first is updated by virtue of the datastores identifiers being monotonically increasing, the latter is
+     * updated by retrieving the value from the ZooKeeper service*/
+    private class ShardMapUpdateDaemon extends Thread {
+        private void updateMap() {
+            ConsistentHash consistentHash = zkCurator.getConsistentHashFunction();
+            Map<Integer, ManagedChannel> dsIDToChannelMap = new HashMap<>();
+            int dsID = 0;
+            while (true) {
+                DataStoreDescription d = zkCurator.getDSDescriptionFromDSID(dsID);
+                if (d == null) {
+                    break;
+                } else if (d.status.get() == DataStoreDescription.ALIVE) {
+                    ManagedChannel channel = Broker.this.dsIDToChannelMap.containsKey(dsID) ?
+                            Broker.this.dsIDToChannelMap.get(dsID) :
+                            ManagedChannelBuilder.forAddress(d.host, d.port).usePlaintext().build();
+                    dsIDToChannelMap.put(dsID, channel);
+                } else if (d.status.get() == DataStoreDescription.DEAD) {
+                    if (Broker.this.dsIDToChannelMap.containsKey(dsID)) {
+                        Broker.this.dsIDToChannelMap.get(dsID).shutdown();
+                    }
+                }
+                dsID++;
+            }
+            Broker.this.dsIDToChannelMap = dsIDToChannelMap;
+            Broker.this.consistentHash = consistentHash;
+        }
+
+        @Override
+        public void run() {
+            while (runShardMapUpdateDaemon) {
+                updateMap();
+                try {
+                    Thread.sleep(shardMapDaemonSleepDurationMillis);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }
+
+        @Override
+        public synchronized void start() {
+            updateMap();
+            super.start();
         }
     }
 }

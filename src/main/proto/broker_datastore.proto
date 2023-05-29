@@ -18,45 +18,40 @@ service BrokerDataStore {
     rpc ShuffleReadQuery (ShuffleReadQueryMessage) returns (ShuffleReadQueryResponse) {}
 
     rpc MapQuery(stream MapQueryMessage) returns (stream MapQueryResponse) {}
-    rpc CollectVolatileShuffleQuery(stream CollectVolatileShuffleQueryMessage) returns (CollectVolatileShuffleQueryResponse){}
-    rpc AbortVolatileShuffleQuery(AbortVolatileShuffleQueryMessage) returns (AbortVolatileShuffleQueryResponse){}
-    rpc VolatileScatterQuery(VolatileScatterQueryMessage) returns(VolatileScatterQueryResponse){}
-    rpc AbortVolatileGatherQuery(AbortVolatileGatherQueryMessage) returns (AbortVolatileGatherQueryResponse){}
-    rpc VolatileGatherQuery(VolatileGatherQueryMessage) returns (VolatileGatherQueryResponse){}
+
+    rpc StoreVolatileData(stream StoreVolatileDataMessage) returns (StoreVolatileDataResponse){}
+    rpc ScatterVolatileData(ScatterVolatileDataMessage) returns(ScatterVolatileDataResponse){}
+    rpc GatherVolatileData(GatherVolatileDataMessage) returns (GatherVolatileDataResponse){}
+    rpc RemoveVolatileData(RemoveVolatileDataMessage) returns (RemoveVolatileDataResponse){}
+    rpc RemoveVolatileScatteredData(RemoveVolatileDataMessage) returns (RemoveVolatileDataResponse){}
 }
-message VolatileGatherQueryMessage{
+message GatherVolatileDataMessage{
     int64 transactionID = 1;
     bytes plan = 2;
 }
-message VolatileGatherQueryResponse{
+message GatherVolatileDataResponse{
     bytes gatherResult = 1;
     int32 state = 2;
 }
-message AbortVolatileGatherQueryMessage{
-    int64 transactionID = 1;
-}
-message AbortVolatileGatherQueryResponse{}
-
-message VolatileScatterQueryMessage{
+message ScatterVolatileDataMessage{
     bytes plan = 1;
     int64 transactionID = 2;
     int32 actorCount = 3;
 }
-message VolatileScatterQueryResponse{
+message ScatterVolatileDataResponse{
     bytes idsDsGather = 1;
     int32 state = 2;
 }
-
-message AbortVolatileShuffleQueryMessage{
+message RemoveVolatileDataMessage{
     int64 transactionID = 1;
 }
-message AbortVolatileShuffleQueryResponse{}
-message CollectVolatileShuffleQueryMessage{
+message RemoveVolatileDataResponse{}
+message StoreVolatileDataMessage{
     int64 transactionID = 1;
     bytes data = 2;
     int32 state = 3;
 }
-message CollectVolatileShuffleQueryResponse{
+message StoreVolatileDataResponse{
     int32 state = 1;
 }
 

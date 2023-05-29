@@ -446,7 +446,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             public void onError(Throwable throwable) {
                 logger.error("volatile store of scattered data failed for transaction {} on datastore {}", txID, dataStore.dsID);
                 responseObserver.onError(throwable);
-                responseObserver.onCompleted();
             }
 
             @Override

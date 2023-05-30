@@ -6,10 +6,7 @@ import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
-import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.MapQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.SimpleWriteQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
@@ -524,6 +521,48 @@ public class LocalKVStoreTests {
             assertEquals(Integer.valueOf(8 * i), queryResponse);
         }
 
+        dataStores.forEach(DataStore::shutDown);
+        coordinator.stopServing();
+        broker.shutdown();
+    }
+
+    @Test
+    public void testVolatileShuffleAverage(){
+        int numShards = 5;
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7779);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
+        List<DataStore<KVRow, KVShard>> dataStores = new ArrayList<>();
+        int numDatastores = 4;
+        List<LocalDataStoreCloud> dsClouds = new ArrayList<>();
+        for (int i = 0; i < numDatastores; i++) {
+            LocalDataStoreCloud dsCloud = new LocalDataStoreCloud();
+            dsClouds.add(dsCloud);
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(dsCloud,
+                    new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
+            );
+            dataStore.runPingDaemon = false;
+            dataStore.startServing();
+            dataStores.add(dataStore);
+        }
+        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker.createTable("table", numShards);
+        VolatileShuffleQueryPlan<KVRow, Integer> totalAverage = new KVVolatileAverage();
+        List<KVRow> rows = new ArrayList<>();
+        int sum = 0, avg = 0;
+        for(int i = 1; i<11; i++){
+            rows.add(new KVRow(i, 4*i));
+            sum += 4*i;
+        }
+        avg = sum/10;
+        assertEquals(avg,broker.volatileShuffleQuery(totalAverage, rows));
+        for(LocalDataStoreCloud dsCloud: dsClouds){
+            try{
+                dsCloud.clear();
+            }catch (Exception ignored){
+                ;
+            }
+        }
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();

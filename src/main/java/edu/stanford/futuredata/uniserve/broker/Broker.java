@@ -618,7 +618,7 @@ public class Broker {
                 assert(false);
             }
         }
-        if(queryStatus.get()==Broker.QUERY_FAILURE){
+        if(queryStatus.get() == Broker.QUERY_FAILURE){
             boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID, null);
             if(!successfulCleanup){
                 logger.error("Unsuccessful cleanup of shuffled data for transaction {}", txID);
@@ -1132,49 +1132,25 @@ public class Broker {
         }
 
         private void scatterVolatileData(){
-            CountDownLatch latch = new CountDownLatch(1);
             ByteString serializedPlan = Utilities.objectToByteString(plan);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
-            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = BrokerDataStoreGrpc.newBlockingStub(channel);
             ScatterVolatileDataMessage startScatterMessage = ScatterVolatileDataMessage.newBuilder()
                     .setTransactionID(txID)
                     .setPlan(serializedPlan)
                     .setActorCount(dsIDToChannelMap.keySet().size())
                     .build();
-            StreamObserver<ScatterVolatileDataResponse> responseObserver = new StreamObserver<ScatterVolatileDataResponse>() {
-                @Override
-                public void onNext(ScatterVolatileDataResponse scatterVolatileDataResponse) {
-                    if(scatterVolatileDataResponse.getState() == Broker.QUERY_FAILURE){
-                        queryStatus.set(Broker.QUERY_FAILURE);
-                        latch.countDown();
-                    }else{
-                        ByteString serializedGatherDSids = scatterVolatileDataResponse.getIdsDsGather();
-                        List<Integer> receivedGatherDSids = (ArrayList<Integer>) Utilities.byteStringToObject(serializedGatherDSids);
-                        for(Integer gDSid: receivedGatherDSids){
-                            gatherDSlist.add(gDSid);
-                        }
-                        latch.countDown();
+            ScatterVolatileDataResponse scatterVolatileDataResponse = stub.scatterVolatileData(startScatterMessage);
+            if(scatterVolatileDataResponse.getState() == Broker.QUERY_FAILURE){
+                queryStatus.set(Broker.QUERY_FAILURE);
+            }else{
+                ByteString serializedGatherDSids = scatterVolatileDataResponse.getIdsDsGather();
+                List<Integer> receivedGatherDSids = (ArrayList<Integer>) Utilities.byteStringToObject(serializedGatherDSids);
+                for(Integer gDSid: receivedGatherDSids){
+                    if(!gatherDSlist.contains(gDSid)) {
+                        gatherDSlist.add(gDSid);
                     }
                 }
-
-                @Override
-                public void onError(Throwable throwable) {
-                    logger.error("Broker.ScatterVolatileDataThread: Volatile scatter communication failed for dsID {}", dsID);
-                    queryStatus.set(Broker.QUERY_FAILURE);
-                    latch.countDown();
-                }
-
-                @Override
-                public void onCompleted() {
-                    latch.countDown();
-                }
-            };
-            stub.scatterVolatileData(startScatterMessage, responseObserver);
-            try{
-                latch.await();
-            }catch (InterruptedException e){
-                logger.error("Broker.ScatterVolatileDataThread: Error in scatterVolatileData");
-                assert(false);
             }
         }
     }
@@ -1206,38 +1182,17 @@ public class Broker {
             CountDownLatch gatherLatch = new CountDownLatch(1);
             ByteString serializedPlan = Utilities.objectToByteString(plan);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
-            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+            BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = BrokerDataStoreGrpc.newBlockingStub(channel);
             GatherVolatileDataMessage startGatherMessage = GatherVolatileDataMessage.newBuilder()
                     .setTransactionID(txID)
                     .setPlan(serializedPlan)
                     .build();
-            StreamObserver<GatherVolatileDataResponse> responseObserver = new StreamObserver<GatherVolatileDataResponse>() {
-                @Override
-                public void onNext(GatherVolatileDataResponse gatherVolatileDataResponse) {
-                    if(gatherVolatileDataResponse.getState() == Broker.QUERY_FAILURE){
-                        queryStatus.set(Broker.QUERY_FAILURE);
-                    }else{
-                        ByteString result = gatherVolatileDataResponse.getGatherResult();
-                        gatherResults.add(result);
-                    }
-                }
-
-                @Override
-                public void onError(Throwable throwable) {
-                    logger.error("Broker.GatherVolatileDataThread: Volatile gather communication failed for dsID {}", dsID);
-                    queryStatus.set(Broker.QUERY_FAILURE);
-                }
-
-                @Override
-                public void onCompleted() {
-                    gatherLatch.countDown();
-                }
-            };
-            stub.gatherVolatileData(startGatherMessage, responseObserver);
-            try{
-                gatherLatch.await();
-            }catch(InterruptedException e){
-                logger.error("Broker.GatherVolatileDataThread: Volatile gather failed for dsID {}", dsID);
+            GatherVolatileDataResponse gatherVolatileDataResponse = stub.gatherVolatileData(startGatherMessage);
+            if(gatherVolatileDataResponse.getState() == Broker.QUERY_FAILURE){
+                queryStatus.set(Broker.QUERY_FAILURE);
+            }else{
+                ByteString result = gatherVolatileDataResponse.getGatherResult();
+                gatherResults.add(result);
             }
         }
     }

@@ -450,7 +450,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
 
             @Override
             public void onCompleted() {
-                responseObserver.onCompleted();
             }
         };
     }

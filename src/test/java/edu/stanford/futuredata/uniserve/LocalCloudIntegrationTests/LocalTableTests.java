@@ -82,17 +82,7 @@ public class LocalTableTests {
         assertTrue(broker.writeQuery(new TableWriteInsert("table1"), rows));
 
         ShuffleReadQueryPlan<TableShard, Integer> r = new TableReadMostFrequent("table1");
-        VolatileShuffleQueryPlan<TableRow, Integer> vr = new VolatileTableReadMostFrequent("table1");
         assertEquals(0, broker.shuffleReadQuery(r));
-        assertEquals(0, broker.volatileShuffleQuery(vr, rows));
-
-        for(LocalDataStoreCloud dsCloud: dsClouds){
-            try{
-                dsCloud.clear();
-            }catch (Exception ignored){
-                ;
-            }
-        }
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();

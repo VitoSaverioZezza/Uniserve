@@ -805,6 +805,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
          }
      };
     }
+
     @Override
     public void removeVolatileData(RemoveVolatileDataMessage request, StreamObserver<RemoveVolatileDataResponse> responseObserver){
         responseObserver.onNext(removeVolatileDataHandler(request));
@@ -838,65 +839,33 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
         Map<Integer, List<ByteString>> scatterResults = plan.scatter(volatileData, actorCount);
         AtomicInteger shuffleStatus = new AtomicInteger(0);
-        CountDownLatch forwardLatch = new CountDownLatch(scatterResults.size());
+        List<ForwardScatterResultsThread> forwardScatterResultsThreads = new ArrayList<>();
 
         for(Integer dsID: scatterResults.keySet()){
-            /*Forward data chunks to the datastore, needs client-side streaming*/
             ManagedChannel channel = dataStore.getChannelForDSID(dsID);
             DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
-            StreamObserver<StoreVolatileShuffleDataMessage> observer =
-                    stub.storeVolatileShuffledData(new StreamObserver<StoreVolatileShuffleDataResponse>(){
-                        @Override
-                        public void onNext(StoreVolatileShuffleDataResponse response){
-                            shuffleStatus.set(response.getState());
-                            forwardLatch.countDown();
-                        }
-                        @Override
-                        public void onError(Throwable th){
-                            logger.error("Scattered data forwarding failed for transaction {} on datastore {}  towards datastore {}", txID, dataStore.dsID, dsID);
-                            logger.info(th.getMessage());
-                            shuffleStatus.set(1);
-                            forwardLatch.countDown();
+            ForwardScatterResultsThread t = new ForwardScatterResultsThread(dsID,scatterResults.get(dsID),txID,shuffleStatus, stub);
+            t.start();
+            forwardScatterResultsThreads.add(t);
+        }
 
-                        }
-                        @Override
-                        public void onCompleted(){
-                            forwardLatch.countDown();
-                        }
-                    });
-            List<ByteString> dataToBeForwarded = scatterResults.get(dsID);
-            if(dataToBeForwarded == null){
-                forwardLatch.countDown();
-            }else{
-                for(ByteString dataItem: dataToBeForwarded){
-                    StoreVolatileShuffleDataMessage payload = StoreVolatileShuffleDataMessage.newBuilder()
-                            .setTransactionID(txID)
-                            .setData(dataItem)
-                            .setState(0)
-                            .build();
-                    observer.onNext(payload);
-                }
-                StoreVolatileShuffleDataMessage confirm = StoreVolatileShuffleDataMessage.newBuilder()
-                        .setTransactionID(txID)
-                        .setState(1)
-                        .build();
-                observer.onNext(confirm);
+        for(ForwardScatterResultsThread t: forwardScatterResultsThreads){
+            try {
+                t.join();
+            }catch (InterruptedException e ){
+                logger.error("Broker: Volatile scatter query interrupted: {}", e.getMessage());
+                assert(false);
+                shuffleStatus.set(1);
             }
-            observer.onCompleted();
         }
-        try{
-            forwardLatch.await();
-        }catch (InterruptedException e){
-            shuffleStatus.set(1);
-            logger.error("Scattered data forwarding failed for transaction {} on datastore {}", txID, dataStore.dsID);
-        }
-
 
         ScatterVolatileDataResponse response;
         Set<Integer> setDSids = scatterResults.keySet();
         ArrayList<Integer> listDSids = new ArrayList<>();
         for(Integer dsID: setDSids ){
-            listDSids.add(dsID);
+            if(!listDSids.contains(dsID) && scatterResults.get(dsID) != null) {
+                listDSids.add(dsID);
+            }
         }
         ByteString serializedDsIDlist = Utilities.objectToByteString(listDSids);
         if(shuffleStatus.get()==1){
@@ -947,5 +916,78 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             response = GatherVolatileDataResponse.newBuilder().setGatherResult(gatherResult).setState(Broker.QUERY_SUCCESS).build();
         }
         return response;
+    }
+
+    private class ForwardScatterResultsThread extends Thread{
+        private final Integer dsID;
+        private final List<ByteString> dataToBeForwarded;
+        private final long txID;
+        private final AtomicInteger status;
+        private final DataStoreDataStoreGrpc.DataStoreDataStoreStub stub;
+
+        public ForwardScatterResultsThread(
+                Integer dsID,
+                List<ByteString> dataToBeForwarded,
+                long txID,
+                AtomicInteger status,
+                DataStoreDataStoreGrpc.DataStoreDataStoreStub stub
+        ){
+            this.dsID = dsID;
+            this.dataToBeForwarded = dataToBeForwarded;
+            this.txID = txID;
+            this.status = status;
+            this.stub = stub;
+        }
+
+        @Override
+        public void run(){forwardScatterResults();}
+
+        private void forwardScatterResults(){
+            CountDownLatch forwardLatch = new CountDownLatch(1);
+
+            StreamObserver<StoreVolatileShuffleDataMessage> observer = stub.storeVolatileShuffledData(new StreamObserver<StoreVolatileShuffleDataResponse>(){
+                @Override
+                public void onNext(StoreVolatileShuffleDataResponse response){
+                    forwardLatch.countDown();
+                }
+                @Override
+                public void onError(Throwable th){
+                    logger.error("Scattered data forwarding failed for transaction {} on datastore {}  towards datastore {}", txID, dataStore.dsID, dsID);
+                    logger.info(th.getMessage());
+                    status.set(1);
+                    forwardLatch.countDown();
+                }
+                @Override
+                public void onCompleted(){
+                            forwardLatch.countDown();
+                        }
+            });
+
+            if(dataToBeForwarded == null){
+                ;
+            }else{
+                for(ByteString dataItem: dataToBeForwarded){
+                    StoreVolatileShuffleDataMessage payload = StoreVolatileShuffleDataMessage.newBuilder()
+                            .setTransactionID(txID)
+                            .setData(dataItem)
+                            .setState(0)
+                            .build();
+                    observer.onNext(payload);
+                }
+                StoreVolatileShuffleDataMessage confirm = StoreVolatileShuffleDataMessage.newBuilder()
+                        .setTransactionID(txID)
+                        .setState(1)
+                        .build();
+                observer.onNext(confirm);
+            }
+            try {
+                forwardLatch.await();
+            }catch (InterruptedException e){
+                status.set(1);
+                logger.error("SBDS.ForwardScatterResultsThread: forward failed from DS {} to DS {}", dataStore.dsID, dsID);
+                logger.info(e.getMessage());
+                assert (false);
+            }
+        }
     }
 }

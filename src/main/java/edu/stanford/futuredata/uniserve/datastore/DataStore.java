@@ -388,9 +388,16 @@ public class DataStore<R extends Row, S extends Shard> {
         return volatileData.get(transactionID);
     }
     /** Stores serialized R[] objects to be later retrieved given the transaction identifier*/
+
+
     public boolean addVolatileData(long transactionID, ByteString data){
         try{
             volatileData.computeIfAbsent(transactionID, k -> new ArrayList<>()).add(data);
+
+            /*FOR TESTING KVVOLATILEAVERAGE ONLY*/
+
+
+
             return true;
         }catch (Exception e){
             logger.warn("Impossible to store volatile data for DS {} transaction {}", dsID, transactionID);
@@ -403,6 +410,8 @@ public class DataStore<R extends Row, S extends Shard> {
     }
 
     public List<ByteString> getVolatileScatterData(long transactionID){return volatileScatterData.get(transactionID);}
+
+
     public boolean addVolatileScatterData(long transactionID, ByteString data){
         try{
             volatileScatterData.computeIfAbsent(transactionID, k -> new ArrayList<>()).add(data);

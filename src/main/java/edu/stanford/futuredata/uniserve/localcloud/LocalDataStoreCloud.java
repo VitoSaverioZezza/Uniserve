@@ -1,16 +1,11 @@
 package edu.stanford.futuredata.uniserve.localcloud;
 
-import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.datastore.DataStoreCloud;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
-import java.nio.*;
 import java.util.Optional;
-
 import static java.nio.file.Files.walk;
 
 /*
@@ -49,10 +44,11 @@ public class LocalDataStoreCloud implements DataStoreCloud {
         String shardCloudName = String.format("%s_%d", shardName, versionNumber);
         String destinationDirectoryString = root + shardCloudName;
         try{
-            if(Files.exists(Path.of(destinationDirectoryString))) {
-                deleteDirectoryRecursion(Path.of(destinationDirectoryString));
+            Path path = Path.of(destinationDirectoryString);
+            if(Files.exists(path)) {
+                deleteDirectoryRecursion(path);
             }
-            Files.createDirectory(Path.of(destinationDirectoryString));
+            Files.createDirectory(path);
             copyDirectory(localSourceDirectory.toString(), destinationDirectoryString);
         }catch (IOException e){
             logger.warn("LocalCloud upload failed for shardDirectory {}, shardName {} and version number {}", localSourceDirectory, shardName, versionNumber);

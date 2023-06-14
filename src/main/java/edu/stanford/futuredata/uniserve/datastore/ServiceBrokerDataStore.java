@@ -30,17 +30,18 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         this.dataStore = dataStore;
     }
 
+    /*WRITE QUERIES*/
     @Override
     public StreamObserver<WriteQueryMessage> writeQuery(StreamObserver<WriteQueryResponse> responseObserver) {
         return new StreamObserver<>() {
             int shardNum;
             long txID;
             WriteQueryPlan<R, S> writeQueryPlan;
-            List<R[]> rowArrayList = new ArrayList<>();
+            final List<R[]> rowArrayList = new ArrayList<>();
             int lastState = DataStore.COLLECT;
             List<R> rows;
-            List<StreamObserver<ReplicaWriteMessage>> replicaObservers = new ArrayList<>();
-            Semaphore commitSemaphore = new Semaphore(0);
+            final List<StreamObserver<ReplicaWriteMessage>> replicaObservers = new ArrayList<>();
+            final Semaphore commitSemaphore = new Semaphore(0);
             WriteLockerThread t;
 
             @Override
@@ -302,6 +303,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
             private WriteQueryResponse executeWriteQuery(int shardNum, long txID, SimpleWriteQueryPlan<R, S> writeQueryPlan) {
                 if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
+                    logger.info("attempt to execute DataStore.ensureShardCached for shard {} in SBDS.SWQ", shardNum);
                     dataStore.ensureShardCached(shardNum);
                     S shard = dataStore.shardMap.get(shardNum);
                     assert(shard != null);
@@ -322,6 +324,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
                     // Upload the updated shard.
                     if (dataStore.dsCloud != null) {
+                        logger.info("uploading shard {} on cloud", shardNum);
                         dataStore.uploadShardToCloud(shardNum);
                     }
 
@@ -391,7 +394,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     return WriteQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
                 }
             }
-
         };
     }
 
@@ -452,21 +454,21 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     }
     /**
      * This method is executed once for each shard of the anchor table for a given AnchoredReadQueryPlan
-     *
+
      * Given a shard identifier of the anchor table, this method retrieves the locations of all non-anchor shards
      * involved in the query and for each of those interrogates the remote service anchoredShuffle of
      * ServiceDataStoreDataStore, which returns the results of the scatter operation associated with the given shard id.
-     *
+
      * A scatter operation is executed for each non-anchor shard, and it has access to all anchor-shard identifiers and
      * partition keys of the rows of the anchor table involved in the query (for a given anchor shard, the partition keys
      * are the ones returned by the AnchoredReadQueryPlan.getPartitionKeys(anchor-shard) method defined by the user,
      * these values are part of the query definition)
-     *
+
      * The results of all the scatter operations for all non-anchor shards are then passed as parameters to a gather method
      * call and the results will be either directly returned to the caller or will be stored into an intermediate shard
      * local to the datastore executing the method. In the latter case, the location of this newly created intermediate shard
      * is returned to the caller to be later accessed.
-     *
+
      * TL;DR Given a shard of the anchor table, executes a scatter operation for each non-anchor shard and a single
      * gather operation whose results are returned to the caller either as a ByteString value or as a location to a
      * locally stored intermediate shard storing the results.
@@ -768,6 +770,37 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         ByteString b = plan.gather(ephemeralData, ephemeralShards);
         ephemeralShards.values().forEach(S::destroy);
         return ShuffleReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+    }
+
+    @Override
+    public void retrieveAndCombineQuery(RetrieveAndCombineQueryMessage request, StreamObserver<RetrieveAndCombineQueryResponse> responseObserver){
+        responseObserver.onNext(retrieveAndCombineQueryHandler(request));
+        responseObserver.onCompleted();
+    }
+    private RetrieveAndCombineQueryResponse retrieveAndCombineQueryHandler(RetrieveAndCombineQueryMessage request){
+        int shardID = request.getShardID();
+        ByteString serializedPlan = request.getSerializedQueryPlan();
+        RetrieveAndCombineQueryPlan<S, Object> plan = (RetrieveAndCombineQueryPlan<S, Object>) Utilities.byteStringToObject(serializedPlan);
+        if (!dataStore.consistentHash.getBuckets(shardID).contains(dataStore.dsID)) {
+            logger.warn("DS{} Got r&c read request for unassigned local shard {}", dataStore.dsID, shardID);
+            dataStore.shardLockMap.get(shardID).readerLockUnlock();
+            return RetrieveAndCombineQueryResponse.newBuilder().setState(Broker.QUERY_FAILURE).build();
+        }
+        dataStore.ensureShardCached(shardID);
+        S localShard;
+        long lastCommittedVersion = request.getLastCommittedVersion();
+        if (dataStore.readWriteAtomicity) {
+            if (dataStore.multiVersionShardMap.get(shardID).containsKey(lastCommittedVersion)) {
+                localShard = dataStore.multiVersionShardMap.get(shardID).get(lastCommittedVersion);
+            } else { // TODO: Retrieve the older version from somewhere else?
+                logger.info("DS{} missing shard {} version {}", dataStore.dsID, shardID, lastCommittedVersion);
+                return RetrieveAndCombineQueryResponse.newBuilder().setState(Broker.QUERY_FAILURE).build();
+            }
+        } else {
+            localShard = dataStore.shardMap.get(shardID);
+        }
+        ByteString retrievedData = plan.retrieve(localShard);
+        return RetrieveAndCombineQueryResponse.newBuilder().setData(retrievedData).setState(Broker.QUERY_SUCCESS).build();
     }
 
     @Override

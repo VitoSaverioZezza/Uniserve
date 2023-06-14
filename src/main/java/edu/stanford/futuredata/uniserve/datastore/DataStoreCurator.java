@@ -86,6 +86,7 @@ class DataStoreCurator {
             byte[] b = cf.getData().forPath(path);
             return new ZKShardDescription(new String(b));
         } catch (Exception e) {
+            logger.error(e.getMessage());
             return null;
         }
     }
@@ -93,6 +94,7 @@ class DataStoreCurator {
     void setZKShardDescription(int shard, String cloudName, int versionNumber) {
         try {
             String path = String.format("/shardMapping/%d", shard);
+            logger.info("setZKShardDescription for path: {}", path);
             ZKShardDescription zkShardDescription = new ZKShardDescription(cloudName, versionNumber);
             byte[] data = zkShardDescription.stringSummary.getBytes();
             if (cf.checkExists().forPath(path) != null) {

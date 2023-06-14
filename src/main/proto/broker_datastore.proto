@@ -24,7 +24,20 @@ service BrokerDataStore {
     rpc GatherVolatileData(GatherVolatileDataMessage) returns (GatherVolatileDataResponse){}
     rpc RemoveVolatileData(RemoveVolatileDataMessage) returns (RemoveVolatileDataResponse){}
     rpc RemoveVolatileScatteredData(RemoveVolatileDataMessage) returns (RemoveVolatileDataResponse){}
+
+    rpc RetrieveAndCombineQuery(RetrieveAndCombineQueryMessage) returns (RetrieveAndCombineQueryResponse){}
 }
+message RetrieveAndCombineQueryMessage{
+    int32 shardID = 1;
+    bytes serializedQueryPlan = 2;
+    int64 lastCommittedVersion = 3;
+}
+
+message RetrieveAndCombineQueryResponse{
+    int32 state = 1;
+    bytes data = 2;
+}
+
 message GatherVolatileDataMessage{
     int64 transactionID = 1;
     bytes plan = 2;

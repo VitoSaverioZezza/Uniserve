@@ -246,8 +246,10 @@ public class DataStore<R extends Row, S extends Shard> {
     boolean ensureShardCached(int shardNum) {
         if (!shardMap.containsKey(shardNum)) {
             ZKShardDescription z = zkCurator.getZKShardDescription(shardNum);
+            logger.info("Attempt to download shard from cloud in DataStore.ensureShardCached");
             Optional<S> shard = downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber);
             if (shard.isEmpty()) {
+                logger.info("DS.ensureShardCached: empty shard {}", shardNum);
                 return false;
             }
             shardMap.putIfAbsent(shardNum, shard.get());

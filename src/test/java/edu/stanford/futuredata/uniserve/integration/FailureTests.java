@@ -16,6 +16,7 @@ import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPl
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanSumGet;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsert;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsertSlow;
+import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -26,8 +27,7 @@ import java.nio.file.Path;
 import java.util.*;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class FailureTests {
     private static final Logger logger = LoggerFactory.getLogger(FailureTests.class);
@@ -54,8 +54,10 @@ public class FailureTests {
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDatastores = 4;
+        List<LocalDataStoreCloud> localDataStoreClouds = new ArrayList<>();
         for (int i = 0; i < numDatastores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"), new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 1)), zkHost, zkPort, "127.0.0.1", 8100 + i, -1, false
+            localDataStoreClouds.add(i, new LocalDataStoreCloud());
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(localDataStoreClouds.get(i), new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 1)), zkHost, zkPort, "127.0.0.1", 8100 + i, -1, false
             );
             dataStore.startServing();
             dataStores.add(dataStore);
@@ -85,6 +87,13 @@ public class FailureTests {
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();
+        try {
+            for(LocalDataStoreCloud ldsc: localDataStoreClouds){
+                ldsc.clear();
+            }
+        }catch (Exception e){
+            fail();
+        }
     }
 
     @Test
@@ -96,8 +105,10 @@ public class FailureTests {
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDataStores = 4;
+        List<LocalDataStoreCloud> localDataStoreClouds = new ArrayList<>();
         for (int i = 0; i < numDataStores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"),
+            localDataStoreClouds.add(i, new LocalDataStoreCloud());
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(localDataStoreClouds.get(i),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
             );
             dataStore.runPingDaemon = false;
@@ -132,6 +143,13 @@ public class FailureTests {
         Thread.sleep(500);
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
+        try {
+            for (LocalDataStoreCloud localDataStoreCloud : localDataStoreClouds) {
+                localDataStoreCloud.clear();
+            }
+        }catch (Exception e ){
+            fail();
+        }
     }
 
     @Test
@@ -143,8 +161,10 @@ public class FailureTests {
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDataStores = 2 * numShards;
+        List<LocalDataStoreCloud> localDataStoreClouds = new ArrayList<>();
         for (int i = 0; i < numDataStores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"),
+            localDataStoreClouds.add(i, new LocalDataStoreCloud());
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(localDataStoreClouds.get(i),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8800 + i, -1, false
             );
             dataStore.startServing();
@@ -190,9 +210,16 @@ public class FailureTests {
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();
+        try {
+            for (LocalDataStoreCloud localDataStoreCloud : localDataStoreClouds) {
+                localDataStoreCloud.clear();
+            }
+        }catch (Exception e ){
+            fail();
+        }
     }
 
-//    @Test
+    //@Test
     public void testFailureWithChangingReplicas() {
         logger.info("testFailureWithChangingReplicas");
         int numShards = 5;
@@ -201,8 +228,10 @@ public class FailureTests {
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
         int numDatastores = 4;
+        List<LocalDataStoreCloud> localDataStoreClouds = new ArrayList<>();
         for (int i = 0; i < numDatastores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"),
+            localDataStoreClouds.add(i, new LocalDataStoreCloud());
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(localDataStoreClouds.get(i),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
             );
             dataStore.startServing();
@@ -265,5 +294,12 @@ public class FailureTests {
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();
+        try {
+            for (LocalDataStoreCloud localDataStoreCloud : localDataStoreClouds) {
+                localDataStoreCloud.clear();
+            }
+        }catch (Exception e ){
+            fail();
+        }
     }
 }

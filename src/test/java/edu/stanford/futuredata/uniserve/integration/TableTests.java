@@ -7,6 +7,7 @@ import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleReadQueryPlan;
+import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableQueryEngine;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableRow;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
@@ -26,8 +27,7 @@ import java.util.List;
 import java.util.Map;
 
 import static edu.stanford.futuredata.uniserve.integration.KVStoreTests.cleanUp;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class TableTests {
     private static final Logger logger = LoggerFactory.getLogger(TableTests.class);
@@ -55,8 +55,10 @@ public class TableTests {
         assertTrue(coordinator.startServing());
         int numDataStores = 4;
         List<DataStore<TableRow, TableShard>> dataStores = new ArrayList<>();
+        List<LocalDataStoreCloud> localDataStoreClouds = new ArrayList<>();
         for (int i = 0; i < numDataStores; i++) {
-            DataStore<TableRow, TableShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"),
+            localDataStoreClouds.add(i, new LocalDataStoreCloud());
+            DataStore<TableRow, TableShard>  dataStore = new DataStore<>(localDataStoreClouds.get(i),
                     new TableShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
             );
             dataStore.runPingDaemon = false;
@@ -80,6 +82,13 @@ public class TableTests {
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();
+        try {
+            for (LocalDataStoreCloud localDataStoreCloud : localDataStoreClouds) {
+                localDataStoreCloud.clear();
+            }
+        }catch (Exception e ){
+            fail();
+        }
     }
 
     @Test
@@ -91,8 +100,11 @@ public class TableTests {
         assertTrue(coordinator.startServing());
         int numDataStores = 4;
         List<DataStore<TableRow, TableShard>> dataStores = new ArrayList<>();
+        List<LocalDataStoreCloud> localDataStoreClouds = new ArrayList<>();
+
         for (int i = 0; i < numDataStores; i++) {
-            DataStore<TableRow, TableShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"),
+            localDataStoreClouds.add(i, new LocalDataStoreCloud());
+            DataStore<TableRow, TableShard>  dataStore = new DataStore<>(localDataStoreClouds.get(i),
                     new TableShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
             );
             dataStore.runPingDaemon = false;
@@ -126,5 +138,12 @@ public class TableTests {
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();
+        try {
+            for (LocalDataStoreCloud localDataStoreCloud : localDataStoreClouds) {
+                localDataStoreCloud.clear();
+            }
+        }catch (Exception e ){
+            fail();
+        }
     }
 }

@@ -15,6 +15,7 @@ import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVReadQueryPlanGet;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.KVWriteQueryPlanInsert;
+import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -71,8 +72,10 @@ public class LoadBalancerTests {
         assertTrue(coordinator.startServing());
         int numDataStores = 4;
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
+        List<LocalDataStoreCloud> localDataStoreClouds = new ArrayList<>();
         for (int i = 0; i < numDataStores; i++) {
-            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(new AWSDataStoreCloud("uniserve-bucket"),
+            localDataStoreClouds.add(i, new LocalDataStoreCloud());
+            DataStore<KVRow, KVShard>  dataStore = new DataStore<>(localDataStoreClouds.get(i),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
             );
             dataStore.runPingDaemon = false;
@@ -125,5 +128,12 @@ public class LoadBalancerTests {
         dataStores.forEach(DataStore::shutDown);
         coordinator.stopServing();
         broker.shutdown();
+        try {
+            for (LocalDataStoreCloud localDataStoreCloud : localDataStoreClouds) {
+                localDataStoreCloud.clear();
+            }
+        }catch (Exception e ){
+            fail();
+        }
     }
 }

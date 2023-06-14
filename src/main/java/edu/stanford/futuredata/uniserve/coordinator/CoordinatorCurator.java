@@ -105,4 +105,20 @@ class CoordinatorCurator {
         }
     }
 
+    void setZKShardDescription(int shard, String cloudName, int versionNumber) {
+        try {
+            String path = String.format("/shardMapping/%d", shard);
+            ZKShardDescription zkShardDescription = new ZKShardDescription(cloudName, versionNumber);
+            byte[] data = zkShardDescription.stringSummary.getBytes();
+            if (cf.checkExists().forPath(path) != null) {
+                cf.setData().forPath(path, data);
+            } else {
+                cf.create().forPath(path, data);
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+        }
+    }
+
 }

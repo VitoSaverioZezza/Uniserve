@@ -18,7 +18,7 @@ import java.util.Map;
 
 /**Returns the average of all values for all keys*/
 public class KVVolatileAverage implements VolatileShuffleQueryPlan<KVRow, Integer> {
-    private final String table = "table";
+    private final String table = "intermediateFilter";
     private static final Logger logger = LoggerFactory.getLogger(KVVolatileAverage.class);
 
     @Override
@@ -34,7 +34,6 @@ public class KVVolatileAverage implements VolatileShuffleQueryPlan<KVRow, Intege
             int key = row.getKey();
             partitionKey = ConsistentHash.hashFunction(key) % actorCount;
             rowAssignment.computeIfAbsent(partitionKey, k -> new ArrayList<>()).add(row);
-            logger.info("row ({},{}) assigned to ds {} by the scatter operation", row.getKey(), row.getValue(), partitionKey);
         }
         Map<Integer, List<ByteString>> serializedRowAssignment = new HashMap<>();
         for(Map.Entry<Integer, List<KVRow>> entry: rowAssignment.entrySet()){
@@ -56,7 +55,6 @@ public class KVVolatileAverage implements VolatileShuffleQueryPlan<KVRow, Intege
         }
         Integer count = 0, sum = 0, avg = 0;
         for(KVRow row: deserializedData){
-            logger.info("Processing ({},{})", row.getKey(), row.getValue());
             count++;
             sum = sum + row.getValue();
         }
@@ -73,14 +71,10 @@ public class KVVolatileAverage implements VolatileShuffleQueryPlan<KVRow, Intege
         }
         int totalSum = 0, totalCount = 0;
         for(Pair<Integer, Integer> deserializedItem: deserializedData){
-            logger.info("Processing pair count: {}, sum: {}", deserializedItem.getValue0(), deserializedItem.getValue1());
             totalSum = totalSum + deserializedItem.getValue1();
             totalCount = totalCount + deserializedItem.getValue0();
-            logger.info("sum: {}, count: {}", totalSum, totalCount);
         }
-        logger.info("computing average");
         int average = totalSum / totalCount;
-        logger.info("average {} / {} = {}", totalSum, totalCount, average);
         return average;
     }
 }

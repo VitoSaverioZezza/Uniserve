@@ -2,13 +2,8 @@ package edu.stanford.futuredata.uniserve.relationalmock;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.QueryEngine;
-import edu.stanford.futuredata.uniserve.interfaces.VolatileShuffleQueryPlan;
-import edu.stanford.futuredata.uniserve.relationalmock.queryplans.RMAvgAgesOnWrite;
-import edu.stanford.futuredata.uniserve.relationalmock.queryplans.RMFilterPeopleByAgeOnReadQueryPlan;
-import edu.stanford.futuredata.uniserve.relationalmock.queryplans.RMFilterPeopleByAgeOnWriteQueryPlan;
-import edu.stanford.futuredata.uniserve.relationalmock.queryplans.RMSimpleInsertPersonQueryPlan;
-import edu.stanford.futuredata.uniserve.relationalmock.queryplans.planbuilders.RMFilterPeopleByAgeOnReadQueryPlanBuilder;
-import edu.stanford.futuredata.uniserve.relationalmock.queryplans.planbuilders.RMFilterPeopleByAgeOnWriteQueryPlanBuilder;
+import edu.stanford.futuredata.uniserve.interfaces.SerializablePredicate;
+import edu.stanford.futuredata.uniserve.relationalmock.queryplans.*;
 import edu.stanford.futuredata.uniserve.relationalmock.queryplans.planbuilders.RMSimpleInsertPersonQueryPlanBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,51 +30,7 @@ public class RMQueryEngine implements QueryEngine {
         return broker.simpleWriteQuery(plan, listPerson);
     }
 
-    public List<RMRowPerson> filterByAge(int minAge,
-                                         int maxAge,
-                                         boolean onWrite,
-                                         boolean saveResults,
-                                         List<RMRowPerson> personList){
-        List<RMRowPerson> results;
-        if(onWrite){
-            RMFilterPeopleByAgeOnWriteQueryPlan plan = new RMFilterPeopleByAgeOnWriteQueryPlanBuilder()
-                    .setMaxAge(maxAge)
-                    .setMinAge(minAge)
-                    .build();
-            results = broker.volatileShuffleQuery(plan, personList);
-        }else{
-            RMFilterPeopleByAgeOnReadQueryPlan plan = new RMFilterPeopleByAgeOnReadQueryPlanBuilder()
-                    .setMaxAge(minAge)
-                    .setMinAge(maxAge)
-                    .setTableName("People")
-                    .build();
-            results = broker.retrieveAndCombineReadQuery(plan);
-        }
-        if(saveResults){
-            RMSimpleInsertPersonQueryPlan plan = new RMSimpleInsertPersonQueryPlanBuilder().setTable("YoungPeople").build();
-            assertTrue(broker.simpleWriteQuery(plan, results));
-        }
-        return results;
-    }
-
-    public int avgAges(int minAge, int maxAge, String tableName){
-        RMFilterPeopleByAgeOnReadQueryPlan plan = new RMFilterPeopleByAgeOnReadQueryPlanBuilder()
-                .setMinAge(minAge)
-                .setMaxAge(maxAge)
-                .setTableName(tableName)
-                .build();
-        List<RMRowPerson> youngPeople = broker.retrieveAndCombineReadQuery(plan);
-        RMAvgAgesOnWrite avgPlan = new RMAvgAgesOnWrite();
-        return broker.volatileShuffleQuery(avgPlan, youngPeople);
-    }
-
-    public int avgAges(int minAge, int maxAge, List<RMRowPerson> rawData){
-        RMFilterPeopleByAgeOnWriteQueryPlan plan = new RMFilterPeopleByAgeOnWriteQueryPlanBuilder()
-                .setMaxAge(maxAge)
-                .setMinAge(minAge)
-                .build();
-        List<RMRowPerson> youngPeople = broker.volatileShuffleQuery(plan, rawData);
-        RMAvgAgesOnWrite avgPlan = new RMAvgAgesOnWrite();
-        return broker.volatileShuffleQuery(avgPlan, youngPeople);
+    public List<RMRowPerson> filter(SerializablePredicate<RMRowPerson> predicate, String tableName){
+        return broker.retrieveAndCombineReadQuery(new RMDynFilter(predicate, tableName));
     }
 }

@@ -1,7 +1,6 @@
 package edu.stanford.futuredata.uniserve.kvmockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.VolatileShuffleQueryPlan;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;

@@ -1,12 +1,11 @@
 package edu.stanford.futuredata.uniserve.integration;
 
-import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
-import edu.stanford.futuredata.uniserve.interfaces.ShuffleReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableQueryEngine;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableRow;
@@ -76,7 +75,7 @@ public class TableTests {
         }
         assertTrue(broker.writeQuery(new TableWriteInsert("table1"), rows));
 
-        ShuffleReadQueryPlan<TableShard, Integer> r = new TableReadMostFrequent("table1");
+        ShuffleOnReadQueryPlan<TableShard, Integer> r = new TableReadMostFrequent("table1");
         assertEquals(0, broker.shuffleReadQuery(r));
 
         dataStores.forEach(DataStore::shutDown);
@@ -132,7 +131,7 @@ public class TableTests {
         }
         assertTrue(broker.writeQuery(new TableWriteInsert("peopleTable"), rows));
 
-        ShuffleReadQueryPlan<TableShard, Integer> r = new TableReadPopularState("peopleTable", "stateTable");
+        ShuffleOnReadQueryPlan<TableShard, Integer> r = new TableReadPopularState("peopleTable", "stateTable");
         assertEquals(9, broker.shuffleReadQuery(r));
 
         dataStores.forEach(DataStore::shutDown);

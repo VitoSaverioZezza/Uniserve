@@ -1,7 +1,6 @@
 package edu.stanford.futuredata.uniserve.relationalmock;
 
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
-import org.javatuples.Pair;
 
 import java.io.*;
 import java.nio.file.Path;
@@ -28,6 +27,21 @@ public class RMShard implements Shard {
     }
     public List<RMRowPerson> getPersons(){
         return data;
+    }
+
+    @Override
+    public List getData() {
+        return null;
+    }
+
+    @Override
+    public void setRows(List rows) {
+
+    }
+
+    @Override
+    public void insertRows() {
+
     }
 
     @Override

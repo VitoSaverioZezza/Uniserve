@@ -4,7 +4,6 @@ import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.*;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;

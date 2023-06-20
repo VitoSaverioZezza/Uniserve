@@ -15,6 +15,11 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.IOException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -600,7 +605,7 @@ public class Broker {
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;
     }
-    public <S extends Shard, V> V shuffleReadQuery(ShuffleReadQueryPlan<S, V> plan) {
+    public <S extends Shard, V> V shuffleReadQuery(ShuffleOnReadQueryPlan<S, V> plan) {
         long txID = txIDs.getAndIncrement();
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
@@ -1166,14 +1171,14 @@ public class Broker {
         private final List<Integer> gatherDSlist;
         private final AtomicInteger queryStatus;
         private final Integer dsID;
-        private final VolatileShuffleQueryPlan<R, V>  plan;
+        private final VolatileShuffleQueryPlan<R, V> plan;
 
         public ScatterVolatileDataThread(
                 Integer dsID,
                 long txID,
                 List<Integer> gatherDSlist,
                 AtomicInteger queryStatus,
-                VolatileShuffleQueryPlan<R, V>  plan){
+                VolatileShuffleQueryPlan<R, V> plan){
             this.gatherDSlist = gatherDSlist;
             this.queryStatus = queryStatus;
             this.txID = txID;

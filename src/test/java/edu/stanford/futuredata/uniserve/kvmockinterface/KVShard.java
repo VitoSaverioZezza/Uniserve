@@ -6,13 +6,14 @@ import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class KVShard implements Shard {
+public class KVShard implements Shard<KVRow> {
     private static final Logger logger = LoggerFactory.getLogger(KVShard.class);
 
     public final Map<Integer, Integer> KVMap;
@@ -51,6 +52,16 @@ public class KVShard implements Shard {
         }
     }
 
+    @Override
+    public List<KVRow> getData() {
+        List<KVRow> data = new ArrayList<>();
+        for(Map.Entry<Integer, Integer> e: KVMap.entrySet()){
+            data.add(new KVRow(e.getKey(), e.getValue()));
+        }
+        return data;
+    }
+
+    @Override
     public void setRows(List<KVRow> rows) {
         this.rows = rows;
     }

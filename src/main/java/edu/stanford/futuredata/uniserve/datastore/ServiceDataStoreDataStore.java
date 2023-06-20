@@ -368,7 +368,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
 
         long txID = m.getTxID();
         int shardNum = m.getShardNum();
-        ShuffleReadQueryPlan<S, Object> plan = (ShuffleReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        ShuffleOnReadQueryPlan<S, Object> plan = (ShuffleOnReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         Pair<Long, Integer> mapID = new Pair<>(txID, shardNum);
         dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).readerLockLock();

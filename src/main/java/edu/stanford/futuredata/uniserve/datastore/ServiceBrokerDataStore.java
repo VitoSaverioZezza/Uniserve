@@ -682,8 +682,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         * - txID
         * - targetShards: the Map<tableName, List<Shards ids queried on the table>>*/
 
-        ShuffleReadQueryPlan<S, Object> plan =
-                (ShuffleReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        ShuffleOnReadQueryPlan<S, Object> plan =
+                (ShuffleOnReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         Map<String, List<Integer>> allTargetShards = (Map<String, List<Integer>>) Utilities.byteStringToObject(m.getTargetShards());
         Map<String, List<ByteString>> ephemeralData = new HashMap<>();
         Map<String, S> ephemeralShards = new HashMap<>();

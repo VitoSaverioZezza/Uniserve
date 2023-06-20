@@ -8,7 +8,7 @@ import java.io.*;
 import java.nio.file.Path;
 import java.util.*;
 
-public class TableShard implements Shard {
+public class TableShard implements Shard<TableRow> {
     private static final Logger logger = LoggerFactory.getLogger(TableShard.class);
 
     public final List<Map<String, Integer>> table;
@@ -36,6 +36,21 @@ public class TableShard implements Shard {
 
     @Override
     public void destroy() {}
+
+    @Override
+    public List<TableRow> getData() {
+        return null;
+    }
+
+    @Override
+    public void setRows(List<TableRow> rows) {
+
+    }
+
+    @Override
+    public void insertRows() {
+
+    }
 
     /**@return the number of row entries in the shard*/
     @Override

@@ -10,7 +10,7 @@ import java.util.Map;
 public interface RetrieveAndCombineQueryPlan<S extends Shard, T> extends Serializable {
 
     /**@return A list containing the names of all tables to be queried*/
-    String getTableName();
+    List<String> getTableNames();
 
     /**@return a mapping between tableNames of the queried tables and a list of the partition keys to be queried on each
      * table

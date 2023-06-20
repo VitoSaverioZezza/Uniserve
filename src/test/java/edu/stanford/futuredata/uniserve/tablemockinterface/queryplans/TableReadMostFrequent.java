@@ -1,7 +1,7 @@
 package edu.stanford.futuredata.uniserve.tablemockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.interfaces.ShuffleReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
@@ -12,7 +12,7 @@ import java.util.*;
 /**Returns the most frequent value in column with identifier "v".
  *
  * The query executes on all entries of the table whose identifier is given at construction time.*/
-public class TableReadMostFrequent implements ShuffleReadQueryPlan<TableShard, Integer> {
+public class TableReadMostFrequent implements ShuffleOnReadQueryPlan<TableShard, Integer> {
 
     private final List<String> tables;
 

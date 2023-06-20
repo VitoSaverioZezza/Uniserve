@@ -6,7 +6,7 @@ import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 
-public interface ShuffleReadQueryPlan<S extends Shard, T> extends Serializable {
+public interface ShuffleOnReadQueryPlan<S extends Shard, T> extends Serializable {
     /**@returns the list of tables being queried*/
     List<String> getQueriedTables();
     /** Returns a mapping between table names and partition keys of the rows on which the query executes.

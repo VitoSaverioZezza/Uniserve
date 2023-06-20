@@ -1,10 +1,8 @@
 package edu.stanford.futuredata.uniserve.tablemockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.interfaces.ShuffleReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.VolatileShuffleQueryPlan;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableRow;
-import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.javatuples.Pair;

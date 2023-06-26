@@ -61,6 +61,7 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         int tableID = coordinator.tableNumber.getAndIncrement();
         TableInfo t = new TableInfo(tableName, tableID, numShards);
         if (coordinator.tableInfoMap.putIfAbsent(tableName, t) != null) {
+            coordinator.assignShards();
             return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         } else {
             logger.info("Creating Table. Name: {} ID: {} NumShards {}", tableName, tableID, numShards);

@@ -15,11 +15,6 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.URL;
-import java.net.URLClassLoader;
-import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -67,6 +62,7 @@ public class Broker {
     public static final int QUERY_SUCCESS = 0;
     public static final int QUERY_FAILURE = 1;
     public static final int QUERY_RETRY = 2;
+    public static final int READ_NON_EXISTING_SHARD = 7;
 
     public static final int SHARDS_PER_TABLE = 1000000;
 
@@ -145,6 +141,7 @@ public class Broker {
     public boolean createTable(String tableName, int numShards) {
         CreateTableMessage m = CreateTableMessage.newBuilder().setTableName(tableName).setNumShards(numShards).build();
         CreateTableResponse r = coordinatorBlockingStub.createTable(m);
+
         return r.getReturnCode() == QUERY_SUCCESS;
     }
 
@@ -155,7 +152,7 @@ public class Broker {
      * @param rows the list of rows to be written
      * @param writeQueryPlan the plan specifying how the operations have to be carried out
      * @return true if and only if the query has been executed successfully*/
-    public <R extends Row, S extends Shard> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+    public <R extends Row, S extends Shard<R>> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
         zkCurator.acquireWriteLock(); // TODO: Maybe acquire later?
         long tStart = System.currentTimeMillis();
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
@@ -212,7 +209,7 @@ public class Broker {
      * @return true if the primary datastore has successfully executed the query. No guarantees on how many replicas
      * have executed the query are given.
      * */
-    public <R extends Row, S extends Shard> boolean simpleWriteQuery(SimpleWriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+    public <R extends Row, S extends Shard<R>> boolean simpleWriteQuery(SimpleWriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
         long tStart = System.currentTimeMillis();
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
         TableInfo tableInfo = getTableInfo(writeQueryPlan.getQueriedTable());
@@ -230,7 +227,14 @@ public class Broker {
         AtomicBoolean statusWritten = new AtomicBoolean(false);
         for (Integer shardNum: shardRowArrayMap.keySet()) {
             R[] rowArray = shardRowArrayMap.get(shardNum);
-            SimpleWriteQueryThread<R, S> t = new SimpleWriteQueryThread<>(shardNum, writeQueryPlan, rowArray, txID, queryStatus, statusWritten);
+            SimpleWriteQueryThread<R, S> t = new SimpleWriteQueryThread<>(
+                    shardNum,
+                    writeQueryPlan,
+                    rowArray,
+                    txID,
+                    queryStatus,
+                    statusWritten
+            );
             t.start();
             writeQueryThreads.add(t);
         }
@@ -451,7 +455,7 @@ public class Broker {
      *      represent intermediate shards locations to be returned to the caller, since those are results of
      *      sub-queries.
      * */
-    public <S extends Shard, V> V anchoredReadQuery(AnchoredReadQueryPlan<S, V> plan) {
+    public <S extends Shard<R>, R extends Row, V> V anchoredReadQuery(AnchoredReadQueryPlan<S, V> plan) {
         long txID = txIDs.getAndIncrement();
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
@@ -477,7 +481,6 @@ public class Broker {
             }
             targetShards.put(tableName, shardNums);
         }
-
         /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
         * Recursively executes all sub queries, placing their results in a structure                                     *
         * Map<TableName, Map<ShardID to be queried on the table, datastoreID storing the shard>>. (one table, one shard) *
@@ -605,7 +608,7 @@ public class Broker {
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;
     }
-    public <S extends Shard, V> V shuffleReadQuery(ShuffleOnReadQueryPlan<S, V> plan) {
+    public <S extends Shard<R>, R extends Row, V> V shuffleReadQuery(ShuffleOnReadQueryPlan<S, V> plan) {
         long txID = txIDs.getAndIncrement();
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
@@ -627,6 +630,9 @@ public class Broker {
             } else {
                 shardNums = tablePartitionKeys.stream().map(i -> keyToShard(tableID, numShards, i))
                         .distinct().collect(Collectors.toList());
+            }
+            if(shardNums.contains(-1)){
+                shardNums.remove(Integer.valueOf(-1));
             }
             targetShards.put(tableName, shardNums);
         }
@@ -702,7 +708,7 @@ public class Broker {
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;
     }
-    public <S extends Shard, V> V retrieveAndCombineReadQuery(RetrieveAndCombineQueryPlan<S,V> plan){
+    public <S extends Shard<R>, R extends Row, V> V retrieveAndCombineReadQuery(RetrieveAndCombineQueryPlan<S,V> plan){
         long txID = txIDs.getAndIncrement();
         Map<String, List<Integer>> tablesToKeysMap = plan.keysForQuery();
         Map<String, List<Integer>> tablesToShardsMap = new HashMap<>();
@@ -722,15 +728,14 @@ public class Broker {
             }else{
                 shardNums = keyList.stream().map(i -> keyToShard(tableInfo.id, tableInfo.numShards, i))
                         .distinct().collect(Collectors.toList());
+
+            }
+
+            shardNums.remove(Integer.valueOf(-1));
+            for(Integer i: shardNums){
+                System.out.println("shard to be queried: " + i);
             }
             tablesToShardsMap.put(tableName, shardNums);
-
-            for(Integer key: tablesToKeysMap.get(tableName)){
-                Integer shardID = keyToShard(tableInfo.id,tableInfo.numShards, key);
-                if(!tablesToShardsMap.get(tableName).contains(shardID)){
-                    tablesToShardsMap.get(tableName).add(shardID);
-                }
-            }
             CountDownLatch tableLatch = new CountDownLatch(tablesToShardsMap.get(tableName).size());
             for(Integer shardID:tablesToShardsMap.get(tableName)){
                 BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(getStubForShard(shardID).getChannel());
@@ -762,6 +767,12 @@ public class Broker {
                 tableLatch.await();
             }catch (Exception e){
                 logger.error("Retrieve and combine query failed");
+            }
+        }
+        logger.info("Retrieved data structure used as input to the combine:");
+        for(Map.Entry<String, List<ByteString>> e: retrievedData.entrySet()){
+            if(e.getValue() == null){
+                retrievedData.remove(e.getKey());
             }
         }
         return plan.combine(retrievedData);

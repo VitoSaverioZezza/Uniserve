@@ -3,8 +3,6 @@ package edu.stanford.futuredata.uniserve.relationalmock;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.QueryEngine;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.SerializablePredicate;
-import edu.stanford.futuredata.uniserve.relationalmock.queryplans.RMDynFilter;
 
 import java.io.File;
 import java.net.MalformedURLException;
@@ -14,7 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class DynamicQueryEngine implements QueryEngine {
-    List<RetrieveAndCombineQueryPlan<RMShard, List<RMRowPerson>>> readPlans = new ArrayList<>();
+    List<RetrieveAndCombineQueryPlan<RMShard, List<RMRow>>> readPlans = new ArrayList<>();
     Broker broker;
 
     public DynamicQueryEngine(Broker broker){
@@ -35,8 +33,8 @@ public class DynamicQueryEngine implements QueryEngine {
         }
         if (implementsInterface) {
             // Create an instance of the loaded class
-            RetrieveAndCombineQueryPlan<RMShard, List<RMRowPerson>> instance =
-                    (RetrieveAndCombineQueryPlan<RMShard, List<RMRowPerson>>) loadedClass.newInstance();
+            RetrieveAndCombineQueryPlan<RMShard, List<RMRow>> instance =
+                    (RetrieveAndCombineQueryPlan<RMShard, List<RMRow>>) loadedClass.newInstance();
 
             readPlans.add(instance);
             // Use the instance of the loaded class
@@ -45,7 +43,7 @@ public class DynamicQueryEngine implements QueryEngine {
     public void runReCQueryPlan(){
         if(!readPlans.isEmpty()){
             if(readPlans.get(0) != null) {
-                List<RMRowPerson> result = broker.retrieveAndCombineReadQuery(readPlans.get(0));
+                List<RMRow> result = broker.retrieveAndCombineReadQuery(readPlans.get(0));
                 readPlans.remove(0);
                 System.out.println("\n\n\n\nHello there!");
             }
@@ -53,7 +51,4 @@ public class DynamicQueryEngine implements QueryEngine {
             System.out.println("no read query plan has been fetched");
         }
     }
-
-
-
 }

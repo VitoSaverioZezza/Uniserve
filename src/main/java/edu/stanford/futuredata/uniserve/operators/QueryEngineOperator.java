@@ -10,24 +10,13 @@ import java.util.Map;
 public class QueryEngineOperator<R extends Row, S extends Shard<R>> implements QueryEngine {
     Broker broker;
 
-    public QueryEngineOperator(Broker broker){
-        this.broker = broker;
-    }
-
+    public QueryEngineOperator(Broker broker){this.broker = broker;}
     public List<R> filter(List<String> tableNames, Map<String, List<Integer>> partitionKeys, SerializablePredicate<R> filterPredicate){
             return broker.retrieveAndCombineReadQuery(new FilterOnReadOperator<R, S>(partitionKeys, filterPredicate, tableNames));
     }
     public List<R> filter(String tableName, SerializablePredicate<R> filterPredicate, List<R> data){
         broker.mapQuery(new FilterOnWriteOperator<R>(tableName,filterPredicate), data);
         return data;
-    }
-
-    public boolean write(String tableName, List<R> rows, boolean simple){
-        if(simple){
-            return broker.simpleWriteQuery(new SimpleWriteOperator<R,S>(tableName), rows);
-        }else{
-            return broker.writeQuery(new WriteOperator<R,S>(tableName), rows);
-        }
     }
 
     public Object aggregate(List<String> tableNames, Map<String, List<Integer>> partitionKeys,

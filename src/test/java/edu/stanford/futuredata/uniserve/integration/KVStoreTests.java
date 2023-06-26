@@ -164,7 +164,11 @@ public class KVStoreTests {
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         LocalDataStoreCloud localDataStoreCloud = new LocalDataStoreCloud();
-        DataStore<KVRow, KVShard>  dataStore = new DataStore<>(localDataStoreCloud, new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000, -1, false
+        DataStore<KVRow, KVShard>  dataStore = new DataStore<>(
+                localDataStoreCloud,
+                new KVShardFactory(),
+                Path.of("/var/tmp/KVUniserve"),
+                zkHost, zkPort, "127.0.0.1", 8000, -1, false
         );
         dataStore.startServing();
         Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());

@@ -1,21 +1,21 @@
 package edu.stanford.futuredata.uniserve.relationalmock.rowbuilders;
 
-import edu.stanford.futuredata.uniserve.relationalmock.RMRowPerson;
+import edu.stanford.futuredata.uniserve.relationalmock.RMRow;
 
-public class RMRowPersonBuilder {
+public class RMRowBuilder {
     private int partitionKey;
     private int age;
     private String name;
 
-    public RMRowPersonBuilder setAge(int age){
+    public RMRowBuilder setAge(int age){
         this.age=age;
         return this;
     }
-    public RMRowPersonBuilder setName(String name){
+    public RMRowBuilder setName(String name){
         this.name = name;
         return this;
     }
-    public RMRowPersonBuilder setPartitionKey(int partitionKey){
+    public RMRowBuilder setPartitionKey(int partitionKey){
         this.partitionKey = partitionKey;
         return this;
     }
@@ -32,7 +32,7 @@ public class RMRowPersonBuilder {
         return name;
     }
 
-    public RMRowPerson build(){
-        return new RMRowPerson(this);
+    public RMRow build(){
+        return new RMRow(this);
     }
 }

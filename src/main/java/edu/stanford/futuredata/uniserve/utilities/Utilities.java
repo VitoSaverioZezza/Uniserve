@@ -1,11 +1,20 @@
 package edu.stanford.futuredata.uniserve.utilities;
 
 import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.interfaces.SimpleWriteQueryPlan;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.*;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.util.Enumeration;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 
 public class Utilities {
     public static String null_name = "__null__unready__";
@@ -40,7 +49,29 @@ public class Utilities {
             ObjectInput in = new ObjectInputStream(bis);
             obj = in.readObject();
             in.close();
-        } catch (IOException | ClassNotFoundException e) {
+        } catch (ClassNotFoundException classNotFoundException) {
+            String jarPath = "/home/vsz/Scrivania/Jars/UniClient.jar";
+            String className = classNotFoundException.getMessage();
+            try {
+                URLClassLoader classLoader = URLClassLoader.newInstance(new URL[]{new File(jarPath).toURI().toURL()});
+                Class<?> myInterfaceImplementationClass = classLoader.loadClass(className);
+                Object myInterfaceImplObject = myInterfaceImplementationClass.newInstance();
+                return myInterfaceImplObject;
+                /*
+                SimpleWriteQueryPlan myQueryPlan = (SimpleWriteQueryPlan) myInterfaceImplObject;
+                return myInterfaceImplObject;
+                 */
+            }catch (MalformedURLException m){
+                m.printStackTrace();
+            } catch (ClassNotFoundException e) {
+                e.printStackTrace();
+            } catch (InstantiationException e) {
+                e.printStackTrace();
+            } catch (IllegalAccessException e) {
+                e.printStackTrace();
+            }
+            return null;
+        }catch (IOException e){
             e.printStackTrace();
             logger.error("Deserialization Failed {} {}", b, e);
             assert(false);

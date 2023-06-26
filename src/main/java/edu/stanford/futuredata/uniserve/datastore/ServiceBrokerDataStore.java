@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
+class ServiceBrokerDataStore<R extends Row, S extends Shard<R>> extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
 
     private static final Logger logger = LoggerFactory.getLogger(ServiceBrokerDataStore.class);
     private final DataStore<R, S> dataStore;
@@ -303,13 +303,18 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
             private WriteQueryResponse executeWriteQuery(int shardNum, long txID, SimpleWriteQueryPlan<R, S> writeQueryPlan) {
                 if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
-                    logger.info("attempt to execute DataStore.ensureShardCached for shard {} in SBDS.SWQ", shardNum);
+                    logger.info("Before DataStore.ensureShardCached for shard {} in ServiceBrokerDS.SimpleWQ", shardNum);
+
                     dataStore.ensureShardCached(shardNum);
                     S shard = dataStore.shardMap.get(shardNum);
+                    if(shard == null){
+                        logger.error("Service Broker DataStore Shard to be written (SW) has not been correctly retrieved");
+                    }
+
                     assert(shard != null);
+
                     List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs =
                             dataStore.replicaDescriptionsMap.get(shardNum).stream().map(i -> i.stub).collect(Collectors.toList());
-                    int numReplicas = replicaStubs.size();
                     R[] rowArray;
                     rowArray = (R[]) rows.toArray(new Row[0]);
                     AtomicBoolean success = new AtomicBoolean(true);
@@ -486,7 +491,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
      *          <p>- lastCommittedVersion</p>
      * */
     private AnchoredReadQueryResponse anchoredReadQueryHandler(AnchoredReadQueryMessage m) {
-
         /*
         * This method is executed once for each shard of the anchor query. The results returned by this call can be
         * either an actual value to be combined via the combine function or some sort of intermediate shard location
@@ -786,7 +790,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             dataStore.shardLockMap.get(shardID).readerLockUnlock();
             return RetrieveAndCombineQueryResponse.newBuilder().setState(Broker.QUERY_FAILURE).build();
         }
-        dataStore.ensureShardCached(shardID);
+        boolean shardCached = dataStore.ensureShardCached(shardID);
+        if(!shardCached){
+            return RetrieveAndCombineQueryResponse.newBuilder().setState(Broker.READ_NON_EXISTING_SHARD).build();
+        }
         S localShard;
         long lastCommittedVersion = request.getLastCommittedVersion();
         if (dataStore.readWriteAtomicity) {
@@ -802,6 +809,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         ByteString retrievedData = plan.retrieve(localShard);
         return RetrieveAndCombineQueryResponse.newBuilder().setData(retrievedData).setState(Broker.QUERY_SUCCESS).build();
     }
+
 
     @Override
     public StreamObserver<StoreVolatileDataMessage> storeVolatileData(StreamObserver<StoreVolatileDataResponse> responseObserver){

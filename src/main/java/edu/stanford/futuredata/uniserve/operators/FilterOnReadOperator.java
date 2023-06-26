@@ -37,7 +37,7 @@ public class FilterOnReadOperator<R extends Row, S extends Shard<R>> implements 
 
     @Override
     public ByteString retrieve(S shard) {
-        List<R> rawData = shard.getData();
+        /*List<R> rawData = shard.getData();
         List<ByteString> serFilteredData = new ArrayList<>();
         for(R row: rawData){
             if(filterPredicate.test(row)){
@@ -45,7 +45,8 @@ public class FilterOnReadOperator<R extends Row, S extends Shard<R>> implements 
             }
         }
         ByteString[] serializedResArray = serFilteredData.toArray(new ByteString[0]);
-        return Utilities.objectToByteString(serializedResArray);
+        return Utilities.objectToByteString(serializedResArray);*/
+        return null;
     }
 
     @Override

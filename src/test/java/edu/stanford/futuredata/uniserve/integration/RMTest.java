@@ -8,7 +8,7 @@ import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.SerializablePredicate;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import edu.stanford.futuredata.uniserve.relationalmock.*;
-import edu.stanford.futuredata.uniserve.relationalmock.rowbuilders.RMRowPersonBuilder;
+import edu.stanford.futuredata.uniserve.relationalmock.rowbuilders.RMRowBuilder;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -64,53 +64,42 @@ public class RMTest {
         cleanUp(zkHost, zkPort);
     }
 
-    //@Test
-    public void testDynamicLoad(){
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7778);
+    @Test
+    public void testDynamicLogic(){
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(),
+                zkHost, zkPort, "127.0.0.1", 7778);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         LocalDataStoreCloud ldsc1 = new LocalDataStoreCloud();
-        DataStore<RMRowPerson, RMShard> dataStoreOne = new DataStore<>(ldsc1,
+        DataStore<RMRow, RMShard> dataStoreOne = new DataStore<>(ldsc1,
                 new RMShardFactory(), Path.of(String.format("/var/tmp/RMUniserve%d", 1)), zkHost, zkPort, "127.0.0.1", 8200, -1, false
         );
         dataStoreOne.runPingDaemon = false;
         dataStoreOne.startServing();
         LocalDataStoreCloud ldsc2 = new LocalDataStoreCloud();
-        DataStore<RMRowPerson, RMShard>  dataStoreTwo = new DataStore<>(ldsc2,
+        DataStore  dataStoreTwo = new DataStore<>(ldsc2,
                 new RMShardFactory(), Path.of(String.format("/var/tmp/RMUniserve%d", 2)), zkHost, zkPort, "127.0.0.1", 8201, -1, false
         );
         dataStoreTwo.runPingDaemon = false;
         assertTrue(dataStoreTwo.startServing());
         Broker broker = new Broker(zkHost, zkPort, null);
-        DynamicQueryEngine queryEngine = new DynamicQueryEngine(broker);
         RMQueryEngine rmQueryEngine = new RMQueryEngine(broker);
         assertTrue(rmQueryEngine.createTable("People", 1));
-        List<RMRowPerson> rowList = new ArrayList<>();
-        for(int i = 0; i<10; i++){
-            rowList.add(new RMRowPersonBuilder().setPartitionKey(i).setAge(i).build());
+        List<RMRow> rowList = new ArrayList<>();
+        for(int i = 0; i<50; i++){
+            rowList.add(new RMRowBuilder().setPartitionKey(i).setAge(i).build());
         }
         /*Insert*/
         assertTrue(rmQueryEngine.insertPersons(rowList, "People"));
-        try {
-            queryEngine.fetchQueryPlans("/home/vsz/Scrivania/queryPlans/UniJarImpor.jar");
-        }catch (MalformedURLException e){
-            logger.error("Malformed URL");
-            logger.error(e.getMessage());
-            fail();
-        }catch (ClassNotFoundException e){
-            logger.error("Class Not Found");
-            logger.error(e.getMessage());
-            fail();
-        }catch (InstantiationException e){
-            logger.error("Instantiation");
-            logger.error(e.getMessage());
-            fail();
-        }catch (IllegalAccessException e){
-            logger.error("Illegal Access");
-            logger.error(e.getMessage());
-            fail();
+
+        SerializablePredicate<RMRow> filterPredicate = (RMRow row) -> row.getAge() < 20;
+        List<RMRow> res = rmQueryEngine.filter(filterPredicate, "People");
+
+        for(RMRow row: res){
+            assertTrue(row.getAge()<20);
+            logger.info("Age: {}", row.getAge() );
         }
-        queryEngine.runReCQueryPlan();
+
         dataStoreOne.shutDown();
         dataStoreTwo.shutDown();
         coordinator.stopServing();
@@ -124,47 +113,32 @@ public class RMTest {
     }
 
     @Test
-    public void testDynamicLogic(){
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7778);
-        coordinator.runLoadBalancerDaemon = false;
+    public void testReadNotWrittenShardBug(){
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(),
+                zkHost, zkPort, "127.0.0.1", 7778);
         coordinator.startServing();
+
+
         LocalDataStoreCloud ldsc1 = new LocalDataStoreCloud();
-        DataStore<RMRowPerson, RMShard> dataStoreOne = new DataStore<>(ldsc1,
-                new RMShardFactory(), Path.of(String.format("/var/tmp/RMUniserve%d", 1)), zkHost, zkPort, "127.0.0.1", 8200, -1, false
+        DataStore<RMRow, RMShard> dataStoreOne = new DataStore<>(ldsc1,
+                new RMShardFactory(), Path.of(String.format("/var/tmp/RMUniserve%d", 1)),
+                zkHost, zkPort, "127.0.0.1", 8200, -1, false
         );
-        dataStoreOne.runPingDaemon = false;
         dataStoreOne.startServing();
-        LocalDataStoreCloud ldsc2 = new LocalDataStoreCloud();
-        DataStore<RMRowPerson, RMShard>  dataStoreTwo = new DataStore<>(ldsc2,
-                new RMShardFactory(), Path.of(String.format("/var/tmp/RMUniserve%d", 2)), zkHost, zkPort, "127.0.0.1", 8201, -1, false
-        );
-        dataStoreTwo.runPingDaemon = false;
-        assertTrue(dataStoreTwo.startServing());
+
         Broker broker = new Broker(zkHost, zkPort, null);
+
         RMQueryEngine rmQueryEngine = new RMQueryEngine(broker);
-        assertTrue(rmQueryEngine.createTable("People", 1));
-        List<RMRowPerson> rowList = new ArrayList<>();
-        for(int i = 0; i<50; i++){
-            rowList.add(new RMRowPersonBuilder().setPartitionKey(i).setAge(i).build());
-        }
-        /*Insert*/
-        assertTrue(rmQueryEngine.insertPersons(rowList, "People"));
+        assertTrue(rmQueryEngine.createTable("People", 2));
 
-        SerializablePredicate<RMRowPerson> filterPredicate = (RMRowPerson row) -> row.getAge() < 20;
-        List<RMRowPerson> res = rmQueryEngine.filter(filterPredicate, "People");
-
-        for(RMRowPerson row: res){
-            assertTrue(row.getAge()<20);
-            logger.info("Age: {}", row.getAge() );
-        }
-
+        assertTrue(rmQueryEngine.insertPersons(List.of(new RMRowBuilder().setAge(51).setPartitionKey(51).build()), "People"));
+        SerializablePredicate<RMRow> filterPredicate1 = (RMRow row) -> row.getAge() > 50;
+        List<RMRow> res = rmQueryEngine.filter(filterPredicate1, "People");
         dataStoreOne.shutDown();
-        dataStoreTwo.shutDown();
         coordinator.stopServing();
         broker.shutdown();
         try {
             ldsc1.clear();
-            ldsc2.clear();
         } catch (IOException e) {
             fail();
         }

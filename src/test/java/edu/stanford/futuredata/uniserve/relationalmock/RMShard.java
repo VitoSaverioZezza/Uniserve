@@ -8,16 +8,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-public class RMShard implements Shard {
+public class RMShard implements Shard<RMRow> {
     private final Path shardPath;
-    private final List<RMRowPerson> data;
+    private final List<RMRow> data;
 
     public RMShard(Path shardPath, boolean shardExists) throws IOException, ClassNotFoundException {
         if (shardExists) {
             Path mapFile = Path.of(shardPath.toString(), "map.obj");
             FileInputStream f = new FileInputStream(mapFile.toFile());
             ObjectInputStream o = new ObjectInputStream(f);
-            this.data = (List<RMRowPerson>) o.readObject();
+            this.data = (List<RMRow>) o.readObject();
             o.close();
             f.close();
         } else {
@@ -25,23 +25,8 @@ public class RMShard implements Shard {
         }
         this.shardPath = shardPath;
     }
-    public List<RMRowPerson> getPersons(){
+    public List<RMRow> getPersons(){
         return data;
-    }
-
-    @Override
-    public List getData() {
-        return null;
-    }
-
-    @Override
-    public void setRows(List rows) {
-
-    }
-
-    @Override
-    public void insertRows() {
-
     }
 
     @Override

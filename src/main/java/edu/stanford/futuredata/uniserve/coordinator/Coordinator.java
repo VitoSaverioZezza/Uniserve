@@ -166,7 +166,6 @@ public class Coordinator {
             logger.info("AddReplica failed for shard {} PRIMARY DataStore {}", shardNum, replicaID);
         }
     }
-
     public void removeShard(int shardNum, int targetID) {
         shardMapLock.lock();
         int primaryDataStore = consistentHash.getRandomBucket(shardNum);

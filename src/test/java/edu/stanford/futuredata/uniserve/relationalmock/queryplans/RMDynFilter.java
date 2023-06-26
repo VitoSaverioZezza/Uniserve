@@ -3,7 +3,7 @@ package edu.stanford.futuredata.uniserve.relationalmock.queryplans;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.SerializablePredicate;
-import edu.stanford.futuredata.uniserve.relationalmock.RMRowPerson;
+import edu.stanford.futuredata.uniserve.relationalmock.RMRow;
 import edu.stanford.futuredata.uniserve.relationalmock.RMShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
@@ -12,12 +12,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-public class RMDynFilter implements RetrieveAndCombineQueryPlan<RMShard, List<RMRowPerson>> {
+public class RMDynFilter implements RetrieveAndCombineQueryPlan<RMShard, List<RMRow>> {
     String tableName;
-    SerializablePredicate<RMRowPerson> filterPredicate;
+    SerializablePredicate<RMRow> filterPredicate;
 
     public RMDynFilter(
-            SerializablePredicate<RMRowPerson> filterPredicate,
+            SerializablePredicate<RMRow> filterPredicate,
             String tableName){
         this.filterPredicate = filterPredicate;
         this.tableName = tableName;
@@ -35,24 +35,24 @@ public class RMDynFilter implements RetrieveAndCombineQueryPlan<RMShard, List<RM
 
     @Override
     public ByteString retrieve(RMShard rmShard) {
-        List<RMRowPerson> rawData = rmShard.getPersons();
-        List<RMRowPerson> filteredData = new ArrayList<>();
-        for(RMRowPerson row: rawData){
+        List<RMRow> rawData = rmShard.getPersons();
+        List<RMRow> filteredData = new ArrayList<>();
+        for(RMRow row: rawData){
             if(filterPredicate.test(row)){
                 filteredData.add(row);
             }
         }
-        RMRowPerson[] filteredDataArray = filteredData.toArray(new RMRowPerson[0]);
+        RMRow[] filteredDataArray = filteredData.toArray(new RMRow[0]);
         return Utilities.objectToByteString(filteredDataArray);
     }
 
     @Override
-    public List<RMRowPerson> combine(Map<String, List<ByteString>> map) {
-        List<RMRowPerson> result = new ArrayList<>();
+    public List<RMRow> combine(Map<String, List<ByteString>> map) {
+        List<RMRow> result = new ArrayList<>();
         for(Map.Entry<String, List<ByteString>> e: map.entrySet()){
             List<ByteString> serializedRowArrays = e.getValue();
             for(ByteString serializedArray: serializedRowArrays){
-                RMRowPerson[] rowArray = (RMRowPerson[]) Utilities.byteStringToObject(serializedArray);
+                RMRow[] rowArray = (RMRow[]) Utilities.byteStringToObject(serializedArray);
                 Collections.addAll(result, rowArray);
             }
         }

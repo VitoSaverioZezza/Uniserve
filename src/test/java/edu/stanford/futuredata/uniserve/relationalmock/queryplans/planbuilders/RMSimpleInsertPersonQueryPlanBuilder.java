@@ -1,9 +1,6 @@
 package edu.stanford.futuredata.uniserve.relationalmock.queryplans.planbuilders;
 
-import edu.stanford.futuredata.uniserve.relationalmock.RMRowPerson;
 import edu.stanford.futuredata.uniserve.relationalmock.queryplans.RMSimpleInsertPersonQueryPlan;
-
-import java.util.List;
 
 public class RMSimpleInsertPersonQueryPlanBuilder {
     private String table;

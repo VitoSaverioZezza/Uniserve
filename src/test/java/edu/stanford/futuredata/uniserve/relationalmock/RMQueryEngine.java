@@ -7,10 +7,7 @@ import edu.stanford.futuredata.uniserve.relationalmock.queryplans.*;
 import edu.stanford.futuredata.uniserve.relationalmock.queryplans.planbuilders.RMSimpleInsertPersonQueryPlanBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class RMQueryEngine implements QueryEngine {
     private final Broker broker;
@@ -24,13 +21,13 @@ public class RMQueryEngine implements QueryEngine {
         return broker.createTable(tableName, numShards);
     }
 
-    public boolean insertPersons(List<RMRowPerson> listPerson, String table){
+    public boolean insertPersons(List<RMRow> listPerson, String table){
         RMSimpleInsertPersonQueryPlanBuilder builder = new RMSimpleInsertPersonQueryPlanBuilder();
         RMSimpleInsertPersonQueryPlan plan = builder.setTable(table).build();
         return broker.simpleWriteQuery(plan, listPerson);
     }
 
-    public List<RMRowPerson> filter(SerializablePredicate<RMRowPerson> predicate, String tableName){
+    public List<RMRow> filter(SerializablePredicate<RMRow> predicate, String tableName){
         return broker.retrieveAndCombineReadQuery(new RMDynFilter(predicate, tableName));
     }
 }

@@ -13,10 +13,6 @@ import java.util.Optional;
  *  -Reads may run at any time.
  *  */
 public interface Shard<R extends Row>{
-
-    List<R> getData();
-    void setRows(List<R> rows);
-    void insertRows();
     /**@return the amount of memory this shard uses in kilobytes.*/
     int getMemoryUsage();
     /**Destroy the shard data and related processes. After this method terminates, the shard is no longer usable.*/

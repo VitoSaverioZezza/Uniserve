@@ -9,7 +9,6 @@ import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
-import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.*;
 import org.javatuples.Pair;
@@ -24,13 +23,11 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class DataStore<R extends Row, S extends Shard> {
-
+public class DataStore<R extends Row, S extends Shard<R>> {
     private static final Logger logger = LoggerFactory.getLogger(DataStore.class);
-
     // Datastore metadata
     public int dsID = -1;
-    private int cloudID;
+    private final int cloudID;
     private final String dsHost;
     private final int dsPort;
     final boolean readWriteAtomicity;
@@ -50,11 +47,11 @@ public class DataStore<R extends Row, S extends Shard> {
     // Map from primary shard number to list of replica descriptions for that shard.
     final Map<Integer, List<ReplicaDescription>> replicaDescriptionsMap = new ConcurrentHashMap<>();
     // Map from primary shard number to last timestamp known for the shard.
-    final Map<Integer, Long> shardTimestampMap = new ConcurrentHashMap<>();
+    //final Map<Integer, Long> shardTimestampMap = new ConcurrentHashMap<>();
     // Map from Unix second timestamp to number of read queries made during that timestamp, per shard.
     final Map<Integer, Map<Long, Integer>> QPSMap = new ConcurrentHashMap<>();
     // Map from table names to tableInfos.
-    private final Map<String, TableInfo> tableInfoMap = new ConcurrentHashMap<>();
+    //private final Map<String, TableInfo> tableInfoMap = new ConcurrentHashMap<>();
     // Map from dsID to a ManagedChannel.
     private final Map<Integer, ManagedChannel> dsIDToChannelMap = new ConcurrentHashMap<>();
 
@@ -106,7 +103,7 @@ public class DataStore<R extends Row, S extends Shard> {
     }
 
     /** Start serving requests.
-     * @return*/
+     * @return true if and only if the starting procedure is successful*/
     public boolean startServing() {
         // Start serving.
         assert(!serving);
@@ -117,12 +114,7 @@ public class DataStore<R extends Row, S extends Shard> {
             logger.warn("DataStore startup failed: {}", e.getMessage());
             return false;
         }
-        Runtime.getRuntime().addShutdownHook(new Thread() {
-            @Override
-            public void run() {
-                DataStore.this.shutDown();
-            }
-        });
+        Runtime.getRuntime().addShutdownHook(new Thread(DataStore.this::shutDown));
         // Notify the coordinator of startup.
         Optional<Pair<String, Integer>> hostPort = zkCurator.getMasterLocation();
         int coordinatorPort;
@@ -152,12 +144,7 @@ public class DataStore<R extends Row, S extends Shard> {
             return false;
         }
         pingDaemon.start();
-        Runtime.getRuntime().addShutdownHook(new Thread() {
-            @Override
-            public void run() {
-                DataStore.this.shutDown();
-            }
-        });
+        Runtime.getRuntime().addShutdownHook(new Thread(DataStore.this::shutDown));
         return true;
     }
     /** Stop serving requests and shutdown resources. */
@@ -246,7 +233,10 @@ public class DataStore<R extends Row, S extends Shard> {
     boolean ensureShardCached(int shardNum) {
         if (!shardMap.containsKey(shardNum)) {
             ZKShardDescription z = zkCurator.getZKShardDescription(shardNum);
-            logger.info("Attempt to download shard from cloud in DataStore.ensureShardCached");
+            logger.info("Attempt to download shard {} from cloud in DataStore.ensureShardCached", shardNum);
+            if(z == null){
+                return false;
+            }
             Optional<S> shard = downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber);
             if (shard.isEmpty()) {
                 logger.info("DS.ensureShardCached: empty shard {}", shardNum);
@@ -263,7 +253,7 @@ public class DataStore<R extends Row, S extends Shard> {
     public void uploadShardToCloud(int shardNum) {
         long uploadStart = System.currentTimeMillis();
         Integer versionNumber = shardVersionMap.get(shardNum);
-        Shard shard = shardMap.get(shardNum);
+        Shard<R> shard = shardMap.get(shardNum);
         // Load the shard's data into files.
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {
@@ -305,7 +295,7 @@ public class DataStore<R extends Row, S extends Shard> {
     }
     public Optional<S> copyShardToDir(int shardNum, String cloudName, int versionNumber) {
         long copyStart = System.currentTimeMillis();
-        Shard shard = shardMap.get(shardNum);
+        Shard<R> shard = shardMap.get(shardNum);
         // Load the shard's data into files.
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {
@@ -323,7 +313,7 @@ public class DataStore<R extends Row, S extends Shard> {
         }
 
         try {
-            ProcessBuilder copier = new ProcessBuilder("src/main/resources/copy_shard.sh", String.format("%s/*", shardDirectory.get().toString()),
+            ProcessBuilder copier = new ProcessBuilder("src/main/resources/copy_shard.sh", String.format("%s/*", shardDirectory.get()),
                     targetDirectory.toString());
             logger.info("Copy Command: {}", copier.command());
             Process writerProcess = copier.inheritIO().start();
@@ -366,6 +356,7 @@ public class DataStore<R extends Row, S extends Shard> {
                             ManagedChannelBuilder.forAddress(dsToPing.host, dsToPing.port).usePlaintext().build();
                     DataStoreDataStoreGrpc.DataStoreDataStoreBlockingStub stub = DataStoreDataStoreGrpc.newBlockingStub(dsChannel);
                     DataStorePingMessage pm = DataStorePingMessage.newBuilder().build();
+
                     try {
                         DataStorePingResponse alwaysEmpty = stub.dataStorePing(pm);
                     } catch (StatusRuntimeException e) {
@@ -426,9 +417,5 @@ public class DataStore<R extends Row, S extends Shard> {
     }
     public void removeVolatileScatterData(long transactionID){
         volatileScatterData.remove(transactionID);
-    }
-
-    public DataStoreCloud getDSCloud(){
-        return this.dsCloud;
     }
 }

@@ -247,7 +247,7 @@ public class Broker {
             }
         }
         lastCommittedVersion = txID;
-        logger.info("SimpleWritne completed. Rows: {}. Version: {} Time: {}ms", rows.size(), lastCommittedVersion,
+        logger.info("SimpleWrite completed. Rows: {}. Version: {} Time: {}ms", rows.size(), lastCommittedVersion,
                 System.currentTimeMillis() - tStart);
         assert (queryStatus.get() != QUERY_RETRY);
         return queryStatus.get() == QUERY_SUCCESS;
@@ -732,9 +732,6 @@ public class Broker {
             }
 
             shardNums.remove(Integer.valueOf(-1));
-            for(Integer i: shardNums){
-                System.out.println("shard to be queried: " + i);
-            }
             tablesToShardsMap.put(tableName, shardNums);
             CountDownLatch tableLatch = new CountDownLatch(tablesToShardsMap.get(tableName).size());
             for(Integer shardID:tablesToShardsMap.get(tableName)){
@@ -769,7 +766,6 @@ public class Broker {
                 logger.error("Retrieve and combine query failed");
             }
         }
-        logger.info("Retrieved data structure used as input to the combine:");
         for(Map.Entry<String, List<ByteString>> e: retrievedData.entrySet()){
             if(e.getValue() == null){
                 retrievedData.remove(e.getKey());

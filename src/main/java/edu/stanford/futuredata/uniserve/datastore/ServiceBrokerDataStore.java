@@ -307,10 +307,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard<R>> extends BrokerDa
 
                     dataStore.ensureShardCached(shardNum);
                     S shard = dataStore.shardMap.get(shardNum);
-                    if(shard == null){
-                        logger.error("Service Broker DataStore Shard to be written (SW) has not been correctly retrieved");
-                    }
-
                     assert(shard != null);
 
                     List<DataStoreDataStoreGrpc.DataStoreDataStoreStub> replicaStubs =
@@ -732,7 +728,9 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard<R>> extends BrokerDa
                         if (r.getReturnCode() == Broker.QUERY_RETRY) {
                             onError(new Throwable());
                         } else {
-                            tableEphemeralData.add(r.getShuffleData());
+                            if(r.getReturnCode() != Broker.READ_NON_EXISTING_SHARD) {
+                                tableEphemeralData.add(r.getShuffleData());
+                            }
                         }
                     }
 

@@ -397,7 +397,9 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard<R>> extends DataS
             S shard = dataStore.shardMap.get(shardNum);
             assert (shard != null);
             Map<Integer, List<ByteString>> scatterResult = plan.scatter(shard, m.getNumRepartition());
-            txShuffledData.put(mapID, scatterResult);
+            if(scatterResult != null) {
+                txShuffledData.put(mapID, scatterResult);
+            }
             long unixTime = Instant.now().getEpochSecond();
             dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
             s.release(m.getNumRepartition() - 1);
@@ -408,7 +410,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard<R>> extends DataS
         /*Each datastore retrieves the results of the scatter associated with its ID and sends them back to the client*/
 
         Map<Integer, List<ByteString>> scatterResult = txShuffledData.get(mapID);
-        assert(scatterResult.containsKey(m.getRepartitionNum()));
         List<ByteString> ephemeralData = scatterResult.get(m.getRepartitionNum());
         scatterResult.remove(m.getRepartitionNum());  // TODO: Make reliable--what if map immutable?.
         if (scatterResult.isEmpty()) {
@@ -416,7 +417,8 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard<R>> extends DataS
         }
         dataStore.shardLockMap.get(shardNum).readerLockUnlock();
         for (ByteString item: ephemeralData) {
-            responseObserver.onNext(ShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setShuffleData(item).build());
+            responseObserver.onNext(ShuffleResponse
+                    .newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setShuffleData(item).build());
         }
         responseObserver.onCompleted();
     }

@@ -57,10 +57,6 @@ public class Utilities {
                 Class<?> myInterfaceImplementationClass = classLoader.loadClass(className);
                 Object myInterfaceImplObject = myInterfaceImplementationClass.newInstance();
                 return myInterfaceImplObject;
-                /*
-                SimpleWriteQueryPlan myQueryPlan = (SimpleWriteQueryPlan) myInterfaceImplObject;
-                return myInterfaceImplObject;
-                 */
             }catch (MalformedURLException m){
                 m.printStackTrace();
             } catch (ClassNotFoundException e) {

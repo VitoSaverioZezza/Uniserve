@@ -233,7 +233,6 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     boolean ensureShardCached(int shardNum) {
         if (!shardMap.containsKey(shardNum)) {
             ZKShardDescription z = zkCurator.getZKShardDescription(shardNum);
-            logger.info("Attempt to download shard {} from cloud in DataStore.ensureShardCached", shardNum);
             if(z == null){
                 return false;
             }
@@ -386,15 +385,9 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     public boolean addVolatileData(long transactionID, ByteString data){
         try{
             volatileData.computeIfAbsent(transactionID, k -> new ArrayList<>()).add(data);
-
-            /*FOR TESTING KVVOLATILEAVERAGE ONLY*/
-
-
-
             return true;
         }catch (Exception e){
             logger.warn("Impossible to store volatile data for DS {} transaction {}", dsID, transactionID);
-            logger.warn("exception: {}", e.getMessage());
             return false;
         }
     }
@@ -411,7 +404,6 @@ public class DataStore<R extends Row, S extends Shard<R>> {
             return true;
         }catch (Exception e){
             logger.warn("Impossible to store volatile scatter data for DS {} transaction {}", dsID, transactionID);
-            logger.warn("exception: {}", e.getMessage());
             return false;
         }
     }

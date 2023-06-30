@@ -21,7 +21,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-class ServiceDataStoreDataStore<R extends Row, S extends Shard<R>> extends DataStoreDataStoreGrpc.DataStoreDataStoreImplBase {
+class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStoreDataStoreGrpc.DataStoreDataStoreImplBase {
 
     private static final Logger logger = LoggerFactory.getLogger(ServiceBrokerDataStore.class);
     private final DataStore<R, S> dataStore;

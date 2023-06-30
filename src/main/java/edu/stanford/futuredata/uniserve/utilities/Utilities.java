@@ -50,36 +50,69 @@ public class Utilities {
             obj = in.readObject();
             in.close();
         } catch (ClassNotFoundException classNotFoundException) {
-            String jarPath = "/home/vsz/Scrivania/Jars/UniClient.jar";
             String className = classNotFoundException.getMessage();
-            try {
-                URLClassLoader classLoader = URLClassLoader.newInstance(new URL[]{new File(jarPath).toURI().toURL()});
-                Class<?> myInterfaceImplementationClass = classLoader.loadClass(className);
-                bis = new ByteArrayInputStream(b.toByteArray());
-                ObjectInputStream in = new ObjectInputStream(bis) {
-                    @Override
-                    protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
-                        return Class.forName(desc.getName(), false, classLoader);
-                    }
-                };
-                obj = in.readObject();
-                in.close();
-                return obj;
-                /*
-                Object myInterfaceImplObject = myInterfaceImplementationClass.newInstance();
-                return myInterfaceImplObject;
-                 */
-            }catch (MalformedURLException m){
-                m.printStackTrace();
-            } catch (ClassNotFoundException e) {
-                e.printStackTrace();
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-            return null;
+            return deserializePlanMultipleJars(className, b);
         }catch (IOException e){
             e.printStackTrace();
         }
         return obj;
+    }
+
+    public static Object deserializePlan(String className, ByteString b){
+        String jarPath = "/home/vsz/Scrivania/Jars/UniClient.jar";
+        Object obj = null;
+        try {
+            URLClassLoader classLoader = URLClassLoader.newInstance(new URL[]{new File(jarPath).toURI().toURL()});
+            Class<?> myInterfaceImplementationClass = classLoader.loadClass(className);
+            ByteArrayInputStream bis = new ByteArrayInputStream(b.toByteArray());
+            ObjectInputStream in = new ObjectInputStream(bis) {
+                @Override
+                protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+                    return Class.forName(desc.getName(), false, classLoader);
+                }
+            };
+            obj = in.readObject();
+            in.close();
+            return obj;
+        }catch (MalformedURLException m){
+            m.printStackTrace();
+        } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+    public static Object deserializePlanMultipleJars(String className, ByteString b){
+        String jarPath = "/home/vsz/Scrivania/Jars";
+        Object obj = null;
+
+        File directory = new File(jarPath);
+        File[] jarFiles = directory.listFiles((dir, name) -> name.endsWith(".jar"));
+        if(jarFiles != null){
+            for(File jarFile: jarFiles){
+                try{
+                    URLClassLoader classLoader = URLClassLoader.newInstance(new URL[]{jarFile.toURI().toURL()});
+                    Class<?> myInterfaceImplementationClass = classLoader.loadClass(className);
+                    ByteArrayInputStream bis = new ByteArrayInputStream(b.toByteArray());
+                    ObjectInputStream in = new ObjectInputStream(bis) {
+                        @Override
+                        protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+                            return Class.forName(desc.getName(), false, classLoader);
+                        }
+                    };
+                    obj = in.readObject();
+                    in.close();
+                    return obj;
+                }catch (ClassNotFoundException e){
+                    continue;
+                } catch (MalformedURLException e) {
+                    throw new RuntimeException(e);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+        return null;
     }
 }

@@ -12,7 +12,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class LocalCoordinatorCloud<R extends Row, S extends Shard<R>> implements CoordinatorCloud {
+public class LocalCoordinatorCloud<R extends Row, S extends Shard> implements CoordinatorCloud {
 
     //For test usage
     private final Map<Integer, DataStore<R, S>> dataStores = new HashMap<>();

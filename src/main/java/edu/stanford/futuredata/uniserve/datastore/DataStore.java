@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class DataStore<R extends Row, S extends Shard<R>> {
+public class DataStore<R extends Row, S extends Shard> {
     private static final Logger logger = LoggerFactory.getLogger(DataStore.class);
     // Datastore metadata
     public int dsID = -1;
@@ -252,7 +252,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     public void uploadShardToCloud(int shardNum) {
         long uploadStart = System.currentTimeMillis();
         Integer versionNumber = shardVersionMap.get(shardNum);
-        Shard<R> shard = shardMap.get(shardNum);
+        Shard shard = shardMap.get(shardNum);
         // Load the shard's data into files.
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {
@@ -294,7 +294,7 @@ public class DataStore<R extends Row, S extends Shard<R>> {
     }
     public Optional<S> copyShardToDir(int shardNum, String cloudName, int versionNumber) {
         long copyStart = System.currentTimeMillis();
-        Shard<R> shard = shardMap.get(shardNum);
+        Shard shard = shardMap.get(shardNum);
         // Load the shard's data into files.
         Optional<Path> shardDirectory = shard.shardToData();
         if (shardDirectory.isEmpty()) {

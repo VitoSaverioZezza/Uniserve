@@ -21,7 +21,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
-class ServiceCoordinatorDataStore<R extends Row, S extends Shard<R>> extends CoordinatorDataStoreGrpc.CoordinatorDataStoreImplBase {
+class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends CoordinatorDataStoreGrpc.CoordinatorDataStoreImplBase {
 
     private static final Logger logger = LoggerFactory.getLogger(ServiceCoordinatorDataStore.class);
     private final DataStore<R, S> dataStore;

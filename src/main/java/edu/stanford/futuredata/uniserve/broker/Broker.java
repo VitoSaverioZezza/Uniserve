@@ -152,7 +152,7 @@ public class Broker {
      * @param rows the list of rows to be written
      * @param writeQueryPlan the plan specifying how the operations have to be carried out
      * @return true if and only if the query has been executed successfully*/
-    public <R extends Row, S extends Shard<R>> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+    public <R extends Row, S extends Shard> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
         zkCurator.acquireWriteLock(); // TODO: Maybe acquire later?
         long tStart = System.currentTimeMillis();
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
@@ -209,7 +209,7 @@ public class Broker {
      * @return true if the primary datastore has successfully executed the query. No guarantees on how many replicas
      * have executed the query are given.
      * */
-    public <R extends Row, S extends Shard<R>> boolean simpleWriteQuery(SimpleWriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+    public <R extends Row, S extends Shard> boolean simpleWriteQuery(SimpleWriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
         long tStart = System.currentTimeMillis();
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
         TableInfo tableInfo = getTableInfo(writeQueryPlan.getQueriedTable());
@@ -455,7 +455,7 @@ public class Broker {
      *      represent intermediate shards locations to be returned to the caller, since those are results of
      *      sub-queries.
      * */
-    public <S extends Shard<R>, R extends Row, V> V anchoredReadQuery(AnchoredReadQueryPlan<S, V> plan) {
+    public <S extends Shard, R extends Row, V> V anchoredReadQuery(AnchoredReadQueryPlan<S, V> plan) {
         long txID = txIDs.getAndIncrement();
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
@@ -608,7 +608,7 @@ public class Broker {
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;
     }
-    public <S extends Shard<R>, R extends Row, V> V shuffleReadQuery(ShuffleOnReadQueryPlan<S, V> plan) {
+    public <S extends Shard, R extends Row, V> V shuffleReadQuery(ShuffleOnReadQueryPlan<S, V> plan) {
         long txID = txIDs.getAndIncrement();
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
@@ -708,7 +708,7 @@ public class Broker {
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;
     }
-    public <S extends Shard<R>, R extends Row, V> V retrieveAndCombineReadQuery(RetrieveAndCombineQueryPlan<S,V> plan){
+    public <S extends Shard, R extends Row, V> V retrieveAndCombineReadQuery(RetrieveAndCombineQueryPlan<S,V> plan){
         long txID = txIDs.getAndIncrement();
         Map<String, List<Integer>> tablesToKeysMap = plan.keysForQuery();
         Map<String, List<Integer>> tablesToShardsMap = new HashMap<>();

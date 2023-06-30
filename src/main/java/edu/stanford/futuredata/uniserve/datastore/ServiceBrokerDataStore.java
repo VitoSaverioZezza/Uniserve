@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-class ServiceBrokerDataStore<R extends Row, S extends Shard<R>> extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
+class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataStoreGrpc.BrokerDataStoreImplBase {
 
     private static final Logger logger = LoggerFactory.getLogger(ServiceBrokerDataStore.class);
     private final DataStore<R, S> dataStore;

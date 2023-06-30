@@ -13,7 +13,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public class KVShard implements Shard<KVRow> {
+public class KVShard implements Shard {
     private static final Logger logger = LoggerFactory.getLogger(KVShard.class);
 
     public final Map<Integer, Integer> KVMap;

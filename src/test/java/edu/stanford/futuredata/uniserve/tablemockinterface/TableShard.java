@@ -8,7 +8,7 @@ import java.io.*;
 import java.nio.file.Path;
 import java.util.*;
 
-public class TableShard implements Shard<TableRow> {
+public class TableShard implements Shard {
     private static final Logger logger = LoggerFactory.getLogger(TableShard.class);
 
     public final List<Map<String, Integer>> table;

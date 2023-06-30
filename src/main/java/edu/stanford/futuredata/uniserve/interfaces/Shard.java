@@ -12,7 +12,7 @@ import java.util.Optional;
  *  -The shardToData method will never run at the same time as a write operation
  *  -Reads may run at any time.
  *  */
-public interface Shard<R extends Row>{
+public interface Shard{
     /**@return the amount of memory this shard uses in kilobytes.*/
     int getMemoryUsage();
     /**Destroy the shard data and related processes. After this method terminates, the shard is no longer usable.*/

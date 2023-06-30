@@ -42,7 +42,7 @@ public class Utilities {
         return ByteString.copyFrom(bos.toByteArray());
     }
 
-    public static Object byteStringToObject(ByteString b) {
+    public static Object byteStringToObject(ByteString b){
         ByteArrayInputStream bis = new ByteArrayInputStream(b.toByteArray());
         Object obj = null;
         try {
@@ -55,22 +55,30 @@ public class Utilities {
             try {
                 URLClassLoader classLoader = URLClassLoader.newInstance(new URL[]{new File(jarPath).toURI().toURL()});
                 Class<?> myInterfaceImplementationClass = classLoader.loadClass(className);
+                bis = new ByteArrayInputStream(b.toByteArray());
+                ObjectInputStream in = new ObjectInputStream(bis) {
+                    @Override
+                    protected Class<?> resolveClass(ObjectStreamClass desc) throws IOException, ClassNotFoundException {
+                        return Class.forName(desc.getName(), false, classLoader);
+                    }
+                };
+                obj = in.readObject();
+                in.close();
+                return obj;
+                /*
                 Object myInterfaceImplObject = myInterfaceImplementationClass.newInstance();
                 return myInterfaceImplObject;
+                 */
             }catch (MalformedURLException m){
                 m.printStackTrace();
             } catch (ClassNotFoundException e) {
                 e.printStackTrace();
-            } catch (InstantiationException e) {
-                e.printStackTrace();
-            } catch (IllegalAccessException e) {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
             return null;
         }catch (IOException e){
             e.printStackTrace();
-            logger.error("Deserialization Failed {} {}", b, e);
-            assert(false);
         }
         return obj;
     }

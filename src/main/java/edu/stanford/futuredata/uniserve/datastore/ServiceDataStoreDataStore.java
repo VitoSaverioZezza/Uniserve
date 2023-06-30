@@ -368,7 +368,8 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard<R>> extends DataS
 
         long txID = m.getTxID();
         int shardNum = m.getShardNum();
-        ShuffleOnReadQueryPlan<S, Object> plan = (ShuffleOnReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+        ShuffleOnReadQueryPlan<S, Object> plan=(ShuffleOnReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
+
         Pair<Long, Integer> mapID = new Pair<>(txID, shardNum);
         dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).readerLockLock();
@@ -410,7 +411,19 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard<R>> extends DataS
         /*Each datastore retrieves the results of the scatter associated with its ID and sends them back to the client*/
 
         Map<Integer, List<ByteString>> scatterResult = txShuffledData.get(mapID);
+        if(scatterResult == null){
+            responseObserver.onNext(ShuffleResponse
+                    .newBuilder().setReturnCode(Broker.READ_NON_EXISTING_SHARD).build());
+            responseObserver.onCompleted();
+            return;
+        }
         List<ByteString> ephemeralData = scatterResult.get(m.getRepartitionNum());
+        if(ephemeralData == null){
+            responseObserver.onNext(ShuffleResponse
+                    .newBuilder().setReturnCode(Broker.READ_NON_EXISTING_SHARD).build());
+            responseObserver.onCompleted();
+            return;
+        }
         scatterResult.remove(m.getRepartitionNum());  // TODO: Make reliable--what if map immutable?.
         if (scatterResult.isEmpty()) {
             txShuffledData.remove(mapID);

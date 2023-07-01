@@ -94,7 +94,6 @@ class DataStoreCurator {
     void setZKShardDescription(int shard, String cloudName, int versionNumber) {
         try {
             String path = String.format("/shardMapping/%d", shard);
-            logger.info("setZKShardDescription for path: {}", path);
             ZKShardDescription zkShardDescription = new ZKShardDescription(cloudName, versionNumber);
             byte[] data = zkShardDescription.stringSummary.getBytes();
             if (cf.checkExists().forPath(path) != null) {

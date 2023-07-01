@@ -303,8 +303,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
             private WriteQueryResponse executeWriteQuery(int shardNum, long txID, SimpleWriteQueryPlan<R, S> writeQueryPlan) {
                 if (dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
-                    logger.info("Before DataStore.ensureShardCached for shard {} in ServiceBrokerDS.SimpleWQ", shardNum);
-
                     dataStore.ensureShardCached(shardNum);
                     S shard = dataStore.shardMap.get(shardNum);
                     assert(shard != null);
@@ -325,7 +323,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     dataStore.shardVersionMap.put(shardNum, newVersionNumber);  // Increment version number
                     // Upload the updated shard.
                     if (dataStore.dsCloud != null) {
-                        logger.info("uploading shard {} on cloud", shardNum);
+                        //logger.info("uploading shard {} on cloud", shardNum);
                         dataStore.uploadShardToCloud(shardNum);
                     }
 

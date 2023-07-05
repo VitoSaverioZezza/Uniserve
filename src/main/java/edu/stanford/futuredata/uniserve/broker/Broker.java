@@ -254,25 +254,25 @@ public class Broker {
     }
 
     /*VOLATILE OPERATIONS*/
-    public<R extends Row, V> V volatileShuffleQuery(VolatileShuffleQueryPlan<R,V> plan, List<R> rows){
+    public<V> V volatileShuffleQuery(VolatileShuffleQueryPlan<V> plan, List<Row> rows){
         long txID = txIDs.getAndIncrement();
 
         /* Map shardID to rows, this mapping will be used to determine which actor will store the volatile
          * raw data to be later shuffled */
 
-        Map<Integer, List<R>> shardRowListMap = new HashMap<>();
+        Map<Integer, List<Row>> shardRowListMap = new HashMap<>();
         TableInfo tableInfo = getTableInfo(plan.getQueriedTables());
-        for (R row: rows) {
+        for (Row row: rows) {
             int partitionKey = row.getPartitionKey();
             assert(partitionKey >= 0);
             int shard = keyToShard(tableInfo.id, tableInfo.numShards, partitionKey);
             shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
         }
-        Map<Integer, R[]> shardRowArrayMap =
+        Map<Integer, Row[]> shardRowArrayMap =
                 shardRowListMap
                         .entrySet()
                         .stream()
-                        .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
+                        .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((Row[]) new Row[0])));
 
         /* Send the raw data to the actors that will keep them in memory for later shuffling operation. The
          * ids of the actors storing the raw data are added to the dsIDsScatter list. Proceed once all data has
@@ -281,14 +281,14 @@ public class Broker {
          * of serialized arrays of Rows, the same ones prepared in the thread (List<Serialized(R[])>)
          * */
 
-        List<StoreVolatileDataThread<R>> storeVolatileDataThreads = new ArrayList<>();
+        List<StoreVolatileDataThread<Row>> storeVolatileDataThreads = new ArrayList<>();
         AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
         List<Integer> dsIDsScatter = new ArrayList<>();
         for (Integer shardNum: shardRowArrayMap.keySet()) {
-            R[] rowArray = shardRowArrayMap.get(shardNum);
+            Row[] rowArray = shardRowArrayMap.get(shardNum);
             Integer dsID = consistentHash.getRandomBucket(shardNum);
             if(!dsIDsScatter.contains(dsID)){dsIDsScatter.add(dsID);}
-            StoreVolatileDataThread<R> t = new StoreVolatileDataThread<>(
+            StoreVolatileDataThread<Row> t = new StoreVolatileDataThread<>(
                     dsID,
                     txID,
                     rowArray,
@@ -297,7 +297,7 @@ public class Broker {
             t.start();
             storeVolatileDataThreads.add(t);
         }
-        for (StoreVolatileDataThread<R> t: storeVolatileDataThreads) {
+        for (StoreVolatileDataThread<Row> t: storeVolatileDataThreads) {
             try {
                 t.join();
             } catch (InterruptedException e) {
@@ -322,14 +322,14 @@ public class Broker {
          * shuffled and raw data associated to this transaction is deleted from the memory of the actors.
          * */
 
-        List<ScatterVolatileDataThread<R,V>> scatterVolatileDataThreads = new ArrayList<>();
+        List<ScatterVolatileDataThread<Row,V>> scatterVolatileDataThreads = new ArrayList<>();
         List<Integer> gatherDSids = Collections.synchronizedList(new ArrayList<>());
         for(Integer dsID: dsIDsScatter){
-            ScatterVolatileDataThread<R,V> t = new ScatterVolatileDataThread<R,V>(dsID, txID, gatherDSids, queryStatus, plan);
+            ScatterVolatileDataThread<Row,V> t = new ScatterVolatileDataThread<Row,V>(dsID, txID, gatherDSids, queryStatus, plan);
             t.start();
             scatterVolatileDataThreads.add(t);
         }
-        for(ScatterVolatileDataThread<R,V> t: scatterVolatileDataThreads){
+        for(ScatterVolatileDataThread<Row,V> t: scatterVolatileDataThreads){
             try {
                 t.join();
             }catch (InterruptedException e ){
@@ -354,14 +354,14 @@ public class Broker {
          * If one gather fails, all volatile data is deleted.
          * */
 
-        List<GatherVolatileDataThread<R,V>> gatherVolatileDataThreads = new ArrayList<>();
+        List<GatherVolatileDataThread<Row,V>> gatherVolatileDataThreads = new ArrayList<>();
         List<ByteString> gatherResults = Collections.synchronizedList(new ArrayList<>());
         for(Integer dsID: gatherDSids){
-            GatherVolatileDataThread<R,V> t = new GatherVolatileDataThread<R,V>(dsID, txID, gatherResults, queryStatus, plan);
+            GatherVolatileDataThread<Row,V> t = new GatherVolatileDataThread<Row,V>(dsID, txID, gatherResults, queryStatus, plan);
             t.start();
             gatherVolatileDataThreads.add(t);
         }
-        for(GatherVolatileDataThread<R,V> t: gatherVolatileDataThreads){
+        for(GatherVolatileDataThread<Row,V> t: gatherVolatileDataThreads){
             try {
                 t.join();
             }catch (InterruptedException e){
@@ -1178,14 +1178,14 @@ public class Broker {
         private final List<Integer> gatherDSlist;
         private final AtomicInteger queryStatus;
         private final Integer dsID;
-        private final VolatileShuffleQueryPlan<R, V> plan;
+        private final VolatileShuffleQueryPlan<V> plan;
 
         public ScatterVolatileDataThread(
                 Integer dsID,
                 long txID,
                 List<Integer> gatherDSlist,
                 AtomicInteger queryStatus,
-                VolatileShuffleQueryPlan<R, V> plan){
+                VolatileShuffleQueryPlan<V> plan){
             this.gatherDSlist = gatherDSlist;
             this.queryStatus = queryStatus;
             this.txID = txID;
@@ -1226,13 +1226,13 @@ public class Broker {
         private final long txID;
         private final List<ByteString> gatherResults;
         private final AtomicInteger queryStatus;
-        private final VolatileShuffleQueryPlan<R,V> plan;
+        private final VolatileShuffleQueryPlan<V> plan;
 
         public GatherVolatileDataThread(Integer dsID,
                                  long txID,
                                  List<ByteString> gatherResults,
                                  AtomicInteger queryStatus,
-                                 VolatileShuffleQueryPlan<R,V> plan){
+                                 VolatileShuffleQueryPlan<V> plan){
             this.dsID=dsID;
             this.txID=txID;
             this.gatherResults=gatherResults;

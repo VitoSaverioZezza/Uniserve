@@ -397,7 +397,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             dataStore.ensureShardCached(shardNum);
             S shard = dataStore.shardMap.get(shardNum);
             assert (shard != null);
-            Map<Integer, List<ByteString>> scatterResult = plan.scatter(shard, m.getNumRepartition());
+            Map<Integer, List<ByteString>> scatterResult = plan.scatter(shard, m.getNumRepartition(), m.getTableName());
             if(scatterResult != null) {
                 txShuffledData.put(mapID, scatterResult);
             }

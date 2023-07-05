@@ -10,27 +10,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class KVQueryEngine implements QueryEngine {
     private Broker broker;
-    private List<KVRow> data;
+    private List<Row> data;
 
 
     public void setBroker(Broker broker) {
         this.broker = broker;
     }
 
-    public void setData(List<KVRow> data){
+    public void setData(List<Row> data){
         this.data = data;
     }
 
     public int filterAndAverage(boolean filterOnWrite, boolean averageOnWrite){
         //at the end intermediateFilter table contains intermediate results of the filter query
-        List<KVRow> filteredData;
+        List filteredData;
         if(!filterOnWrite){
-            WriteQueryPlan<KVRow, KVShard> insertRawDataPlan = new KVWriteQueryPlanInsert("filterAndAverageRaw");
+            WriteQueryPlan insertRawDataPlan = new KVWriteQueryPlanInsert("filterAndAverageRaw");
             broker.writeQuery(insertRawDataPlan, data);
             AnchoredReadQueryPlan<KVShard, List<KVRow>> filterStoredDataPlan = new KVFilterOnRead();
             filteredData = broker.anchoredReadQuery(filterStoredDataPlan);
         }else{
-            VolatileShuffleQueryPlan<KVRow, List<KVRow>> filterVolatileDataPlan = new KVFilterOnWrite();
+            VolatileShuffleQueryPlan<List<KVRow>> filterVolatileDataPlan = new KVFilterOnWrite();
             filteredData = broker.volatileShuffleQuery(filterVolatileDataPlan, data);
         }
 
@@ -40,8 +40,8 @@ public class KVQueryEngine implements QueryEngine {
             AnchoredReadQueryPlan<KVShard, Integer> averageOnReadPlan = new KVAverageRead();
             return broker.anchoredReadQuery(averageOnReadPlan);
         }else{
-            VolatileShuffleQueryPlan<KVRow, Integer> averageOnWritePlan = new KVVolatileAverage();
-            return broker.volatileShuffleQuery(averageOnWritePlan, filteredData);
+            VolatileShuffleQueryPlan averageOnWritePlan = new KVVolatileAverage();
+            return (Integer) broker.volatileShuffleQuery(averageOnWritePlan, filteredData);
         }
     }
 }

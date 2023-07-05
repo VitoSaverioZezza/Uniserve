@@ -9,7 +9,7 @@ import org.javatuples.Pair;
 
 import java.util.*;
 
-public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<TableRow, Integer> {
+public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<Integer> {
 
     private final String table;
 
@@ -25,12 +25,13 @@ public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<T
     }
 
     @Override
-    public Map<Integer, List<ByteString>> scatter(List<TableRow> data, int actorCount) {
+    public Map<Integer, List<ByteString>> scatter(List<Object> data, int actorCount) {
         Map<Integer, ArrayList<Map<String, Integer>>> partitionedTables = new HashMap<>();
         /*
          * Map < Hash(row.v) % numActors,  List < rows having the same key > >
          * */
-        for (TableRow row: data) {
+        for (Object r : data) {
+            TableRow row = (TableRow) r;
             int partitionKey = ConsistentHash.hashFunction(row.getRow().get("v")) % actorCount;
             partitionedTables.computeIfAbsent(partitionKey, k -> new ArrayList<>()).add(row.getRow());
         }

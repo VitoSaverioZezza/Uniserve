@@ -16,7 +16,7 @@ import java.util.Map;
 
 
 /**Returns the average of all values for all keys*/
-public class KVVolatileAverage implements VolatileShuffleQueryPlan<KVRow, Integer> {
+public class KVVolatileAverage implements VolatileShuffleQueryPlan< Integer> {
     private final String table = "intermediateFilter";
     private static final Logger logger = LoggerFactory.getLogger(KVVolatileAverage.class);
 
@@ -26,10 +26,11 @@ public class KVVolatileAverage implements VolatileShuffleQueryPlan<KVRow, Intege
     }
 
     @Override
-    public Map<Integer, List<ByteString>> scatter(List<KVRow> data, int actorCount) {
+    public Map<Integer, List<ByteString>> scatter(List<Object> data, int actorCount) {
         Integer partitionKey;
         Map<Integer, List<KVRow>> rowAssignment = new HashMap<>();
-        for(KVRow row: data){
+        for(Object r: data){
+            KVRow row = (KVRow) r;
             int key = row.getKey();
             partitionKey = ConsistentHash.hashFunction(key) % actorCount;
             rowAssignment.computeIfAbsent(partitionKey, k -> new ArrayList<>()).add(row);

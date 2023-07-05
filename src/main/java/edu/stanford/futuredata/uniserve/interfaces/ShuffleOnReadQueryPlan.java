@@ -21,7 +21,7 @@ public interface ShuffleOnReadQueryPlan<S extends Shard, T> extends Serializable
      * @return a mapping between datastores id and serialized results. The results will be given as parameters for the
      * gather operation.
      * */
-    Map<Integer, List<ByteString>> scatter(S shard, int numRepartitions);
+    Map<Integer, List<ByteString>> scatter(S shard, int numRepartitions, String tableName);
     /** User-definde Gather operation
      * A gather is executed by every datastore involved in the query
      * @param ephemeralData a mapping between table identifiers and a List < ByteStrings given to the

@@ -94,6 +94,7 @@ message ShuffleMessage {
     int32 repartitionNum = 3;
     int32 numRepartition = 4;
     bytes serializedQuery = 5;
+    string tableName = 6;
 }
 
 message ShuffleResponse {

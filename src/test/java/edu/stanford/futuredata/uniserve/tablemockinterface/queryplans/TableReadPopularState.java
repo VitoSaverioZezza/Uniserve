@@ -36,7 +36,7 @@ public class TableReadPopularState implements ShuffleOnReadQueryPlan<TableShard,
     }
 
     @Override
-    public Map<Integer, List<ByteString>> scatter(TableShard shard, int numRepartitions) {
+    public Map<Integer, List<ByteString>> scatter(TableShard shard, int numRepartitions, String tableName) {
         Map<Integer, ArrayList<Map<String, Integer>>> partitionedTables = new HashMap<>();
         for (Map<String, Integer> row: shard.table) {
             int partitionKey = ConsistentHash.hashFunction(row.get("city")) % numRepartitions;

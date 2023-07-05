@@ -719,6 +719,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                         .setRepartitionNum(m.getRepartitionNum())
                         .setSerializedQuery(m.getSerializedQuery())
                         .setTxID(m.getTxID())
+                        .setTableName(tableName)
                         .build();
                 StreamObserver<ShuffleResponse> responseObserver = new StreamObserver<>() {
                     @Override
@@ -862,19 +863,22 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         /*The return message contains the state and eventually all the datastore ids to which the
         * scattered data has been sent.
         * */
-        VolatileShuffleQueryPlan<R, Object> plan = (VolatileShuffleQueryPlan<R, Object>) Utilities.byteStringToObject(message.getPlan());
+        VolatileShuffleQueryPlan<Object> plan = (VolatileShuffleQueryPlan<Object>) Utilities.byteStringToObject(message.getPlan());
         long txID = message.getTransactionID();
         List<ByteString> serializedVolatileData = dataStore.getVolatileData(txID);
-        List<R> volatileData = new ArrayList<>();
+        List<Row> volatileData = new ArrayList<>();
         int actorCount = message.getActorCount();
         for(ByteString serializedRowChunk: serializedVolatileData){
-            R[] rowChunk = (R[]) Utilities.byteStringToObject(serializedRowChunk);
-            for(R row: rowChunk){
+            Row[] rowChunk = (Row[]) Utilities.byteStringToObject(serializedRowChunk);
+            for(Row row: rowChunk){
                 volatileData.add(row);
             }
         }
-
-        Map<Integer, List<ByteString>> scatterResults = plan.scatter(volatileData, actorCount);
+        List<Object> vData = new ArrayList<>();
+        for(Row row: volatileData){
+            vData.add(row);
+        }
+        Map<Integer, List<ByteString>> scatterResults = plan.scatter(vData, actorCount);
         AtomicInteger shuffleStatus = new AtomicInteger(0);
         List<ForwardScatterResultsThread> forwardScatterResultsThreads = new ArrayList<>();
 
@@ -942,7 +946,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         /*The return message contains the state and eventually all the datastore ids to which the
          * scattered data has been sent.
          * */
-        VolatileShuffleQueryPlan<R,Object> plan = (VolatileShuffleQueryPlan<R, Object>) Utilities.byteStringToObject(message.getPlan());
+        VolatileShuffleQueryPlan<Object> plan = (VolatileShuffleQueryPlan<Object>) Utilities.byteStringToObject(message.getPlan());
         long txID = message.getTransactionID();
         List<ByteString> scatterResults = dataStore.getVolatileScatterData(txID);
         ByteString gatherResult = plan.gather(scatterResults);

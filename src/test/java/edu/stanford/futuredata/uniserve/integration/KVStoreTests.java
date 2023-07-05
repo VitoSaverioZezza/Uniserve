@@ -1,6 +1,5 @@
 package edu.stanford.futuredata.uniserve.integration;
 
-import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
@@ -13,11 +12,14 @@ import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.*;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
+import edu.stanford.futuredata.uniserve.queryapi.predicates.EquiJoinLambda;
+import edu.stanford.futuredata.uniserve.queryapi.predicates.ExtractLambda;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
+import org.javatuples.Pair;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -1106,7 +1108,7 @@ public class KVStoreTests {
         broker.createTable("intermediateFilter", numShards);
 
         int expectedResult, result, sum=0;
-        List<KVRow> rawData = new ArrayList<>();
+        List<Row> rawData = new ArrayList<>();
         for (int i = 1; i < 20; i++) {
             rawData.add(new KVRow(i, i));
         }
@@ -1153,5 +1155,89 @@ public class KVStoreTests {
         } catch (IOException e) {
             assert(false);
         }
+    }
+
+    @Test
+    public void testJoin(){
+        logger.info("testQueryEngine");
+        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7778);
+        coordinator.runLoadBalancerDaemon = false;
+
+        coordinator.startServing();
+        LocalDataStoreCloud ldsc1 = new LocalDataStoreCloud();
+        DataStore<KVRow, KVShard>  dataStoreOne = new DataStore<>(ldsc1,
+                new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 1)), zkHost, zkPort, "127.0.0.1", 8200, -1, false
+        );
+        dataStoreOne.runPingDaemon = false;
+        dataStoreOne.startServing();
+
+        LocalDataStoreCloud ldsc2 = new LocalDataStoreCloud();
+        DataStore<KVRow, KVShard>  dataStoreTwo = new DataStore<>(ldsc2,
+                new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 2)), zkHost, zkPort, "127.0.0.1", 8201, -1, false
+        );
+        dataStoreTwo.runPingDaemon = false;
+        assertTrue(dataStoreTwo.startServing());
+
+        Broker broker = new Broker(zkHost, zkPort,null);
+
+        List<KVRow> rows1 = new ArrayList<>();
+        List<KVRow> rows2 = new ArrayList<>();
+        for(int i = 0; i < 10; i++){
+            rows1.add(new KVRow(i, i+1));
+            rows2.add(new KVRow(i, i+2));
+        }
+        broker.createTable("TableOne", 2);
+        broker.createTable("TableTwo", 2);
+        SimpleWriteQueryPlan<KVRow, KVShard> queryPlan1 = new KVSimpleWriteQueryPlanInsert("TableOne");
+        SimpleWriteQueryPlan<KVRow, KVShard> queryPlan2 = new KVSimpleWriteQueryPlanInsert("TableTwo");
+        broker.simpleWriteQuery(queryPlan1, rows1);
+        broker.simpleWriteQuery(queryPlan2, rows2);
+
+
+        ExtractLambda<KVShard, List<Pair<Object, Object>>> extractLambda = (KVShard shard) -> {
+            List<Pair<Object, Object>> d = new ArrayList<>();
+            List<KVRow> e = shard.getData();
+            for(KVRow row: e){
+                d.add(new Pair<>(row.getKey(), row));
+            }
+            return d;
+        };
+
+        EquiJoinLambda<Object, Object> equiJoinLambda = Object::equals;
+
+        List<Pair<Object, Object>> res =
+
+                new ArrayList<>();
+                /*
+                broker.shuffleReadQuery(new JoinOnReadQuery<KVShard>("TableOne", "TableTwo",
+                        Map.of("TableOne", List.of(-1), "TableTwo", List.of(-1)),
+                        extractLambda,
+                        extractLambda
+                        ));
+*/
+        for(Pair<Object, Object> pair: res ){
+            KVRow r1 = (KVRow) pair.getValue0();
+            KVRow r2 = (KVRow) pair.getValue1();
+            System.out.println("Key: " + r1.getKey() + " Values: " + r1.getValue() + " " + r2.getValue());
+        }
+
+        System.out.println("\n\n\n\n");
+
+        for(Pair<Object, Object> pair: res ){
+            KVRow r1 = (KVRow) pair.getValue0();
+            KVRow r2 = (KVRow) pair.getValue1();
+            System.out.println("Key: " + r1.getKey() + " Values: " + r1.getValue() + " " + r2.getValue());
+        }
+
+        try {
+            ldsc1.clear();
+            ldsc2.clear();
+        }catch (Exception e){
+            ;
+        }
+        broker.shutdown();
+        dataStoreOne.shutDown();
+        dataStoreTwo.shutDown();
+        coordinator.stopServing();
     }
 }

@@ -820,8 +820,21 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                  volatileData.add(message.getData());
                  txID = message.getTransactionID();
              } else if (message.getState() == DataStore.COMMIT) {
+                 List<Row> rows = new ArrayList<>();
                  for (ByteString rowChunk : volatileData) {
-                     success.set(dataStore.addVolatileData(txID, rowChunk) && success.get());
+                     Row[] desRowArray = (Row[])Utilities.byteStringToObject(rowChunk);
+                     for(Row row: desRowArray){
+                         rows.add(row);
+                     }
+                 }
+                 S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
+                 if(ephemeralShard == null){
+                     logger.error("Ephemeral shard creation failed");
+                 }
+                 VolatileShuffleQueryPlan<Object> plan = (VolatileShuffleQueryPlan<Object>) Utilities.byteStringToObject(message.getPlan());
+                 success.set(plan.write(ephemeralShard, rows));
+                 if(success.get()){
+                     success.set(dataStore.addVolatileData(txID, ephemeralShard) && success.get());
                  }
                  if (success.get()) {
                      responseObserver.onNext(StoreVolatileDataResponse.newBuilder().setState(Broker.QUERY_SUCCESS).build());
@@ -865,9 +878,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         * */
         VolatileShuffleQueryPlan<Object> plan = (VolatileShuffleQueryPlan<Object>) Utilities.byteStringToObject(message.getPlan());
         long txID = message.getTransactionID();
-        List<ByteString> serializedVolatileData = dataStore.getVolatileData(txID);
         List<Row> volatileData = new ArrayList<>();
         int actorCount = message.getActorCount();
+        /*
+        List<R> serializedVolatileData = dataStore.getVolatileData(txID);
         for(ByteString serializedRowChunk: serializedVolatileData){
             Row[] rowChunk = (Row[]) Utilities.byteStringToObject(serializedRowChunk);
             for(Row row: rowChunk){
@@ -879,6 +893,19 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             vData.add(row);
         }
         Map<Integer, List<ByteString>> scatterResults = plan.scatter(vData, actorCount);
+
+        */
+        List<Shard> volatileShards = dataStore.getVolatileData(txID);
+        Map<Integer, List<ByteString>> scatterResults = new HashMap<>();
+        for(Shard shard: volatileShards){
+            Map<Integer, List<ByteString>> shardsScatterResults = plan.scatter(shard, actorCount);
+            for(Map.Entry<Integer, List<ByteString>> entry: shardsScatterResults.entrySet()){
+                scatterResults.computeIfAbsent(entry.getKey(), k->new ArrayList<>());
+                for(ByteString item: entry.getValue()){
+                    scatterResults.get(entry.getKey()).add(item);
+                }
+            }
+        }
         AtomicInteger shuffleStatus = new AtomicInteger(0);
         List<ForwardScatterResultsThread> forwardScatterResultsThreads = new ArrayList<>();
 

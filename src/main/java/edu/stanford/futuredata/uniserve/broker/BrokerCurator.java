@@ -56,6 +56,72 @@ public class BrokerCurator {
             assert(false);
         }
     }
+
+    void writeTxID(long txID){
+        try {
+            String path = "/txID";
+            byte[] data = ByteBuffer.allocate(8).putLong(txID).array();
+            if (cf.checkExists().forPath(path) != null) {
+                cf.setData().forPath(path, data);
+            } else {
+                cf.create().forPath(path, data);
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+        }
+    }
+
+    Long getTxID(){
+        try {
+            String path = "/txID";
+            if (cf.checkExists().forPath(path) != null) {
+                byte[] b = cf.getData().forPath(path);
+                long txID = ByteBuffer.wrap(b).getLong();
+                long incrTxID = txID+1;
+                writeTxID(incrTxID);
+                return txID;
+            } else {
+                return null;
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
+        }
+    }
+
+    void writeLastCommittedVersion(long lcv){
+        try {
+            String path = "/lastCommittedVersion";
+            byte[] data = ByteBuffer.allocate(4).putLong(lcv).array();
+            if (cf.checkExists().forPath(path) != null) {
+                cf.setData().forPath(path, data);
+            } else {
+                cf.create().forPath(path, data);
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+        }
+    }
+
+    Long getLastCommittedVersion(){
+        try {
+            String path = "/lastCommittedVersion";
+            if (cf.checkExists().forPath(path) != null) {
+                byte[] b = cf.getData().forPath(path);
+                return ByteBuffer.wrap(b).getLong();
+            } else {
+                return null;
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
+        }
+    }
+
     Optional<Pair<String, Integer>> getMasterLocation() {
         try {
             String path = "/coordinator_host_port";
@@ -72,6 +138,7 @@ public class BrokerCurator {
             return null;
         }
     }
+
     ConsistentHash getConsistentHashFunction() {
         try {
             String path = "/consistentHash";
@@ -91,7 +158,6 @@ public class BrokerCurator {
             logger.error("WriteLock Acquire Error: {}", e.getMessage());
         }
     }
-
     void releaseWriteLock() {
         try {
             lock.release();
@@ -99,7 +165,6 @@ public class BrokerCurator {
             logger.error("WriteLock Release Error: {}", e.getMessage());
         }
     }
-
 }
 
 

@@ -31,6 +31,8 @@ public class SelectQuery<S extends Shard> implements RetrieveAndCombineQueryPlan
         return keysForQuery;
     }
 
+    //Serialized Object[] with a single element in pos 0
+    //said element is an ArrayList of Object->Row->KVRow
     @Override
     public ByteString retrieve(S s) {
         Object[] obj = new Object[]{extract(s)};
@@ -41,9 +43,11 @@ public class SelectQuery<S extends Shard> implements RetrieveAndCombineQueryPlan
     public List<Object> combine(Map<String, List<ByteString>> map) {
         List<ByteString> serRetrievedResults = map.get(tableName);
         List<Object> retrievedResults = new ArrayList<>();
+
         for(ByteString serRetArray: serRetrievedResults){
             Object[] objArray = (Object[]) Utilities.byteStringToObject(serRetArray);
-            retrievedResults.add(objArray[0]);
+            List<Object> results = (List<Object>) objArray[0];
+            retrievedResults.addAll(results);
         }
         return retrievedResults;
     }
@@ -56,6 +60,7 @@ public class SelectQuery<S extends Shard> implements RetrieveAndCombineQueryPlan
         this.extractFromShardLambda = extractFromShardLambda;
     }
 
+    //ARRAYLIST of Object->rows->kvrows
     private Object extract(S shard){
         return ((ExtractFromShardLambda<S, Object>) extractFromShardLambda).extract(shard);
     }

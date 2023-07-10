@@ -1,11 +1,15 @@
 package edu.stanford.futuredata.uniserve.tablemockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.interfaces.Row;
+import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.VolatileShuffleQueryPlan;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableRow;
+import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.javatuples.Pair;
+import org.w3c.dom.UserDataHandler;
 
 import java.util.*;
 
@@ -25,11 +29,12 @@ public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<I
     }
 
     @Override
-    public Map<Integer, List<ByteString>> scatter(List<Object> data, int actorCount) {
+    public Map<Integer, List<ByteString>> scatter(Shard d, int actorCount) {
         Map<Integer, ArrayList<Map<String, Integer>>> partitionedTables = new HashMap<>();
         /*
          * Map < Hash(row.v) % numActors,  List < rows having the same key > >
          * */
+        List data = ((TableShard) d).getData();
         for (Object r : data) {
             TableRow row = (TableRow) r;
             int partitionKey = ConsistentHash.hashFunction(row.getRow().get("v")) % actorCount;
@@ -103,5 +108,18 @@ public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<I
             }
         }
         return maxKey;
+    }
+
+    @Override
+    public void setTableName(String tableName) {
+        ;
+    }
+
+    @Override
+    public boolean write(Shard s, List<Row> data) {
+        TableShard shard = (TableShard) s;
+        shard.setRows((List) data);
+        shard.insertRows();
+        return true;
     }
 }

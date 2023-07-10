@@ -37,21 +37,6 @@ public class TableShard implements Shard {
     @Override
     public void destroy() {}
 
-
-    public List<TableRow> getData() {
-        return null;
-    }
-
-
-    public void setRows(List<TableRow> rows) {
-
-    }
-
-
-    public void insertRows() {
-
-    }
-
     /**@return the number of row entries in the shard*/
     @Override
     public int getMemoryUsage() {
@@ -77,4 +62,16 @@ public class TableShard implements Shard {
         return Optional.of(shardPath);
     }
 
+    public List<TableRow> data = new ArrayList<>();
+
+    public void setRows(List<TableRow> data) {
+        this.data = data;
+    }
+
+    public void insertRows() {
+    }
+
+    public List<TableRow> getData() {
+        return this.data;
+    }
 }

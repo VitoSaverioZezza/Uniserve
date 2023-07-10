@@ -1,8 +1,11 @@
 package edu.stanford.futuredata.uniserve.kvmockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.interfaces.Row;
+import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.VolatileShuffleQueryPlan;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
+import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.javatuples.Pair;
@@ -17,7 +20,7 @@ import java.util.Map;
 
 /**Returns the average of all values for all keys*/
 public class KVVolatileAverage implements VolatileShuffleQueryPlan< Integer> {
-    private final String table = "intermediateFilter";
+    private String table = "intermediateFilter";
     private static final Logger logger = LoggerFactory.getLogger(KVVolatileAverage.class);
 
     @Override
@@ -26,6 +29,27 @@ public class KVVolatileAverage implements VolatileShuffleQueryPlan< Integer> {
     }
 
     @Override
+    public Map<Integer, List<ByteString>> scatter(Shard shard, int actorCount) {
+        List<KVRow> data = ((KVShard) shard).getData();
+        Integer partitionKey;
+        Map<Integer, List<KVRow>> rowAssignment = new HashMap<>();
+        for(Object r: data){
+            KVRow row = (KVRow) r;
+            int key = row.getKey();
+            partitionKey = ConsistentHash.hashFunction(key) % actorCount;
+            rowAssignment.computeIfAbsent(partitionKey, k -> new ArrayList<>()).add(row);
+        }
+        Map<Integer, List<ByteString>> serializedRowAssignment = new HashMap<>();
+        for(Map.Entry<Integer, List<KVRow>> entry: rowAssignment.entrySet()){
+            for(KVRow row: entry.getValue()){
+                ByteString serializedRow = Utilities.objectToByteString(row);
+                serializedRowAssignment.computeIfAbsent(entry.getKey(), k -> new ArrayList<>()).add(serializedRow);
+            }
+        }
+        return serializedRowAssignment;
+    }
+
+
     public Map<Integer, List<ByteString>> scatter(List<Object> data, int actorCount) {
         Integer partitionKey;
         Map<Integer, List<KVRow>> rowAssignment = new HashMap<>();
@@ -76,5 +100,17 @@ public class KVVolatileAverage implements VolatileShuffleQueryPlan< Integer> {
         }
         int average = totalSum / totalCount;
         return average;
+    }
+
+    @Override
+    public void setTableName(String tableName) {
+        this.table = "intermediateFilter";
+    }
+
+    @Override
+    public boolean write(Shard shard, List<Row> data) {
+        ((KVShard) shard).setRows((List)data);
+        ((KVShard) shard).insertRows();
+        return true;
     }
 }

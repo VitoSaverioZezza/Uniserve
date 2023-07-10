@@ -4,34 +4,38 @@ import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.kvmockinterface.queryplans.*;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class KVQueryEngine implements QueryEngine {
     private Broker broker;
-    private List<Row> data;
+    private List<KVRow> data;
 
 
     public void setBroker(Broker broker) {
         this.broker = broker;
     }
 
-    public void setData(List<Row> data){
+    public void setData(List<KVRow> data){
         this.data = data;
     }
 
     public int filterAndAverage(boolean filterOnWrite, boolean averageOnWrite){
         //at the end intermediateFilter table contains intermediate results of the filter query
-        List filteredData;
+        List<KVRow> filteredData;
         if(!filterOnWrite){
-            WriteQueryPlan insertRawDataPlan = new KVWriteQueryPlanInsert("filterAndAverageRaw");
+            WriteQueryPlan<KVRow, KVShard> insertRawDataPlan = new KVWriteQueryPlanInsert("filterAndAverageRaw");
             broker.writeQuery(insertRawDataPlan, data);
             AnchoredReadQueryPlan<KVShard, List<KVRow>> filterStoredDataPlan = new KVFilterOnRead();
             filteredData = broker.anchoredReadQuery(filterStoredDataPlan);
         }else{
             VolatileShuffleQueryPlan<List<KVRow>> filterVolatileDataPlan = new KVFilterOnWrite();
-            filteredData = broker.volatileShuffleQuery(filterVolatileDataPlan, data);
+            List<Row> data1 = new ArrayList<>();
+            data1.addAll(data);
+            filteredData = broker.volatileShuffleQuery(filterVolatileDataPlan, data1);
+
         }
 
         if(!averageOnWrite){
@@ -40,8 +44,10 @@ public class KVQueryEngine implements QueryEngine {
             AnchoredReadQueryPlan<KVShard, Integer> averageOnReadPlan = new KVAverageRead();
             return broker.anchoredReadQuery(averageOnReadPlan);
         }else{
-            VolatileShuffleQueryPlan averageOnWritePlan = new KVVolatileAverage();
-            return (Integer) broker.volatileShuffleQuery(averageOnWritePlan, filteredData);
+            VolatileShuffleQueryPlan<Integer> averageOnWritePlan = new KVVolatileAverage();
+            List<Row> filteredData1 = new ArrayList<>();
+            filteredData1.addAll(filteredData);
+            return broker.volatileShuffleQuery(averageOnWritePlan, filteredData1);
         }
     }
 }

@@ -11,7 +11,7 @@ import org.javatuples.Pair;
 import java.io.Serializable;
 import java.util.*;
 
-public class JoinOnReadSecondIteration<S extends Shard> implements ShuffleOnReadQueryPlan<S, List<Object>> {
+public class JoinOperator<S extends Shard> implements ShuffleOnReadQueryPlan<S, List<Object>> {
     private final String tableOne;
     private final String tableTwo;
     private final Map<String, List<Integer>> keysForQuery = new HashMap<>();
@@ -25,7 +25,7 @@ public class JoinOnReadSecondIteration<S extends Shard> implements ShuffleOnRead
     private Serializable serEDOne;
     private Serializable serEDTwo;
 
-    public JoinOnReadSecondIteration(String tableOne, String tableTwo){
+    public JoinOperator(String tableOne, String tableTwo){
         this.tableOne = tableOne;
         this.tableTwo = tableTwo;
         keysForQuery.put(tableOne, List.of(-1));

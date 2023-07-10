@@ -80,7 +80,7 @@ public class DataStore<R extends Row, S extends Shard> {
     public static final int COMMIT = 2;
     public static final int ABORT = 3;
 
-    private final Map<Long, List<ByteString>> volatileData = new ConcurrentHashMap<>();
+    private final Map<Long, List<Shard>> volatileData = new ConcurrentHashMap<>();
     private final Map<Long, List<ByteString>> volatileScatterData = new ConcurrentHashMap<>();
 
     ConsistentHash consistentHash;
@@ -376,15 +376,13 @@ public class DataStore<R extends Row, S extends Shard> {
 
     /** retrieves serialized R[] objects given the transaction identifier
      * @return List < Serialized(R[])>*/
-    public List<ByteString> getVolatileData(long transactionID){
+    public List<Shard> getVolatileData(long transactionID){
         return volatileData.get(transactionID);
     }
-    /** Stores serialized R[] objects to be later retrieved given the transaction identifier*/
-
-
-    public boolean addVolatileData(long transactionID, ByteString data){
+    public boolean addVolatileData(long transactionID, Shard data){
         try{
             volatileData.computeIfAbsent(transactionID, k -> new ArrayList<>()).add(data);
+            logger.info("Volatile shard stored");
             return true;
         }catch (Exception e){
             logger.warn("Impossible to store volatile data for DS {} transaction {}", dsID, transactionID);
@@ -392,12 +390,16 @@ public class DataStore<R extends Row, S extends Shard> {
         }
     }
     public void removeVolatileData(long transactionID){
+        List<Shard> shards = volatileData.get(transactionID);
+        if(shards != null){
+            for(Shard shard: shards){
+                shard.destroy();
+            }
+        }
         volatileData.remove(transactionID);
     }
 
     public List<ByteString> getVolatileScatterData(long transactionID){return volatileScatterData.get(transactionID);}
-
-
     public boolean addVolatileScatterData(long transactionID, ByteString data){
         try{
             volatileScatterData.computeIfAbsent(transactionID, k -> new ArrayList<>()).add(data);

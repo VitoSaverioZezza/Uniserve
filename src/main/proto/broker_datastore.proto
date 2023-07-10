@@ -63,6 +63,7 @@ message StoreVolatileDataMessage{
     int64 transactionID = 1;
     bytes data = 2;
     int32 state = 3;
+    bytes plan = 4;
 }
 message StoreVolatileDataResponse{
     int32 state = 1;

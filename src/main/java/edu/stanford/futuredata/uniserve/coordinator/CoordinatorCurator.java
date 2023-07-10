@@ -11,6 +11,9 @@ import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.BufferOverflowException;
+import java.nio.ByteBuffer;
+
 class CoordinatorCurator {
     // TODO:  Figure out what to actually do when ZK fails.
     private static final Logger logger = LoggerFactory.getLogger(CoordinatorCurator.class);
@@ -56,6 +59,20 @@ class CoordinatorCurator {
                 cf.setData().forPath(txStatusPath, new byte[0]);
             } else {
                 cf.create().forPath(txStatusPath, new byte[0]);
+            }
+            String txIDPath = "/txID";
+            if(cf.checkExists().forPath(txIDPath) != null){
+                cf.setData().forPath(txIDPath, new byte[0]);
+            }else{
+                Long txIDL = 0L;
+                byte[] txID = ByteBuffer.allocate(8).putLong(txIDL).array();
+                cf.create().forPath(txIDPath, txID);
+            }
+            String lastCommittedVersionPath = "/lcv";
+            if(cf.checkExists().forPath(lastCommittedVersionPath) != null){
+                cf.setData().forPath(lastCommittedVersionPath, new byte[0]);
+            }else{
+                cf.create().forPath(lastCommittedVersionPath, new byte[0]);
             }
         } catch (Exception e) {
             logger.error("ZK Failure {}", e.getMessage());

@@ -8,7 +8,10 @@ import java.util.Map;
 
 public interface VolatileShuffleQueryPlan<V> extends Serializable {
     String getQueriedTables();
-    Map<Integer, List<ByteString>> scatter(List<Object> data, int actorCount);
+    Map<Integer, List<ByteString>> scatter(Shard data, int actorCount);
     ByteString gather(List<ByteString> scatteredData);
     V combine(List<ByteString> gatherResults);
+
+    void setTableName(String tableName);
+    boolean write(Shard shard, List<Row> data);
 }

@@ -169,7 +169,10 @@ public class Broker {
                         .stream()
                         .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
         List<WriteQueryThread<R, S>> writeQueryThreads = new ArrayList<>();
-        long txID = txIDs.getAndIncrement();
+        //long txID = txIDs.getAndIncrement();
+
+        long txID = zkCurator.getTxID();
+
         CountDownLatch queryLatch = new CountDownLatch(shardRowArrayMap.size());
         AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
         AtomicBoolean statusWritten = new AtomicBoolean(false);
@@ -222,7 +225,11 @@ public class Broker {
         Map<Integer, R[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
                 collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
         List<SimpleWriteQueryThread<R, S>> writeQueryThreads = new ArrayList<>();
-        long txID = txIDs.getAndIncrement();
+
+
+        //long txID = txIDs.getAndIncrement();
+        long txID = zkCurator.getTxID();
+
         AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
         AtomicBoolean statusWritten = new AtomicBoolean(false);
         for (Integer shardNum: shardRowArrayMap.keySet()) {
@@ -255,13 +262,15 @@ public class Broker {
 
     /*VOLATILE OPERATIONS*/
     public<V> V volatileShuffleQuery(VolatileShuffleQueryPlan<V> plan, List<Row> rows){
-        long txID = txIDs.getAndIncrement();
+        //long txID = txIDs.getAndIncrement();
+        long txID = zkCurator.getTxID();
 
         /* Map shardID to rows, this mapping will be used to determine which actor will store the volatile
          * raw data to be later shuffled */
 
         Map<Integer, List<Row>> shardRowListMap = new HashMap<>();
         TableInfo tableInfo = getTableInfo(plan.getQueriedTables());
+
         for (Row row: rows) {
             int partitionKey = row.getPartitionKey();
             assert(partitionKey >= 0);
@@ -292,7 +301,8 @@ public class Broker {
                     dsID,
                     txID,
                     rowArray,
-                    queryStatus
+                    queryStatus,
+                    plan
             );
             t.start();
             storeVolatileDataThreads.add(t);
@@ -456,7 +466,9 @@ public class Broker {
      *      sub-queries.
      * */
     public <S extends Shard, R extends Row, V> V anchoredReadQuery(AnchoredReadQueryPlan<S, V> plan) {
-        long txID = txIDs.getAndIncrement();
+        //long txID = txIDs.getAndIncrement();
+        long txID = zkCurator.getTxID();
+
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
 
@@ -609,7 +621,9 @@ public class Broker {
         return ret;
     }
     public <S extends Shard, R extends Row, V> V shuffleReadQuery(ShuffleOnReadQueryPlan<S, V> plan) {
-        long txID = txIDs.getAndIncrement();
+        //long txID = txIDs.getAndIncrement();
+        long txID = zkCurator.getTxID();
+
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
 
@@ -709,7 +723,10 @@ public class Broker {
         return ret;
     }
     public <S extends Shard, R extends Row, V> V retrieveAndCombineReadQuery(RetrieveAndCombineQueryPlan<S,V> plan){
-        long txID = txIDs.getAndIncrement();
+        //long txID = txIDs.getAndIncrement();
+        long txID = zkCurator.getTxID();
+
+
         Map<String, List<Integer>> tablesToKeysMap = plan.keysForQuery();
         Map<String, List<Integer>> tablesToShardsMap = new HashMap<>();
         Map<String, List<ByteString>> retrievedData = new HashMap<>();
@@ -1097,15 +1114,19 @@ public class Broker {
         private final long txID;
         private final R[] rowArray;
         private final AtomicInteger queryStatus;
+        private final VolatileShuffleQueryPlan plan;
 
         StoreVolatileDataThread(Integer dsID,
-                                   long txID,
-                                   R[] rowArray,
-                                   AtomicInteger queryStatus){
+                                long txID,
+                                R[] rowArray,
+                                AtomicInteger queryStatus,
+                                VolatileShuffleQueryPlan plan
+        ){
             this.dsID = dsID;
             this.txID = txID;
             this.rowArray = rowArray;
             this.queryStatus = queryStatus;
+            this.plan = plan;
         }
 
         @Override
@@ -1115,6 +1136,7 @@ public class Broker {
 
         private void storeVolatileData(){
             AtomicInteger subQueryStatus = new AtomicInteger(QUERY_RETRY);
+            ByteString serializedPlan = Utilities.objectToByteString(plan);
             while (subQueryStatus.get() == QUERY_RETRY) {
                 ManagedChannel channel = dsIDToChannelMap.get(dsID);
                 assert(channel != null);
@@ -1155,7 +1177,7 @@ public class Broker {
                     observer.onNext(rowMessage);
                 }
                 StoreVolatileDataMessage confirmMessage = StoreVolatileDataMessage.newBuilder()
-                        .setState(DataStore.COMMIT).build();
+                        .setState(DataStore.COMMIT).setPlan(serializedPlan).build();
                 observer.onNext(confirmMessage);
                 try {
                     prepareLatch.await();

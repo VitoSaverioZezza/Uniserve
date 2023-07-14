@@ -184,6 +184,7 @@ public class DataStore<R extends Row, S extends Shard> {
         }
     }
 
+    /**Creates a new shard identified by the given shard number*/
     Optional<S> createNewShard(int shardNum) {
         Path shardPath = Path.of(baseDirectory.toString(), Integer.toString(0), Integer.toString(shardNum));
         File shardPathFile = shardPath.toFile();
@@ -229,7 +230,7 @@ public class DataStore<R extends Row, S extends Shard> {
         return true;
     }
 
-    /** Downloads the shard if not already present, evicting if necessary **/
+    /** Downloads the shard if not already cached, evicting if necessary **/
     boolean ensureShardCached(int shardNum) {
         if (!shardMap.containsKey(shardNum)) {
             ZKShardDescription z = zkCurator.getZKShardDescription(shardNum);
@@ -292,6 +293,8 @@ public class DataStore<R extends Row, S extends Shard> {
         logger.info("DS{} Shard {}-{} download succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - downloadStart);
         return shard;
     }
+
+    /**Copies the shard from the cloud to the appropriate local directory*/
     public Optional<S> copyShardToDir(int shardNum, String cloudName, int versionNumber) {
         long copyStart = System.currentTimeMillis();
         Shard shard = shardMap.get(shardNum);
@@ -310,7 +313,6 @@ public class DataStore<R extends Row, S extends Shard> {
                 return Optional.empty();
             }
         }
-
         try {
             ProcessBuilder copier = new ProcessBuilder("src/main/resources/copy_shard.sh", String.format("%s/*", shardDirectory.get()),
                     targetDirectory.toString());
@@ -327,6 +329,7 @@ public class DataStore<R extends Row, S extends Shard> {
         return retShard;
     }
 
+    /**Retrieves a gRPC channel for the server having the given identifier*/
     ManagedChannel getChannelForDSID(int dsID) {
         if (!dsIDToChannelMap.containsKey(dsID)) {
             DataStoreDescription d = zkCurator.getDSDescription(dsID);
@@ -337,6 +340,8 @@ public class DataStore<R extends Row, S extends Shard> {
         }
         return dsIDToChannelMap.get(dsID);
     }
+
+    /**Thread responsible for pinging other servers in order to detect failures*/
     private class PingDaemon extends Thread {
         @Override
         public void run() {
@@ -379,6 +384,7 @@ public class DataStore<R extends Row, S extends Shard> {
     public List<Shard> getVolatileData(long transactionID){
         return volatileData.get(transactionID);
     }
+    /**Stores volatile raw data for a volatile shuffle query having a given transaction ID*/
     public boolean addVolatileData(long transactionID, Shard data){
         try{
             volatileData.computeIfAbsent(transactionID, k -> new ArrayList<>()).add(data);
@@ -389,6 +395,7 @@ public class DataStore<R extends Row, S extends Shard> {
             return false;
         }
     }
+    /**Removes cached raw data for the given transaction identifier*/
     public void removeVolatileData(long transactionID){
         List<Shard> shards = volatileData.get(transactionID);
         if(shards != null){
@@ -399,7 +406,11 @@ public class DataStore<R extends Row, S extends Shard> {
         volatileData.remove(transactionID);
     }
 
+    /**Retrieve all serialized scattered data for the volatile shuffle transaction associated with the given transaction
+     * identifier*/
     public List<ByteString> getVolatileScatterData(long transactionID){return volatileScatterData.get(transactionID);}
+    /**Stores the given data binding it to the given transaction identifier. The server - data assignment is a result
+     * of the user-defined scatter operation*/
     public boolean addVolatileScatterData(long transactionID, ByteString data){
         try{
             volatileScatterData.computeIfAbsent(transactionID, k -> new ArrayList<>()).add(data);
@@ -409,6 +420,7 @@ public class DataStore<R extends Row, S extends Shard> {
             return false;
         }
     }
+    /**Removes volatile scattered data associated with the given transaction identifier*/
     public void removeVolatileScatterData(long transactionID){
         volatileScatterData.remove(transactionID);
     }

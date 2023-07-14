@@ -58,7 +58,7 @@ public class LocalAutoScalingTests {
                 Broker.SHARDS_PER_TABLE, 0, Broker.SHARDS_PER_TABLE + 1, 0,
                 Broker.SHARDS_PER_TABLE + 2, 0, Broker.SHARDS_PER_TABLE + 3, 0);
 
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
 
         assertTrue(broker.createTable("table1", numShards));
         assertTrue(broker.createTable("table2", numShards));

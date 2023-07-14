@@ -15,7 +15,7 @@ public class QueryAPI<S extends Shard> {
     private final Broker broker;
 
     public QueryAPI(String zkHost, Integer zkPort){
-        this.broker = new Broker(zkHost, zkPort, null);
+        this.broker = new Broker(zkHost, zkPort);
     }
 
     /**

@@ -80,7 +80,7 @@ public class LocalLoadBalancerTests {
             assertTrue(dataStore.startServing());
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         assertTrue(broker.createTable("table1", numShards));
         assertTrue(broker.createTable("table2", numShards));
 
@@ -117,7 +117,7 @@ public class LocalLoadBalancerTests {
             }
         }
         broker.shutdown();
-        broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        broker = new Broker(zkHost, zkPort);
         assertEquals(Integer.valueOf(0), broker.anchoredReadQuery(zero));
         assertEquals(Integer.valueOf(1), broker.anchoredReadQuery(one));
         assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(two));

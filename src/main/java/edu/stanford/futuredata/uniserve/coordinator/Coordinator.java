@@ -25,40 +25,53 @@ import java.util.stream.Collectors;
 
 public class Coordinator {
     private static final Logger logger = LoggerFactory.getLogger(Coordinator.class);
+    /**Coordinator's IP*/
     private final String coordinatorHost;
+    /**Coordinator's process port*/
     private final int coordinatorPort;
+    /**Server offering services specified in the Broker_datastore.proto and datastore_coordinator.proto files*/
     private final Server server;
+    /**Coordinator's ZooKeeper client*/
     final CoordinatorCurator zkCurator;
+    /**Load Balancer thread*/
     final LoadBalancer loadBalancer;
+    /**AutoScaling thread*/
     final AutoScaler autoscaler;
+    /**Coordinator's Cloud interface*/
     private final CoordinatorCloud cCloud;
+    /**Lock on the server-actor assignment*/
     public final Lock consistentHashLock = new ReentrantLock();
+    /**Server-actor assignment*/
     public final ConsistentHash consistentHash = new ConsistentHash();
-    // Used to assign each datastore a unique incremental ID.
+    /**Used to assign each server a unique incremental ID.*/
     final AtomicInteger dataStoreNumber = new AtomicInteger(0);
-    // Map from datastore IDs to their descriptions.
+    /**Map from server IDs to their description object*/
     final Map<Integer, DataStoreDescription> dataStoresMap = new ConcurrentHashMap<>();
-    // Used to assign each table a unique incremental ID.
+    /**Used to assign each table a unique incremental ID.*/
     final AtomicInteger tableNumber = new AtomicInteger(0);
-    // Map from table names to tableInfos.
+    /**Map from table names to tableInfos.*/
     final Map<String, TableInfo> tableInfoMap = new ConcurrentHashMap<>();
-    // Map from datastore IDs to their channels.
+    /**Map from server IDs to their channels.*/
     final Map<Integer, ManagedChannel> dataStoreChannelsMap = new ConcurrentHashMap<>();
-    // Map from datastore IDs to their stubs.
+    /**Map from server IDs to their gRPC servers' stubs.*/
     final Map<Integer, CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub> dataStoreStubsMap = new ConcurrentHashMap<>();
-    // Map from shards to their replicas.
+    /**Map from actor id to their replicas.*/
     final Map<Integer, List<Integer>> shardToReplicaDataStoreMap = new ConcurrentHashMap<>();
-    // Map from sets of shards touched by query to frequency.
+    /**Map from sets of shards touched by query to frequency.*/
     public Map<Set<Integer>, Integer> queryStatistics = new ConcurrentHashMap<>();
-    // Lock on the queryStatistics map.
+    /** Lock on the queryStatistics map.*/
     final Lock statisticsLock = new ReentrantLock();
-    // Maps from DSIDs to the cloud IDs uniquely assigned by the autoscaler to new datastores.
+    /**Map from server ids to the cloud IDs uniquely assigned by the autoscaler to new datastores.*/
     public Map<Integer, Integer> dsIDToCloudID = new ConcurrentHashMap<>();
+
+    /**If true, the load balancing routine will run*/
     public boolean runLoadBalancerDaemon = true;
+    /**Load balancing thread*/
     private final LoadBalancerDaemon loadBalancerDaemon;
+    /**Period of time between load balancing runs in milliseconds*/
     public static int loadBalancerSleepDurationMillis = 60000;
     public final Semaphore loadBalancerSemaphore = new Semaphore(0);
-
+    /**Query per shards on the cached actors*/
     public Map<Integer, Integer> cachedQPSLoad = null;
 
     // Lock protects shardToPrimaryDataStoreMap, shardToReplicaDataStoreMap, and shardToReplicaRatioMap.
@@ -166,6 +179,7 @@ public class Coordinator {
             logger.info("AddReplica failed for shard {} PRIMARY DataStore {}", shardNum, replicaID);
         }
     }
+
     public void removeShard(int shardNum, int targetID) {
         shardMapLock.lock();
         int primaryDataStore = consistentHash.getRandomBucket(shardNum);
@@ -205,7 +219,31 @@ public class Coordinator {
      * 2.  Shard number to shard memory usage.
      * 3.  DSID to datastore CPU usage.
      * **/
-
+    public Triplet<Map<Integer, Integer>, Map<Integer, Integer>, Map<Integer, Double>> collectLoad() {
+        Map<Integer, Integer> qpsMap = new ConcurrentHashMap<>();
+        Map<Integer, Integer> memoryUsagesMap = new ConcurrentHashMap<>();
+        Map<Integer, Integer> shardCountMap = new ConcurrentHashMap<>();
+        Map<Integer, Double> serverCpuUsageMap = new ConcurrentHashMap<>();
+        for(DataStoreDescription dsDesc: dataStoresMap.values()) {
+            if (dsDesc.status.get() == DataStoreDescription.ALIVE) {
+                CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dataStoreStubsMap.get(dsDesc.dsID);
+                ShardUsageMessage m = ShardUsageMessage.newBuilder().build();
+                try {
+                    ShardUsageResponse response = stub.shardUsage(m);
+                    Map<Integer, Integer> dataStoreQPSMap = response.getShardQPSMap();
+                    Map<Integer, Integer> dataStoreUsageMap = response.getShardMemoryUsageMap();
+                    dataStoreQPSMap.forEach((key, value) -> qpsMap.merge(key, value, Integer::sum));
+                    dataStoreUsageMap.forEach((key, value) -> memoryUsagesMap.merge(key, value, Integer::sum));
+                    dataStoreUsageMap.forEach((key, value) -> shardCountMap.merge(key, 1, (v1, v2) -> v1 + 1));
+                    serverCpuUsageMap.put(response.getDsID(), response.getServerCPUUsage());
+                } catch (StatusRuntimeException e) {
+                    logger.info("DS{} load collection failed: {}", dsDesc.dsID, e.getMessage());
+                }
+            }
+        }
+        memoryUsagesMap.replaceAll((k, v) -> shardCountMap.get(k) > 0 ? v / shardCountMap.get(k) : v);
+        return new Triplet<>(qpsMap, memoryUsagesMap, serverCpuUsageMap);
+    }
 
     public void addDataStore() {
         logger.info("Adding DataStore");
@@ -235,67 +273,6 @@ public class Coordinator {
         }
     }
 
-    private class LoadBalancerDaemon extends Thread {
-        @Override
-        public void run() {
-            while (runLoadBalancerDaemon) {
-                try {
-                    loadBalancerSemaphore.tryAcquire(loadBalancerSleepDurationMillis, TimeUnit.MILLISECONDS);
-                } catch (InterruptedException e) {
-                    return;
-                }
-                Triplet<Map<Integer, Integer>, Map<Integer, Integer>, Map<Integer, Double>> load = collectLoad();
-                Map<Integer, Integer> qpsLoad = load.getValue0();
-                Map<Integer, Integer> memoryUsages = load.getValue1();
-                logger.info("Collected QPS Load: {}", qpsLoad);
-                logger.info("Collected memory usages: {}", memoryUsages);
-                if (qpsLoad.size() > 0) {
-                    consistentHashLock.lock();
-                    cachedQPSLoad = qpsLoad;
-                    rebalanceConsistentHash(qpsLoad);
-                    assignShards();
-                    Map<Integer, Double> serverCpuUsage = load.getValue2();
-                    logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);
-                    if (cCloud != null) {
-                        int action = autoscaler.autoscale(serverCpuUsage);
-                        if (action == AutoScaler.ADD) {
-                            addDataStore();
-                        } else if (action == AutoScaler.REMOVE) {
-                            removeDataStore();
-                        }
-                    }
-                    consistentHashLock.unlock();
-                }
-            }
-        }
-    }
-
-    public Triplet<Map<Integer, Integer>, Map<Integer, Integer>, Map<Integer, Double>> collectLoad() {
-        Map<Integer, Integer> qpsMap = new ConcurrentHashMap<>();
-        Map<Integer, Integer> memoryUsagesMap = new ConcurrentHashMap<>();
-        Map<Integer, Integer> shardCountMap = new ConcurrentHashMap<>();
-        Map<Integer, Double> serverCpuUsageMap = new ConcurrentHashMap<>();
-        for(DataStoreDescription dsDesc: dataStoresMap.values()) {
-            if (dsDesc.status.get() == DataStoreDescription.ALIVE) {
-                CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = dataStoreStubsMap.get(dsDesc.dsID);
-                ShardUsageMessage m = ShardUsageMessage.newBuilder().build();
-                try {
-                    ShardUsageResponse response = stub.shardUsage(m);
-                    Map<Integer, Integer> dataStoreQPSMap = response.getShardQPSMap();
-                    Map<Integer, Integer> dataStoreUsageMap = response.getShardMemoryUsageMap();
-                    dataStoreQPSMap.forEach((key, value) -> qpsMap.merge(key, value, Integer::sum));
-                    dataStoreUsageMap.forEach((key, value) -> memoryUsagesMap.merge(key, value, Integer::sum));
-                    dataStoreUsageMap.forEach((key, value) -> shardCountMap.merge(key, 1, (v1, v2) -> v1 + 1));
-                    serverCpuUsageMap.put(response.getDsID(), response.getServerCPUUsage());
-                } catch (StatusRuntimeException e) {
-                    logger.info("DS{} load collection failed: {}", dsDesc.dsID, e.getMessage());
-                }
-            }
-        }
-        memoryUsagesMap.replaceAll((k, v) -> shardCountMap.get(k) > 0 ? v / shardCountMap.get(k) : v);
-        return new Triplet<>(qpsMap, memoryUsagesMap, serverCpuUsageMap);
-    }
-    // Assumes consistentHashLock is held.
     public void rebalanceConsistentHash(Map<Integer, Integer> qpsLoad) {
         Set<Integer> shards = qpsLoad.keySet();
         Set<Integer> servers = consistentHash.buckets;
@@ -376,4 +353,41 @@ public class Coordinator {
             lostLatch.await();
         } catch (InterruptedException ignored) {}
     }
+
+    private class LoadBalancerDaemon extends Thread {
+        @Override
+        public void run() {
+            while (runLoadBalancerDaemon) {
+                try {
+                    loadBalancerSemaphore.tryAcquire(loadBalancerSleepDurationMillis, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    return;
+                }
+                Triplet<Map<Integer, Integer>, Map<Integer, Integer>, Map<Integer, Double>> load = collectLoad();
+                Map<Integer, Integer> qpsLoad = load.getValue0();
+                Map<Integer, Integer> memoryUsages = load.getValue1();
+                logger.info("Collected QPS Load: {}", qpsLoad);
+                logger.info("Collected memory usages: {}", memoryUsages);
+                if (qpsLoad.size() > 0) {
+                    consistentHashLock.lock();
+                    cachedQPSLoad = qpsLoad;
+                    rebalanceConsistentHash(qpsLoad);
+                    assignShards();
+                    Map<Integer, Double> serverCpuUsage = load.getValue2();
+                    logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);
+                    if (cCloud != null) {
+                        int action = autoscaler.autoscale(serverCpuUsage);
+                        if (action == AutoScaler.ADD) {
+                            addDataStore();
+                        } else if (action == AutoScaler.REMOVE) {
+                            removeDataStore();
+                        }
+                    }
+                    consistentHashLock.unlock();
+                }
+            }
+        }
+
+    }
+    // Assumes consistentHashLock is held.
 }

@@ -19,18 +19,26 @@ class CoordinatorCurator {
     private static final Logger logger = LoggerFactory.getLogger(CoordinatorCurator.class);
     private final CuratorFramework cf;
 
-    CoordinatorCurator(String zkHost, int zkPort) {
+    protected CoordinatorCurator(String zkHost, int zkPort) {
         String connectString = String.format("%s:%d", zkHost, zkPort);
         RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
         this.cf = CuratorFrameworkFactory.newClient(connectString, retryPolicy);
         cf.start();
     }
 
-    void close() {
+    protected void close() {
         cf.close();
     }
 
-    void registerCoordinator(String host, int port) {
+    /**Registers the Coordinator on ZooKeeper and initializes the ZooKeeper cluster by setting the following nodes:
+     * "/coordinator_host_port", containing IP and port of the Coordinator's process
+     * "/dsDescription" root node for all servers' descriptions
+     * "/shardMapping" root node
+     * "/tx_status" root node
+     * "/txID" containing next available transaction identifier
+     * "/lcv" transaction identifier of the last committed write operation
+     * */
+    protected void registerCoordinator(String host, int port) {
         // Create coordinator location node.
         try {
             String path = "/coordinator_host_port";
@@ -80,6 +88,7 @@ class CoordinatorCurator {
         }
     }
 
+    /**Sets the datastore description in the corresponding node*/
     void setDSDescription(DataStoreDescription dsDescription) {
         try {
             String path = String.format("/dsDescription/%d", dsDescription.dsID);
@@ -107,6 +116,7 @@ class CoordinatorCurator {
         }
     }
 
+    /**Updates the consistent hash ZooKeeper node*/
     void setConsistentHashFunction(ConsistentHash consistentHash) {
         try {
             String path = "/consistentHash";
@@ -137,5 +147,4 @@ class CoordinatorCurator {
             assert(false);
         }
     }
-
 }

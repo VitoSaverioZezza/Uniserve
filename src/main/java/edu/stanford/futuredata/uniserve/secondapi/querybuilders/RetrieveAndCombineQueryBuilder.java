@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**Builder class for a RetrieveAndCombineQuery*/
 public class RetrieveAndCombineQueryBuilder {
     List<String> tableNames = new ArrayList<>();
     Map<String, List<Integer>> keysForQuery = null;
@@ -32,6 +33,9 @@ public class RetrieveAndCombineQueryBuilder {
         return this;
     }
 
+
+    /**Builds a Retrieve and combine query, checking whether the query is well-formed before returning it.
+     *@throws Exception if the query is not well-formed*/
     public RetrieveAndCombineQuery build() throws Exception{
         if(tableNames == null || tableNames.size() == 0){
             throw new Exception("Malformed retrieve and combine query, missing table names");
@@ -53,6 +57,7 @@ public class RetrieveAndCombineQueryBuilder {
         return new RetrieveAndCombineQuery(this);
     }
 
+    //GETTER METHODS, used by the RetrieveAndCombineQuery's constructor
     public List<String> getTableNames(){
         return this.tableNames;
     }

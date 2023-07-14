@@ -56,7 +56,6 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         }
     }
 
-
     @Override
     public void createTable(CreateTableMessage request, StreamObserver<CreateTableResponse> responseObserver) {
         responseObserver.onNext(createTableHandler(request));
@@ -75,6 +74,7 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
             return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();
         }
     }
+
     public void registerQuery(RegisterQueryMessage request, StreamObserver<RegisterQueryResponse> responseObserver){
         responseObserver.onNext(registerQueryHandler(request));
         responseObserver.onCompleted();

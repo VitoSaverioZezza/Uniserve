@@ -98,7 +98,7 @@ public class KVStoreTests {
                 );
         dataStore.startServing();
 
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
 
         int numShards = 1;
         assertTrue(broker.createTable("table1", numShards));
@@ -134,7 +134,7 @@ public class KVStoreTests {
         DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000, -1, false
         );
         dataStore.startServing();
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         assertTrue(broker.createTable("table1", numShards));
         assertTrue(broker.createTable("table2", numShards));
         assertFalse(broker.createTable("table1", numShards + 1));
@@ -171,7 +171,7 @@ public class KVStoreTests {
                 zkHost, zkPort, "127.0.0.1", 8000, -1, false
         );
         dataStore.startServing();
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         assertTrue(broker.createTable("table1", numShards));
         assertTrue(broker.createTable("table2", numShards));
         assertFalse(broker.createTable("table1", numShards + 1));
@@ -214,7 +214,7 @@ public class KVStoreTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
         List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
@@ -257,7 +257,7 @@ public class KVStoreTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
         List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
@@ -297,7 +297,7 @@ public class KVStoreTests {
         dataStoreOne.runPingDaemon = false;
         dataStoreOne.startServing();
 
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
         List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
@@ -357,7 +357,7 @@ public class KVStoreTests {
         dataStoreOne.runPingDaemon = false;
         dataStoreOne.startServing();
 
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
         List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
@@ -419,7 +419,7 @@ public class KVStoreTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         assertTrue(broker.createTable("table1", 2));
         assertTrue(broker.createTable("table2", 1));
 
@@ -468,7 +468,7 @@ public class KVStoreTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        final Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
 
         List<KVRow> rows = new ArrayList<>();
@@ -532,7 +532,7 @@ public class KVStoreTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        final Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
         for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
@@ -597,7 +597,7 @@ public class KVStoreTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        final Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
         for (int i = 1; i < 6; i++) {
             SimpleWriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVSimpleWriteQueryPlanInsert();
@@ -662,7 +662,7 @@ public class KVStoreTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        final Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
         for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
@@ -749,7 +749,7 @@ public class KVStoreTests {
         DataStore<KVRow, KVShard>  dataStore = new DataStore<>(null, new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000, -1, false
         );
         dataStore.startServing();
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
@@ -782,7 +782,7 @@ public class KVStoreTests {
                 new KVShardFactory(), Path.of("/var/tmp/KVUniserve"), zkHost, zkPort, "127.0.0.1", 8000, -1, false
         );
         dataStore.startServing();
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
@@ -820,7 +820,7 @@ public class KVStoreTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
 
         List<Thread> threads = new ArrayList<>();
@@ -871,7 +871,7 @@ public class KVStoreTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
 
         List<Thread> threads = new ArrayList<>();
@@ -941,7 +941,7 @@ public class KVStoreTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
 
         List<Thread> threads = new ArrayList<>();
@@ -1013,7 +1013,7 @@ public class KVStoreTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
 
         List<Thread> threads = new ArrayList<>();
@@ -1092,7 +1092,7 @@ public class KVStoreTests {
         dataStoreOne.startServing();
 
         KVQueryEngine queryEngine = new KVQueryEngine();
-        Broker broker = new Broker(zkHost, zkPort, queryEngine);
+        Broker broker = new Broker(zkHost, zkPort);
         queryEngine.setBroker(broker);
 
         LocalDataStoreCloud ldsc2 = new LocalDataStoreCloud();

@@ -62,7 +62,7 @@ public class FailureTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
         List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
@@ -115,7 +115,7 @@ public class FailureTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
         Thread t = new Thread(() -> {
             for (int i = 0; i < 10; i++) {
@@ -170,7 +170,7 @@ public class FailureTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
         List<KVRow> startRows = new ArrayList<>();
         for(int d = 0; d < numShards; d++) {
@@ -237,7 +237,7 @@ public class FailureTests {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
-        final Broker broker = new Broker(zkHost, zkPort, new KVQueryEngine());
+        Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards);
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();

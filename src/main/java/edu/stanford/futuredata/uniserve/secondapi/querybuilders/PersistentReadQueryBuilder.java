@@ -92,6 +92,13 @@ public class PersistentReadQueryBuilder {
         return this;
     }
 
+    /**Returns a PersistentReadQuery object that defines a single write query (either eventually consistent or two phase
+     * commit style) and a single read operation extracting the results to be written. The read can be a shuffle read
+     * query or a retrieve and combine read query.
+     * If not explicitly specified, the method tries to build a retrieve-and-combine + eventually consistent combination.
+     * The built query is NOT registered and needs to be explicitly registered via the Query Object method.
+     * @return a well-formed PersistentReadQuery that can be registered and run
+     * @throws Exception if the given parameters are not suitable for a well-formed query */
     public PersistentReadQuery build() throws Exception{
         if(queryName == null){
             throw new Exception("Malformed persistent query, no name defined");
@@ -108,7 +115,9 @@ public class PersistentReadQueryBuilder {
         if(sinkTable == null){
             throw new Exception("Malformed write query, no sink table defined");
         }
-
+        if(sourceTables.contains(sinkTable)){
+            throw new Exception("Malformed persistent query, the query writes to a source table");
+        }
         PersistentReadQuery ret = new PersistentReadQuery();
         if(shuffle){
             if(scatterLambdasMap == null || gatherLambda == null || combineLambdaShuffle == null){

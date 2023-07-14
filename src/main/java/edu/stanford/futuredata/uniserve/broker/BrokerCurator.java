@@ -22,6 +22,7 @@ public class BrokerCurator {
     private static final Logger logger = LoggerFactory.getLogger(BrokerCurator.class);
     private InterProcessMutex lock;
 
+    /**Returns curator's framework client for the broker's communication*/
     BrokerCurator(String zkHost, int zkPort) {
         String connectString = String.format("%s:%d", zkHost, zkPort);
         RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
@@ -29,10 +30,14 @@ public class BrokerCurator {
         cf.start();
         lock = new InterProcessMutex(cf, "/brokerWriteLock");
     }
+    /**Closes ZooKeeper's client*/
     void close() {
         cf.close();
     }
-
+    /**Retrieves the DataStore's description of the datastore associated with the given identifier
+     * @param dsID server's identifier
+     * @return the datastore description of the server associated with the given identifier
+     * */
     DataStoreDescription getDSDescriptionFromDSID(int dsID) {
         try {
             String path = String.format("/dsDescription/%d", dsID);
@@ -42,6 +47,7 @@ public class BrokerCurator {
             return null;
         }
     }
+    /**Writes the status of the given transaction in ZooKeeper to ensure error recovery in case of server failure*/
     void writeTransactionStatus(long txID, int status) {
         try {
             String path = String.format("/txStatus/%d", txID);
@@ -56,8 +62,8 @@ public class BrokerCurator {
             assert(false);
         }
     }
-
-    void writeTxID(long txID){
+    /**Writes the most recent transaction identifier to ZooKeeper*/
+    private void writeTxID(long txID){
         try {
             String path = "/txID";
             byte[] data = ByteBuffer.allocate(8).putLong(txID).array();
@@ -72,7 +78,8 @@ public class BrokerCurator {
         }
     }
 
-    Long getTxID(){
+    /**Generates a new transaction identifer as the most recent transaction ID + 1*/
+    protected Long getTxID(){
         try {
             String path = "/txID";
             if (cf.checkExists().forPath(path) != null) {
@@ -90,11 +97,11 @@ public class BrokerCurator {
             return null;
         }
     }
-
-    void writeLastCommittedVersion(long lcv){
+    /**Writes the last committed version to ZooKeeper*/
+    protected void writeLastCommittedVersion(long lcv){
         try {
             String path = "/lastCommittedVersion";
-            byte[] data = ByteBuffer.allocate(4).putLong(lcv).array();
+            byte[] data = ByteBuffer.allocate(8).putLong(lcv).array();
             if (cf.checkExists().forPath(path) != null) {
                 cf.setData().forPath(path, data);
             } else {
@@ -105,8 +112,8 @@ public class BrokerCurator {
             assert(false);
         }
     }
-
-    Long getLastCommittedVersion(){
+    /**Retrieves the last committed version from ZooKeeper*/
+    protected Long getLastCommittedVersion(){
         try {
             String path = "/lastCommittedVersion";
             if (cf.checkExists().forPath(path) != null) {
@@ -121,7 +128,7 @@ public class BrokerCurator {
             return null;
         }
     }
-
+    /**Retrieves the Coordinator's IP and Port*/
     Optional<Pair<String, Integer>> getMasterLocation() {
         try {
             String path = "/coordinator_host_port";
@@ -138,7 +145,7 @@ public class BrokerCurator {
             return null;
         }
     }
-
+    /**Retrieves shard-server assignment*/
     ConsistentHash getConsistentHashFunction() {
         try {
             String path = "/consistentHash";

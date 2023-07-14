@@ -12,7 +12,6 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
-import jdk.jshell.execution.Util;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,43 +20,44 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 
 /**
- * TODO: put txIDs and lastCommittedVersion attributes in ZooKeeper.
+ * TODO: test for lastcommittedversion in zookeeper
  * TODO: replace the ExecutorService readQueryThreadPool with async calls.
- * TODO: Figure out what to do with the query engine.
  * TODO: Retry routine and error handling when the Broker cannot find the Coordinator.
  * TODO: Error handling in getTableInfo should be not be carried out via assert statements.
  * TODO: Error handling in getStubForShard should not be carried out via assert statements.
  * TODO: Generic error handling across the whole Broker specification, this should NOT be done via assert statements.
  * */
 public class Broker {
-
-    private final QueryEngine queryEngine;
+    /**Curator Framework interface */
     private final BrokerCurator zkCurator;
-
     private static final Logger logger = LoggerFactory.getLogger(Broker.class);
-    // Consistent hash assigning shards to servers.
+    /**Consistent hash assigning actors to servers.*/
     private ConsistentHash consistentHash;
-    // Map from dsIDs to channels.
+    /**Map servers to channels.*/
     private Map<Integer, ManagedChannel> dsIDToChannelMap = new ConcurrentHashMap<>();
-    // Stub for communication with the coordinator.
+    /**Blocking Stub for communication with the coordinator's services specified in the broker_coordinator.proto.*/
     private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
-    // Map from table names to IDs.
-    private final Map<String, TableInfo> tableInfoMap = new ConcurrentHashMap<>();
 
+    /**Thread updating stored actors' state*/
     private final ShardMapUpdateDaemon shardMapUpdateDaemon;
+    /**If true, enables automatic actor state update*/
     public boolean runShardMapUpdateDaemon = true;
+    /**Time period between actors updates in milliseconds*/
     public static int shardMapDaemonSleepDurationMillis = 1000;
 
+    /**Thread sending query statistics to the coordinator*/
     private final QueryStatisticsDaemon queryStatisticsDaemon;
+    /**If true, enables statistic forwarding to the coordinator*/
     public boolean runQueryStatisticsDaemon = true;
+    /**Time period between statistic forwards in milliseconds*/
     public static int queryStatisticsDaemonSleepDurationMillis = 10000;
 
+    /**Execution times of queries ran by this broker instance*/
     public final Collection<Long> remoteExecutionTimes = new ConcurrentLinkedQueue<>();
     public final Collection<Long> aggregationTimes = new ConcurrentLinkedQueue<>();
 
@@ -68,25 +68,18 @@ public class Broker {
 
     public static final int SHARDS_PER_TABLE = 1000000;
 
+    /**Statistics collected by the broker since last forward operation*/
     public ConcurrentHashMap<Set<Integer>, Integer> queryStatistics = new ConcurrentHashMap<>();
-
     ExecutorService readQueryThreadPool = Executors.newFixedThreadPool(256);  //TODO:  Replace with async calls.
-
-    long lastCommittedVersion = 0; // TODO:  Put in ZooKeeper.
-
 
     /**Instantiates a Broker curator acting as a client for the underlying ZooKeeper service.
      * Retrieves the Coordinator's location from ZK and opens a channel with it.
      * Creates and starts a Shard Map Update Daemon thread and a Query Statistic Daemon Thread.
      * TODO: Retry routine and error handling when the Broker cannot find the Coordinator
-     * TODO: Figure out what to do with the query engine
-     *
-     * @param queryEngine not used
      * @param zkHost IP address of the ZooKeeper service
      * @param zkPort port assigned to the ZooKeeper service
      * */
-    public Broker(String zkHost, int zkPort, QueryEngine queryEngine) {
-        this.queryEngine = queryEngine;
+    public Broker(String zkHost, int zkPort) {
         this.zkCurator = new BrokerCurator(zkHost, zkPort);
         Optional<Pair<String, Integer>> masterHostPort = zkCurator.getMasterLocation();
         String masterHost = null;
@@ -105,6 +98,7 @@ public class Broker {
         queryStatisticsDaemon = new QueryStatisticsDaemon();
         queryStatisticsDaemon.start();
     }
+
     /**Stops the ShardMapUpdate and QueryStatistic daemon threads, shuts down all channels with datastores and coordinator
      * then closes the Curator client with ZooKeeper and shuts down the thread pool*/
     public void shutdown() {
@@ -142,7 +136,6 @@ public class Broker {
     public boolean createTable(String tableName, int numShards) {
         CreateTableMessage m = CreateTableMessage.newBuilder().setTableName(tableName).setNumShards(numShards).build();
         CreateTableResponse r = coordinatorBlockingStub.createTable(m);
-
         return r.getReturnCode() == QUERY_SUCCESS;
     }
 
@@ -198,8 +191,9 @@ public class Broker {
                 assert(false);
             }
         }
-        lastCommittedVersion = txID;
-        logger.info("Write completed. Rows: {}. Version: {} Time: {}ms", rows.size(), lastCommittedVersion,
+
+        zkCurator.writeLastCommittedVersion(txID);
+        logger.info("Write completed. Rows: {}. Version: {} Time: {}ms", rows.size(), txID,
                 System.currentTimeMillis() - tStart);
         assert (queryStatus.get() != QUERY_RETRY);
         zkCurator.releaseWriteLock();
@@ -257,9 +251,9 @@ public class Broker {
                 assert(false);
             }
         }
-        lastCommittedVersion = txID;
+        zkCurator.writeLastCommittedVersion(txID);
         logger.info("SimpleWrite completed. Rows: {}. Table: {} Version: {} Time: {}ms.",
-                rows.size(), writeQueryPlan.getQueriedTable(), lastCommittedVersion,
+                rows.size(), writeQueryPlan.getQueriedTable(), txID,
                 System.currentTimeMillis() - tStart);
         assert (queryStatus.get() != QUERY_RETRY);
 
@@ -267,25 +261,6 @@ public class Broker {
 
         return queryStatus.get() == QUERY_SUCCESS && triggeredQueriesStatus;
     }
-
-    private boolean runPersistentSubQueries(String tableName){
-        TableInfo sinkInfo = getTableInfo(tableName);
-        List<PersistentReadQuery> queries = sinkInfo.getQueriesTriggeredByAWriteOnThisTable();
-        boolean res = true;
-        for(PersistentReadQuery query: queries){
-            String srcs = "";
-            for(String source: query.getSourceTables()){
-                srcs = srcs + " " + source;
-            }
-            logger.info("Updating sink table {}. Query has sources: {}", query.getSinkTable(), srcs);
-            res = (query.run(this) != null) && res;
-            if(!res){
-                return false;
-            }
-        }
-        return res;
-    }
-
 
     /*VOLATILE OPERATIONS*/
     public<V> V volatileShuffleQuery(VolatileShuffleQueryPlan<V> plan, List<Row> rows){
@@ -481,7 +456,6 @@ public class Broker {
 
     /*READ QUERIES*/
     /**Executes an AnchoredReadQueryPlan
-     *
      * Calls the remote BrokerDataStore service anchoredReadQuery for each shard of the anchor table.
      * <p></p>
      * Each call will trigger the execution of a scatter-gather routine, whose results are returned
@@ -553,7 +527,7 @@ public class Broker {
         * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
         CountDownLatch latch = new CountDownLatch(numRepartitions);
-        long lcv = lastCommittedVersion;
+        long lcv = zkCurator.getLastCommittedVersion();
         for (int anchorShardNum: anchorTableShards) {
             int dsID = consistentHash.getRandomBucket(anchorShardNum);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
@@ -758,7 +732,7 @@ public class Broker {
         Map<String, List<Integer>> tablesToShardsMap = new HashMap<>();
         Map<String, List<ByteString>> retrievedData = new HashMap<>();
 
-        long lcv = lastCommittedVersion;
+        long lcv = zkCurator.getLastCommittedVersion();
         for(String tableName: tablesToKeysMap.keySet()){
             retrievedData.put(tableName, new CopyOnWriteArrayList<>());
             List<Integer> keyList = tablesToKeysMap.get(tableName);
@@ -818,8 +792,6 @@ public class Broker {
         }
         return plan.combine(retrievedData);
     }
-
-
 
     /*DATA DISTRIBUTION THREADS*/
     /**An object of this class is created for each shard involved in a write query thread. This thread is responsible
@@ -1049,6 +1021,7 @@ public class Broker {
             }
         }
     }
+    /**Scatters the raw data between servers*/
     private class MapQueryThread<R extends Row> extends Thread{
         List<R> results;
         int shardID;
@@ -1137,6 +1110,7 @@ public class Broker {
             }
         }
     }
+    /**Forwards raw data to servers*/
     private class StoreVolatileDataThread<R extends Row> extends Thread{
         private final Integer dsID;
         private final long txID;
@@ -1223,6 +1197,9 @@ public class Broker {
             }
         }
     }
+
+    /**Triggers execution of the scatter operation between servers storing raw data assocciated with the transaction
+     * identifier*/
     private class ScatterVolatileDataThread<R extends Row, V> extends Thread{
         private final long txID;
         private final List<Integer> gatherDSlist;
@@ -1271,6 +1248,7 @@ public class Broker {
             }
         }
     }
+    /**Triggers the execution of the gather operation in those servers that store scattered data*/
     private class GatherVolatileDataThread<R extends Row, V> extends Thread{
         private final Integer dsID;
         private final long txID;
@@ -1314,10 +1292,29 @@ public class Broker {
         }
     }
 
-
     /*UTILITIES*/
 
+    /**Given the name of the table written executes the stored queries that are triggered by the write operation
+     * @param tableName the name of the written table
+     * @return true if and only if all triggered queries have been succesfully executed*/
+    private boolean runPersistentSubQueries(String tableName){
+        TableInfo sinkInfo = getTableInfo(tableName);
+        List<PersistentReadQuery> queries = sinkInfo.getQueriesTriggeredByAWriteOnThisTable();
+        boolean res = true;
+        for(PersistentReadQuery query: queries){
+            logger.info("Updating table {}.", query.getSinkTable());
+            res = (query.run(this) != null) && res;
+            if(!res){
+                return false;
+            }
+        }
+        return res;
+    }
 
+    /**Registers the given query to be executed each time one of the source tables' content is modified
+     * @param query the query to be registerd
+     * @return true if and only if the query has been successfully stored
+     */
     public boolean registerPersistentQuery(PersistentReadQuery query){
         Map<String, List<String>> adjacentTables = new HashMap<>();
         adjacentTables.put(query.getSinkTable(), new ArrayList<>());
@@ -1330,6 +1327,11 @@ public class Broker {
         return true;
     }
 
+    /**Checks if the query to be stored causes a cycle of executions that prevents termination if one of the
+     * queries in the cycle is triggered.
+     * @param query the query to be registerd
+     * @return true if the query creates a cycle
+     */
     private boolean checkCycle(PersistentReadQuery query){
         TableInfo tableInfo = getTableInfo(query.getSinkTable());
         List<PersistentReadQuery> queriesTriggered = tableInfo.getQueriesTriggeredByAWriteOnThisTable();
@@ -1345,6 +1347,14 @@ public class Broker {
         }
         return false;
     }
+
+    /**Recursively populates the given list with all table names written as a cause of the given stored query execution.
+     * The method is guaranteed to return since all previously inserted queries do not generate a loop and the inserted
+     * query itself does not generate a loop since the query builder checks whether the sink table is also listed as a
+     * source and in such a case throws an exception at build time
+     * @param sinks all the encountered sink tables
+     * @param query the root of the query execution tree
+     */
     private void addSinks(List<String> sinks, PersistentReadQuery query){
         sinks.add(query.getSinkTable());
         List<PersistentReadQuery> queriesTriggered = getTableInfo(query.getSinkTable()).getQueriesTriggeredByAWriteOnThisTable();
@@ -1388,6 +1398,15 @@ public class Broker {
         assert(channel != null);
         return BrokerDataStoreGrpc.newBlockingStub(channel);
     }
+
+    /**Cleans the in memory structures holding both the raw data and the scattered data for the execution of a
+     * volatile shuffle query
+     * @param dsIDsScatter the server identifiers of those servers storing raw data
+     * @param txID the volatile shuffle transaction's id
+     * @param gatherDSids the server identifiers of those servers storing scattered data
+     * @return true if and only if all data associated with the given transaction id has been removed by the
+     * servers involved in the transaction
+     * */
     private boolean volatileShuffleCleanup(List<Integer> dsIDsScatter, long txID, List<Integer> gatherDSids){
         CountDownLatch failureLatch = new CountDownLatch(dsIDsScatter.size());
         AtomicInteger outcome = new AtomicInteger(0);

@@ -31,6 +31,7 @@ message RetrieveAndCombineQueryMessage{
     int32 shardID = 1;
     bytes serializedQueryPlan = 2;
     int64 lastCommittedVersion = 3;
+    string tableName = 4;
 }
 
 message RetrieveAndCombineQueryResponse{

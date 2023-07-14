@@ -803,7 +803,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         } else {
             localShard = dataStore.shardMap.get(shardID);
         }
-        ByteString retrievedData = plan.retrieve(localShard);
+        ByteString retrievedData = plan.retrieve(localShard, request.getTableName());
         return RetrieveAndCombineQueryResponse.newBuilder().setData(retrievedData).setState(Broker.QUERY_SUCCESS).build();
     }
 

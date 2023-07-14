@@ -3,6 +3,7 @@ package edu.stanford.futuredata.uniserve.secondapi;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
+import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
 import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.ExtractFromShardKey;
 import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.ExtractFromShardLambda;
 import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.WriteShardLambda;
@@ -104,5 +105,9 @@ public class QueryAPI<S extends Shard> {
     /**Stops the broker*/
     public void shutdown(){
         broker.shutdown();
+    }
+
+    public Object shuffleOnReadQuery(ShuffleOnReadQueryPlan plan){
+        return broker.shuffleReadQuery(plan);
     }
 }

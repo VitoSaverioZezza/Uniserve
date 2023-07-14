@@ -34,7 +34,7 @@ public class SelectQuery<S extends Shard> implements RetrieveAndCombineQueryPlan
     //Serialized Object[] with a single element in pos 0
     //said element is an ArrayList of Object->Row->KVRow
     @Override
-    public ByteString retrieve(S s) {
+    public ByteString retrieve(S s, String tableName) {
         Object[] obj = new Object[]{extract(s)};
         return Utilities.objectToByteString(obj);
     }

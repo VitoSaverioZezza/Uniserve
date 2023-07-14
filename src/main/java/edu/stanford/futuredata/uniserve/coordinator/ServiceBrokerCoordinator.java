@@ -1,13 +1,17 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
+import edu.stanford.futuredata.uniserve.secondapi.PersistentReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -41,8 +45,11 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         String tableName = m.getTableName();
         if (coordinator.tableInfoMap.containsKey(tableName)) {
             TableInfo t = coordinator.tableInfoMap.get(tableName);
+            List<PersistentReadQuery> triggeredQueries = t.getQueriesTriggeredByAWriteOnThisTable();
+            ByteString serializedQueries = Utilities.objectToByteString(triggeredQueries.toArray());
             return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
                     .setId(t.id)
+                    .setTriggeredQueries(serializedQueries)
                     .setNumShards(t.numShards).build();
         } else {
             return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
@@ -67,5 +74,16 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
             logger.info("Creating Table. Name: {} ID: {} NumShards {}", tableName, tableID, numShards);
             return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();
         }
+    }
+    public void registerQuery(RegisterQueryMessage request, StreamObserver<RegisterQueryResponse> responseObserver){
+        responseObserver.onNext(registerQueryHandler(request));
+        responseObserver.onCompleted();
+    }
+    private RegisterQueryResponse registerQueryHandler(RegisterQueryMessage request){
+        PersistentReadQuery plan = (PersistentReadQuery) Utilities.byteStringToObject(request.getPlan());
+        for(String source: plan.getSourceTables()){
+            coordinator.tableInfoMap.get(source).addTriggeredQuery(plan);
+        }
+        return RegisterQueryResponse.newBuilder().build();
     }
 }

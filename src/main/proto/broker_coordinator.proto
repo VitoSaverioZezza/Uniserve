@@ -11,7 +11,13 @@ service BrokerCoordinator {
     rpc QueryStatistics (QueryStatisticsMessage) returns (QueryStatisticsResponse) {}
     rpc TableInfo (TableInfoMessage) returns (TableInfoResponse) {}
     rpc CreateTable (CreateTableMessage) returns (CreateTableResponse) {}
+    rpc RegisterQuery (RegisterQueryMessage) returns (RegisterQueryResponse) {}
 }
+
+message RegisterQueryMessage{
+    bytes plan = 1;
+}
+message RegisterQueryResponse{}
 
 message QueryStatisticsMessage {
     bytes queryStatistics = 1;
@@ -27,6 +33,7 @@ message TableInfoResponse {
     int32 returnCode = 1;
     int32 id = 2;
     int32 numShards = 3;
+    bytes triggeredQueries = 4;
 }
 
 message CreateTableMessage {

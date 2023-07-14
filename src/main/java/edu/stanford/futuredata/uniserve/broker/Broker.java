@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.*;
+import edu.stanford.futuredata.uniserve.secondapi.PersistentReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
@@ -11,6 +12,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.stub.StreamObserver;
+import jdk.jshell.execution.Util;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,7 +72,6 @@ public class Broker {
 
     ExecutorService readQueryThreadPool = Executors.newFixedThreadPool(256);  //TODO:  Replace with async calls.
 
-    AtomicLong txIDs = new AtomicLong(0); // TODO:  Put in ZooKeeper.
     long lastCommittedVersion = 0; // TODO:  Put in ZooKeeper.
 
 
@@ -202,7 +203,10 @@ public class Broker {
                 System.currentTimeMillis() - tStart);
         assert (queryStatus.get() != QUERY_RETRY);
         zkCurator.releaseWriteLock();
-        return queryStatus.get() == QUERY_SUCCESS;
+
+        boolean triggeredQueriesStatus = runPersistentSubQueries(writeQueryPlan.getQueriedTable());
+
+        return queryStatus.get() == QUERY_SUCCESS && triggeredQueriesStatus;
     }
     /**Executes an eventually consistent write query of the given rows, following the procedure specified in the given
      * query plan. It starts a simple write query thread for all shards involved in the query that will randomly select
@@ -254,11 +258,34 @@ public class Broker {
             }
         }
         lastCommittedVersion = txID;
-        logger.info("SimpleWrite completed. Rows: {}. Version: {} Time: {}ms", rows.size(), lastCommittedVersion,
+        logger.info("SimpleWrite completed. Rows: {}. Table: {} Version: {} Time: {}ms.",
+                rows.size(), writeQueryPlan.getQueriedTable(), lastCommittedVersion,
                 System.currentTimeMillis() - tStart);
         assert (queryStatus.get() != QUERY_RETRY);
-        return queryStatus.get() == QUERY_SUCCESS;
+
+        boolean triggeredQueriesStatus = runPersistentSubQueries(writeQueryPlan.getQueriedTable());
+
+        return queryStatus.get() == QUERY_SUCCESS && triggeredQueriesStatus;
     }
+
+    private boolean runPersistentSubQueries(String tableName){
+        TableInfo sinkInfo = getTableInfo(tableName);
+        List<PersistentReadQuery> queries = sinkInfo.getQueriesTriggeredByAWriteOnThisTable();
+        boolean res = true;
+        for(PersistentReadQuery query: queries){
+            String srcs = "";
+            for(String source: query.getSourceTables()){
+                srcs = srcs + " " + source;
+            }
+            logger.info("Updating sink table {}. Query has sources: {}", query.getSinkTable(), srcs);
+            res = (query.run(this) != null) && res;
+            if(!res){
+                return false;
+            }
+        }
+        return res;
+    }
+
 
     /*VOLATILE OPERATIONS*/
     public<V> V volatileShuffleQuery(VolatileShuffleQueryPlan<V> plan, List<Row> rows){
@@ -758,6 +785,7 @@ public class Broker {
                         .setShardID(shardID)
                         .setSerializedQueryPlan(serializedQueryPlan)
                         .setLastCommittedVersion(lcv)
+                        .setTableName(tableName)
                         .build();
                 StreamObserver<RetrieveAndCombineQueryResponse> responseStreamObserver = new StreamObserver<RetrieveAndCombineQueryResponse>() {
                     @Override
@@ -1289,22 +1317,57 @@ public class Broker {
 
     /*UTILITIES*/
 
+
+    public boolean registerPersistentQuery(PersistentReadQuery query){
+        Map<String, List<String>> adjacentTables = new HashMap<>();
+        adjacentTables.put(query.getSinkTable(), new ArrayList<>());
+        if(checkCycle(query)){
+            return false;
+        }
+        ByteString serializedPlan = Utilities.objectToByteString(query);
+        RegisterQueryMessage registerMessage = RegisterQueryMessage.newBuilder().setPlan(serializedPlan).build();
+        coordinatorBlockingStub.registerQuery(registerMessage);
+        return true;
+    }
+
+    private boolean checkCycle(PersistentReadQuery query){
+        TableInfo tableInfo = getTableInfo(query.getSinkTable());
+        List<PersistentReadQuery> queriesTriggered = tableInfo.getQueriesTriggeredByAWriteOnThisTable();
+        List<String> writtenTables = new ArrayList<>();
+        for(PersistentReadQuery triggeredQuery: queriesTriggered){
+            addSinks(writtenTables, triggeredQuery);
+        }
+        List<String> sources = query.getSourceTables();
+        for(String source: sources){
+            if(writtenTables.contains(source)){
+                return true;
+            }
+        }
+        return false;
+    }
+    private void addSinks(List<String> sinks, PersistentReadQuery query){
+        sinks.add(query.getSinkTable());
+        List<PersistentReadQuery> queriesTriggered = getTableInfo(query.getSinkTable()).getQueriesTriggeredByAWriteOnThisTable();
+        for(PersistentReadQuery triggeredQuery: queriesTriggered){
+            addSinks(sinks, triggeredQuery);
+        }
+    }
+
     /**Retrieves a TableInfo object associated with the given table name.
      * TODO: Error handling should be not be carried out via assert statements
      * @param tableName The name of the queried table
      * @return The table info object associated with the given name
      * */
     private TableInfo getTableInfo(String tableName) {
-        if (tableInfoMap.containsKey(tableName)) {
-            return tableInfoMap.get(tableName);
-        } else {
-            TableInfoResponse r = coordinatorBlockingStub.
-                    tableInfo(TableInfoMessage.newBuilder().setTableName(tableName).build());
-            assert(r.getReturnCode() == QUERY_SUCCESS);
-            TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards());
-            tableInfoMap.put(tableName, t);
-            return t;
+        TableInfoResponse r = coordinatorBlockingStub.
+                tableInfo(TableInfoMessage.newBuilder().setTableName(tableName).build());
+        assert(r.getReturnCode() == QUERY_SUCCESS);
+        TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards());
+        Object[] triggeredQueries = (Object[]) Utilities.byteStringToObject(r.getTriggeredQueries());
+        for(Object query: triggeredQueries){
+            t.addTriggeredQuery((PersistentReadQuery) query);
         }
+        return t;
     }
     /**Given a Table identifier, its number of shards and a row's partition key, returns the shard identifier
      * associated with the table's shard containing the row having given partition key

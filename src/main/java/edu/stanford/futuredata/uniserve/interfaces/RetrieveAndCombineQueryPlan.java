@@ -16,6 +16,6 @@ public interface RetrieveAndCombineQueryPlan<S extends Shard, T> extends Seriali
      * table
      */
     Map<String, List<Integer>> keysForQuery();
-    ByteString retrieve(S shard);
+    ByteString retrieve(S shard, String tableName);
     T combine(Map<String,List<ByteString>> retrieveResults);
 }

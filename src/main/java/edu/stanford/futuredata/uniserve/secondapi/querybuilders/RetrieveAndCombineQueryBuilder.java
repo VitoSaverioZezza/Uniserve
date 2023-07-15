@@ -13,23 +13,23 @@ import java.util.Map;
 public class RetrieveAndCombineQueryBuilder {
     List<String> tableNames = new ArrayList<>();
     Map<String, List<Integer>> keysForQuery = null;
-    Serializable combineLambda = null;
-    Map<String, Serializable> retrieveLogic = new HashMap<>();
+    Map<String, Serializable> retrieveLogics = new HashMap<>();
+    Serializable combineLogic = null;
 
-    public RetrieveAndCombineQueryBuilder setCombineLambda(Serializable combineLambda) {
-        this.combineLambda = (Serializable & CombineLambdaRetAndComb) combineLambda;
+    public RetrieveAndCombineQueryBuilder setTableNames(List<String> tableNames) {
+        this.tableNames = tableNames;
         return this;
     }
     public RetrieveAndCombineQueryBuilder setKeysForQuery(Map<String, List<Integer>> keysForQuery) {
         this.keysForQuery = keysForQuery;
         return this;
     }
-    public RetrieveAndCombineQueryBuilder setRetrieveLogic(Map<String, Serializable> retrieveLogic) {
-        this.retrieveLogic = retrieveLogic;
+    public RetrieveAndCombineQueryBuilder setRetrieveLogics(Map<String, Serializable> retrieveLogics) {
+        this.retrieveLogics = retrieveLogics;
         return this;
     }
-    public RetrieveAndCombineQueryBuilder setTableNames(List<String> tableNames) {
-        this.tableNames = tableNames;
+    public RetrieveAndCombineQueryBuilder setCombineLogic(Serializable combineLogic) {
+        this.combineLogic = (Serializable & CombineLambdaRetAndComb) combineLogic;
         return this;
     }
 
@@ -50,7 +50,7 @@ public class RetrieveAndCombineQueryBuilder {
             if(!keysForQuery.containsKey(tableName)){
                 keysForQuery.put(tableName, List.of(-1));
             }
-            if(!retrieveLogic.containsKey(tableName) || combineLambda == null){
+            if(!retrieveLogics.containsKey(tableName) || combineLogic == null){
                 throw new Exception("Malformed Retrieve and combine query, missing lambda function");
             }
         }
@@ -64,10 +64,10 @@ public class RetrieveAndCombineQueryBuilder {
     public Map<String, List<Integer>> getKeysForQuery() {
         return keysForQuery;
     }
-    public Map<String, Serializable> getRetrieveLogic() {
-        return retrieveLogic;
+    public Map<String, Serializable> getRetrieveLogics() {
+        return retrieveLogics;
     }
-    public Serializable getCombineLambda() {
-        return combineLambda;
+    public Serializable getCombineLogic() {
+        return combineLogic;
     }
 }

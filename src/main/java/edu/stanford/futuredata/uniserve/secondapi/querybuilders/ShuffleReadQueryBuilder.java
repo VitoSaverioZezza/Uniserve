@@ -17,11 +17,11 @@ public class ShuffleReadQueryBuilder {
     private Serializable gatherLogic = null;
     private Serializable combineLogic = null;
 
-    public Map<String, List<Integer>> getKeysForQuery() {
-        return keysForQuery;
-    }
     public List<String> getTableNames() {
         return tableNames;
+    }
+    public Map<String, List<Integer>> getKeysForQuery() {
+        return keysForQuery;
     }
     public Map<String, Serializable> getScatterLogics() {
         return scatterLogics;

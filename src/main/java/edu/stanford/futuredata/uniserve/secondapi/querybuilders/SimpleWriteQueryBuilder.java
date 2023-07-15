@@ -7,10 +7,10 @@ import java.io.Serializable;
 
 public class SimpleWriteQueryBuilder {
     private String queriedTable;
-    private Serializable serWriteLambda;
+    private Serializable writeLambda;
 
     public Serializable getSerWriteLambda() {
-        return serWriteLambda;
+        return writeLambda;
     }
 
     public String getQueriedTable() {
@@ -21,8 +21,8 @@ public class SimpleWriteQueryBuilder {
         this.queriedTable = queriedTable;
         return this;
     }
-    public SimpleWriteQueryBuilder setSerWriteLambda(Serializable serWriteLambda) {
-        this.serWriteLambda = serWriteLambda;
+    public SimpleWriteQueryBuilder setWriteLambda(Serializable writeLambda) {
+        this.writeLambda = writeLambda;
         return this;
     }
     public SimpleWriteOperator build() throws Exception{

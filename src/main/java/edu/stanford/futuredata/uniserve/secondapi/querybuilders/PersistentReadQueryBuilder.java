@@ -1,10 +1,8 @@
 package edu.stanford.futuredata.uniserve.secondapi.querybuilders;
 
 import edu.stanford.futuredata.uniserve.secondapi.*;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.*;
 
 import java.io.Serializable;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,16 +11,18 @@ public class PersistentReadQueryBuilder {
     private String queryName;
     private String sinkTable = null;
     private List<String> sourceTables = null;
-    private Serializable writeLambda = null;
-    private Serializable commitLambda = null;
-    private Serializable preCommitLambda = null;
-    private Serializable abortLambda = null;
-    private Map<String, Serializable> retrieveLambdasMap = null;
-    private Serializable combineLambdaReC = null;
-    private Map<String, Serializable> scatterLambdasMap = null;
-    private Serializable gatherLambda = null;
-    private Serializable combineLambdaShuffle = null;
+
+    private Serializable writeLogic = null;
+    private Serializable commitLogic = null;
+    private Serializable preCommitLogic = null;
+    private Serializable abortLogic = null;
+    private Map<String, Serializable> retrieveLogics = null;
+    private Serializable combineLogic = null;
+    private Map<String, Serializable> scatterLogics = null;
+    private Serializable gatherLogic = null;
+
     private Map<String, List<Integer>> keysForQuery = null;
+
     private boolean twoPhaseCommit = false;
     private boolean shuffle = false;
 
@@ -35,40 +35,36 @@ public class PersistentReadQueryBuilder {
         this.queryName = name;
         return this;
     }
-    public PersistentReadQueryBuilder setPreCommitLambda(Serializable preCommitLambda) {
-        this.preCommitLambda = preCommitLambda;
+    public PersistentReadQueryBuilder setPreCommitLogic(Serializable preCommitLogic) {
+        this.preCommitLogic = preCommitLogic;
         return this;
     }
-    public PersistentReadQueryBuilder setCommitLambda(Serializable commitLambda) {
-        this.commitLambda = commitLambda;
+    public PersistentReadQueryBuilder setCommitLogic(Serializable commitLogic) {
+        this.commitLogic = commitLogic;
         return this;
     }
-    public PersistentReadQueryBuilder setAbortLambda(Serializable abortLambda) {
-        this.abortLambda = abortLambda;
+    public PersistentReadQueryBuilder setAbortLogic(Serializable abortLogic) {
+        this.abortLogic = abortLogic;
         return this;
     }
-    public PersistentReadQueryBuilder setGatherLambda(Serializable gatherLambda) {
-        this.gatherLambda = gatherLambda;
+    public PersistentReadQueryBuilder setGatherLogic(Serializable gatherLogic) {
+        this.gatherLogic = gatherLogic;
         return this;
     }
-    public PersistentReadQueryBuilder setCombineLambdaShuffle(Serializable combineLambdaShuffle) {
-        this.combineLambdaShuffle = combineLambdaShuffle;
-        return this;
-    }
-    public PersistentReadQueryBuilder setCombineLambdaReC(Serializable combineLambdaReC) {
-        this.combineLambdaReC = combineLambdaReC;
+    public PersistentReadQueryBuilder setCombineLogic(Serializable combineLogic) {
+        this.combineLogic = combineLogic;
         return this;
     }
     public PersistentReadQueryBuilder setKeysForQuery(Map<String, List<Integer>> keysForQuery) {
         this.keysForQuery = keysForQuery;
         return this;
     }
-    public PersistentReadQueryBuilder setRetrieveLambdasMap(Map<String, Serializable> retrieveLambdasMap) {
-        this.retrieveLambdasMap = retrieveLambdasMap;
+    public PersistentReadQueryBuilder setRetrieveLogics(Map<String, Serializable> retrieveLogics) {
+        this.retrieveLogics = retrieveLogics;
         return this;
     }
-    public PersistentReadQueryBuilder setScatterLambdasMap(Map<String, Serializable> scatterLambdasMap) {
-        this.scatterLambdasMap = scatterLambdasMap;
+    public PersistentReadQueryBuilder setScatterLogics(Map<String, Serializable> scatterLogics) {
+        this.scatterLogics = scatterLogics;
         return this;
     }
     public PersistentReadQueryBuilder setSinkTable(String sinkTable) {
@@ -79,8 +75,8 @@ public class PersistentReadQueryBuilder {
         this.sourceTables = sourceTables;
         return this;
     }
-    public PersistentReadQueryBuilder setWriteLambda(Serializable writeLambda) {
-        this.writeLambda = writeLambda;
+    public PersistentReadQueryBuilder setWriteLogic(Serializable writeLogic) {
+        this.writeLogic = writeLogic;
         return this;
     }
     public PersistentReadQueryBuilder setTwoPhaseCommit(boolean twoPhaseCommit){
@@ -120,10 +116,10 @@ public class PersistentReadQueryBuilder {
         }
         PersistentReadQuery ret = new PersistentReadQuery();
         if(shuffle){
-            if(scatterLambdasMap == null || gatherLambda == null || combineLambdaShuffle == null){
-                if(scatterLambdasMap == null){
+            if(scatterLogics == null || gatherLogic == null || combineLogic == null){
+                if(scatterLogics == null){
                     throw new Exception("Malformed shuffle read query, missing scatter lambda function");
-                }else if(gatherLambda == null){
+                }else if(gatherLogic == null){
                     throw new Exception("Malformed shuffle read query, missing gather lambda function");
                 }else{
                     throw new Exception("Malformed shuffle read query, missing combine lambda function");
@@ -132,39 +128,39 @@ public class PersistentReadQueryBuilder {
             shuffleOnReadQuery = new ShuffleReadQueryBuilder()
                     .setTableNames(sourceTables)
                     .setKeysForQuery(keysForQuery)
-                    .setScatterLogics(scatterLambdasMap)
-                    .setGatherLogic(gatherLambda)
-                    .setCombineLogic(combineLambdaShuffle)
+                    .setScatterLogics(scatterLogics)
+                    .setGatherLogic(gatherLogic)
+                    .setCombineLogic(combineLogic)
                     .build();
             ret.setShuffleOnReadQuery(shuffleOnReadQuery);
         }else{
-            if(retrieveLambdasMap == null || combineLambdaReC == null)
+            if(retrieveLogics == null || combineLogic == null)
                 throw new Exception("Malformed retrieve and combine read query, missing lambda function");
             retrieveAndCombineQuery = new RetrieveAndCombineQueryBuilder()
                     .setTableNames(sourceTables)
                     .setKeysForQuery(keysForQuery)
-                    .setRetrieveLogic(retrieveLambdasMap)
-                    .setCombineLambda(combineLambdaReC)
+                    .setRetrieveLogics(retrieveLogics)
+                    .setCombineLogic(combineLogic)
                     .build();
             ret.setRetrieveAndCombineQuery(retrieveAndCombineQuery);
         }
 
         if(twoPhaseCommit){
-            if(commitLambda == null || preCommitLambda == null || abortLambda == null)
+            if(commitLogic == null || preCommitLogic == null || abortLogic == null)
                 throw new Exception("Malformed 2PC write query, missing lambda function");
             twoPhaseCommitWriteQuery = new Write2PCQueryBuilder()
                     .setQueriedTable(sinkTable)
-                    .setCommitLambda(commitLambda)
-                    .setPreCommitLambda(preCommitLambda)
-                    .setAbortLambda(abortLambda)
+                    .setCommitLambda(commitLogic)
+                    .setPreCommitLambda(preCommitLogic)
+                    .setAbortLambda(abortLogic)
                     .build();
             ret.setTwoPCWriteQuery(twoPhaseCommitWriteQuery);
         }else{
-            if(writeLambda == null)
+            if(writeLogic == null)
                 throw new Exception("Malformed eventually consistent write query, missing lambda function");
             simpleWriteQuery = new SimpleWriteQueryBuilder()
                     .setQueriedTable(sinkTable)
-                    .setSerWriteLambda(writeLambda)
+                    .setWriteLambda(writeLogic)
                     .build();
             ret.setSimpleWriteQuery(simpleWriteQuery);
         }

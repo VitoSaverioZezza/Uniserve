@@ -13,6 +13,7 @@ public class PersistentReadQuery implements Serializable {
     private ShuffleOnReadQuery shuffleOnReadQuery = null;
     private WriteQueryOperator twoPCWriteQuery = null;
     private SimpleWriteOperator simpleWriteQuery = null;
+
     private boolean isRegistered = false;
 
     public void setRetrieveAndCombineQuery(RetrieveAndCombineQuery retrieveAndCombineQuery) {

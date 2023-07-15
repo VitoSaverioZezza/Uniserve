@@ -21,8 +21,8 @@ public class RetrieveAndCombineQuery implements RetrieveAndCombineQueryPlan{
 
 
     public RetrieveAndCombineQuery(RetrieveAndCombineQueryBuilder builder){
-        this.combineLambda = builder.getCombineLambda();
-        this.retrieveLambdas = builder.getRetrieveLogic();
+        this.combineLambda = builder.getCombineLogic();
+        this.retrieveLambdas = builder.getRetrieveLogics();
         this.tableNames = builder.getTableNames();
         this.keysForQuery = builder.getKeysForQuery();
     }

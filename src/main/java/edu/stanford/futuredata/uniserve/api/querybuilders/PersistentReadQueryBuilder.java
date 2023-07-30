@@ -1,6 +1,7 @@
-package edu.stanford.futuredata.uniserve.secondapi.querybuilders;
+package edu.stanford.futuredata.uniserve.api.querybuilders;
 
-import edu.stanford.futuredata.uniserve.secondapi.*;
+import edu.stanford.futuredata.uniserve.api.*;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.WriteShardLambda;
 
 import java.io.Serializable;
 import java.util.HashMap;
@@ -12,7 +13,7 @@ public class PersistentReadQueryBuilder {
     private String sinkTable = null;
     private List<String> sourceTables = null;
 
-    private Serializable writeLogic = null;
+    private WriteShardLambda writeLogic = null;
     private Serializable commitLogic = null;
     private Serializable preCommitLogic = null;
     private Serializable abortLogic = null;
@@ -75,7 +76,7 @@ public class PersistentReadQueryBuilder {
         this.sourceTables = sourceTables;
         return this;
     }
-    public PersistentReadQueryBuilder setWriteLogic(Serializable writeLogic) {
+    public PersistentReadQueryBuilder setWriteLogic(WriteShardLambda writeLogic) {
         this.writeLogic = writeLogic;
         return this;
     }
@@ -94,13 +95,13 @@ public class PersistentReadQueryBuilder {
      * If not explicitly specified, the method tries to build a retrieve-and-combine + eventually consistent combination.
      * The built query is NOT registered and needs to be explicitly registered via the Query Object method.
      * @return a well-formed PersistentReadQuery that can be registered and run
-     * @throws Exception if the given parameters are not suitable for a well-formed query */
-    public PersistentReadQuery build() throws Exception{
+     * @throws MalformedQueryException if the given parameters are not suitable for a well-formed query */
+    public PersistentReadQuery build() throws MalformedQueryException{
         if(queryName == null){
-            throw new Exception("Malformed persistent query, no name defined");
+            throw new MalformedQueryException("Query name is not defined");
         }
         if(sourceTables == null || sourceTables.size() == 0){
-            throw new Exception("Malformed read query, no source tables defined");
+            throw new MalformedQueryException("No source tables defined");
         }
         if(keysForQuery == null){
             keysForQuery = new HashMap<>();
@@ -109,20 +110,25 @@ public class PersistentReadQueryBuilder {
             }
         }
         if(sinkTable == null){
-            throw new Exception("Malformed write query, no sink table defined");
+            throw new MalformedQueryException("Undefined sink table");
         }
         if(sourceTables.contains(sinkTable)){
-            throw new Exception("Malformed persistent query, the query writes to a source table");
+            throw new MalformedQueryException("Sink table is a source table");
         }
         PersistentReadQuery ret = new PersistentReadQuery();
         if(shuffle){
             if(scatterLogics == null || gatherLogic == null || combineLogic == null){
                 if(scatterLogics == null){
-                    throw new Exception("Malformed shuffle read query, missing scatter lambda function");
+                    throw new MalformedQueryException("Shuffle read query missing scatter logics");
                 }else if(gatherLogic == null){
-                    throw new Exception("Malformed shuffle read query, missing gather lambda function");
+                    throw new MalformedQueryException("Shuffle read query missing gather lambda function");
                 }else{
-                    throw new Exception("Malformed shuffle read query, missing combine lambda function");
+                    throw new MalformedQueryException("Shuffle read query missing combine lambda function");
+                }
+            }
+            for(String sourceTable: sourceTables){
+                if(!scatterLogics.containsKey(sourceTable)){
+                    throw new MalformedQueryException("No scatter logic defined for table " + sourceTable);
                 }
             }
             shuffleOnReadQuery = new ShuffleReadQueryBuilder()
@@ -134,8 +140,15 @@ public class PersistentReadQueryBuilder {
                     .build();
             ret.setShuffleOnReadQuery(shuffleOnReadQuery);
         }else{
-            if(retrieveLogics == null || combineLogic == null)
-                throw new Exception("Malformed retrieve and combine read query, missing lambda function");
+            if(retrieveLogics == null)
+                throw new MalformedQueryException("Malformed R&C query, missing retrieve logics");
+            for(String tableName: sourceTables){
+                if(!retrieveLogics.containsKey(tableName)){
+                    throw new MalformedQueryException("Missing retrieve logic for table " + tableName);
+                }
+            }
+            if(combineLogic == null)
+                throw new MalformedQueryException("Malformed R&C query, missing combine logic");
             retrieveAndCombineQuery = new RetrieveAndCombineQueryBuilder()
                     .setTableNames(sourceTables)
                     .setKeysForQuery(keysForQuery)
@@ -146,8 +159,12 @@ public class PersistentReadQueryBuilder {
         }
 
         if(twoPhaseCommit){
-            if(commitLogic == null || preCommitLogic == null || abortLogic == null)
-                throw new Exception("Malformed 2PC write query, missing lambda function");
+            if(commitLogic == null)
+                throw new MalformedQueryException("missing commit logic");
+            if(preCommitLogic == null)
+                throw new MalformedQueryException("Missing pre-commit logic");
+            if(abortLogic == null)
+                throw new MalformedQueryException("Missing abort logic");
             twoPhaseCommitWriteQuery = new Write2PCQueryBuilder()
                     .setQueriedTable(sinkTable)
                     .setCommitLambda(commitLogic)
@@ -157,7 +174,7 @@ public class PersistentReadQueryBuilder {
             ret.setTwoPCWriteQuery(twoPhaseCommitWriteQuery);
         }else{
             if(writeLogic == null)
-                throw new Exception("Malformed eventually consistent write query, missing lambda function");
+                throw new MalformedQueryException("missing write logic");
             simpleWriteQuery = new SimpleWriteQueryBuilder()
                     .setQueriedTable(sinkTable)
                     .setWriteLambda(writeLogic)

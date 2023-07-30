@@ -4,7 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.*;
-import edu.stanford.futuredata.uniserve.secondapi.PersistentReadQuery;
+import edu.stanford.futuredata.uniserve.api.PersistentReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
@@ -224,10 +224,7 @@ public class Broker {
                 collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
         List<SimpleWriteQueryThread<R, S>> writeQueryThreads = new ArrayList<>();
 
-
-        //long txID = txIDs.getAndIncrement();
         long txID = zkCurator.getTxID();
-
         AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
         AtomicBoolean statusWritten = new AtomicBoolean(false);
         for (Integer shardNum: shardRowArrayMap.keySet()) {

@@ -1,4 +1,4 @@
-package edu.stanford.futuredata.uniserve.secondapi.lambdamethods;
+package edu.stanford.futuredata.uniserve.api.lambdamethods;
 
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;

@@ -1,6 +1,7 @@
-package edu.stanford.futuredata.uniserve.secondapi.querybuilders;
+package edu.stanford.futuredata.uniserve.api.querybuilders;
 
-import edu.stanford.futuredata.uniserve.secondapi.WriteQueryOperator;
+import edu.stanford.futuredata.uniserve.api.MalformedQueryException;
+import edu.stanford.futuredata.uniserve.api.WriteQueryOperator;
 
 import java.io.Serializable;
 
@@ -30,9 +31,9 @@ public class Write2PCQueryBuilder {
         return this;
     }
 
-    public WriteQueryOperator build() throws Exception{
+    public WriteQueryOperator build() throws MalformedQueryException {
         if(queriedTable == null || commitLambda == null || abortLambda == null || preCommitLambda == null)
-            throw new Exception("Malformed 2PC write");
+            throw new MalformedQueryException("Malformed 2PC write");
         return new WriteQueryOperator(this);
     }
 

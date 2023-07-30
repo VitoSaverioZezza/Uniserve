@@ -1,4 +1,4 @@
-package edu.stanford.futuredata.uniserve.secondapi.lambdamethods;
+package edu.stanford.futuredata.uniserve.api.lambdamethods;
 
 import java.io.Serializable;
 import java.util.List;

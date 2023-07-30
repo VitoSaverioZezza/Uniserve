@@ -1,11 +1,14 @@
-package edu.stanford.futuredata.uniserve.secondapi.querybuilders;
+package edu.stanford.futuredata.uniserve.api.querybuilders;
 
+
+import edu.stanford.futuredata.uniserve.api.MalformedQueryException;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.WriteShardLambda;
 
 import java.io.Serializable;
 
 public class WriteQueryBuilder {
     private String queriedTable = null;
-    private Serializable writeLogic = null;
+    private WriteShardLambda writeLogic = null;
     private Serializable preCommitLogic = null;
     private Serializable abortLogic = null;
     private Serializable commitLogic = null;
@@ -14,6 +17,8 @@ public class WriteQueryBuilder {
         this.queriedTable = queriedTable;
         return this;
     }
+
+    public void build() throws MalformedQueryException{throw new MalformedQueryException("Malformed write query");}
 
     public Write2PCQueryBuilder setPreCommitLogic(Serializable preCommitLogic){
         Write2PCQueryBuilder builder = new Write2PCQueryBuilder();
@@ -39,7 +44,7 @@ public class WriteQueryBuilder {
                 .setQueriedTable(queriedTable);
     }
 
-    public SimpleWriteQueryBuilder setWriteLogic(Serializable writeLogic){
+    public SimpleWriteQueryBuilder setWriteLogic(WriteShardLambda writeLogic){
         SimpleWriteQueryBuilder builder = new SimpleWriteQueryBuilder();
         return builder.setWriteLambda(writeLogic).setQueriedTable(queriedTable);
     }

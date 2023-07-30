@@ -1,11 +1,11 @@
-package edu.stanford.futuredata.uniserve.secondapi;
+package edu.stanford.futuredata.uniserve.api;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.SimpleWriteQueryPlan;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.WriteShardLambda;
-import edu.stanford.futuredata.uniserve.secondapi.querybuilders.SimpleWriteQueryBuilder;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.WriteShardLambda;
+import edu.stanford.futuredata.uniserve.api.querybuilders.SimpleWriteQueryBuilder;
 
 import java.io.Serializable;
 import java.util.List;
@@ -36,7 +36,7 @@ public class SimpleWriteOperator<S extends Shard> implements SimpleWriteQueryPla
         return ((Serializable & WriteShardLambda ) serWriteLambda).write(shard, data);
     }
     public void setWriteLambda(Serializable writeLambda){
-        this.serWriteLambda = writeLambda;
+        this.serWriteLambda = (Serializable & WriteShardLambda) writeLambda;
     }
     public boolean run(Broker broker, List<Row> data){
         return broker.simpleWriteQuery(this, data);

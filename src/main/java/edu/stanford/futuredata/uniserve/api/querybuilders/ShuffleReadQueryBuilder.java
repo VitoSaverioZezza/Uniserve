@@ -1,9 +1,10 @@
-package edu.stanford.futuredata.uniserve.secondapi.querybuilders;
+package edu.stanford.futuredata.uniserve.api.querybuilders;
 
-import edu.stanford.futuredata.uniserve.secondapi.ShuffleOnReadQuery;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.CombineLambdaShuffle;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.GatherLambda;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.ScatterLambda;
+import edu.stanford.futuredata.uniserve.api.MalformedQueryException;
+import edu.stanford.futuredata.uniserve.api.ShuffleOnReadQuery;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.CombineLambdaShuffle;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.GatherLambda;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.ScatterLambda;
 
 import java.io.Serializable;
 import java.util.HashMap;
@@ -56,9 +57,9 @@ public class ShuffleReadQueryBuilder {
         return this;
     }
 
-    public ShuffleOnReadQuery build() throws Exception{
+    public ShuffleOnReadQuery build() throws MalformedQueryException {
         if(tableNames == null )
-            throw new Exception("Malformed Shuffle query. null table name");
+            throw new MalformedQueryException("Malformed Shuffle query. null table name");
         if(keysForQuery == null){
             keysForQuery = new HashMap<>();
             for(String tableName: tableNames){
@@ -70,11 +71,11 @@ public class ShuffleReadQueryBuilder {
                 keysForQuery.put(tableName, List.of(-1));
             }
             if(!keysForQuery.containsKey(tableName) || !scatterLogics.containsKey(tableName)){
-                throw new Exception("Malformed Shuffle query, no scatterLogic defined for table " + tableName);
+                throw new MalformedQueryException("Malformed Shuffle query, no scatterLogic defined for table " + tableName);
             }
         }
         if(gatherLogic == null || combineLogic == null){
-            throw new Exception("Malformed Shuffle query, no gather or combine logic defined");
+            throw new MalformedQueryException("Malformed Shuffle query, no gather or combine logic defined");
         }
         return new ShuffleOnReadQuery(this);
     }

@@ -1,12 +1,12 @@
-package edu.stanford.futuredata.uniserve.secondapi;
+package edu.stanford.futuredata.uniserve.api;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.CombineLambdaRetAndComb;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.RetrieveLambda;
-import edu.stanford.futuredata.uniserve.secondapi.querybuilders.RetrieveAndCombineQueryBuilder;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.CombineLambdaRetAndComb;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.RetrieveLambda;
+import edu.stanford.futuredata.uniserve.api.querybuilders.RetrieveAndCombineQueryBuilder;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.io.Serializable;

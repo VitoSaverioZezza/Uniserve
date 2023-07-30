@@ -1,6 +1,6 @@
 package edu.stanford.futuredata.uniserve.utilities;
 
-import edu.stanford.futuredata.uniserve.secondapi.PersistentReadQuery;
+import edu.stanford.futuredata.uniserve.api.PersistentReadQuery;
 
 import java.util.ArrayList;
 import java.util.List;

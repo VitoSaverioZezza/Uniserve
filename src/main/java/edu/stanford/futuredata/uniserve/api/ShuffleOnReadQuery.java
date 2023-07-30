@@ -1,13 +1,13 @@
-package edu.stanford.futuredata.uniserve.secondapi;
+package edu.stanford.futuredata.uniserve.api;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.CombineLambdaShuffle;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.GatherLambda;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.ScatterLambda;
-import edu.stanford.futuredata.uniserve.secondapi.querybuilders.ShuffleReadQueryBuilder;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.CombineLambdaShuffle;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.GatherLambda;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.ScatterLambda;
+import edu.stanford.futuredata.uniserve.api.querybuilders.ShuffleReadQueryBuilder;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.io.Serializable;

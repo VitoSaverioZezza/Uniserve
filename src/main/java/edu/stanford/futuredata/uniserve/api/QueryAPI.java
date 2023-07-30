@@ -1,12 +1,12 @@
-package edu.stanford.futuredata.uniserve.secondapi;
+package edu.stanford.futuredata.uniserve.api;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.ExtractFromShardKey;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.ExtractFromShardLambda;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.WriteShardLambda;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.ExtractFromShardKey;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.ExtractFromShardLambda;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.WriteShardLambda;
 
 import java.util.Collection;
 import java.util.List;

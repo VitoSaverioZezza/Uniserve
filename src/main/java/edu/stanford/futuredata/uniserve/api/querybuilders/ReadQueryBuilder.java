@@ -1,4 +1,6 @@
-package edu.stanford.futuredata.uniserve.secondapi.querybuilders;
+package edu.stanford.futuredata.uniserve.api.querybuilders;
+
+import edu.stanford.futuredata.uniserve.api.MalformedQueryException;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -56,5 +58,5 @@ public class ReadQueryBuilder {
                 .setGatherLogic(gatherLogic)
                 .setScatterLogics(scatterLogics);
     }
-    public RetrieveAndCombineQueryBuilder build() throws Exception {throw new Exception("Malformed read query");}
+    public RetrieveAndCombineQueryBuilder build() throws MalformedQueryException {throw new MalformedQueryException("Malformed read query");}
 }

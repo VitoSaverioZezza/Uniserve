@@ -1,12 +1,12 @@
-package edu.stanford.futuredata.uniserve.secondapi;
+package edu.stanford.futuredata.uniserve.api;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.CommitLambda;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.WriteShardLambda;
-import edu.stanford.futuredata.uniserve.secondapi.querybuilders.Write2PCQueryBuilder;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.CommitLambda;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.WriteShardLambda;
+import edu.stanford.futuredata.uniserve.api.querybuilders.Write2PCQueryBuilder;
 
 import java.io.Serializable;
 import java.util.List;

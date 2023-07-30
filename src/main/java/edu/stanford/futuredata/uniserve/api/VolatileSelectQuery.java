@@ -1,11 +1,11 @@
-package edu.stanford.futuredata.uniserve.secondapi;
+package edu.stanford.futuredata.uniserve.api;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.VolatileShuffleQueryPlan;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.ExtractFromShardLambda;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.WriteShardLambda;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.ExtractFromShardLambda;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.WriteShardLambda;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.io.Serializable;

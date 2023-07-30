@@ -1,7 +1,8 @@
-package edu.stanford.futuredata.uniserve.secondapi.querybuilders;
+package edu.stanford.futuredata.uniserve.api.querybuilders;
 
-import edu.stanford.futuredata.uniserve.secondapi.RetrieveAndCombineQuery;
-import edu.stanford.futuredata.uniserve.secondapi.lambdamethods.CombineLambdaRetAndComb;
+import edu.stanford.futuredata.uniserve.api.MalformedQueryException;
+import edu.stanford.futuredata.uniserve.api.RetrieveAndCombineQuery;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.CombineLambdaRetAndComb;
 
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -36,9 +37,9 @@ public class RetrieveAndCombineQueryBuilder {
 
     /**Builds a Retrieve and combine query, checking whether the query is well-formed before returning it.
      *@throws Exception if the query is not well-formed*/
-    public RetrieveAndCombineQuery build() throws Exception{
+    public RetrieveAndCombineQuery build() throws MalformedQueryException {
         if(tableNames == null || tableNames.size() == 0){
-            throw new Exception("Malformed retrieve and combine query, missing table names");
+            throw new MalformedQueryException("Missing source tables");
         }
         if(keysForQuery == null){
             keysForQuery = new HashMap<>();
@@ -51,7 +52,7 @@ public class RetrieveAndCombineQueryBuilder {
                 keysForQuery.put(tableName, List.of(-1));
             }
             if(!retrieveLogics.containsKey(tableName) || combineLogic == null){
-                throw new Exception("Malformed Retrieve and combine query, missing lambda function");
+                throw new MalformedQueryException("Malformed Retrieve and combine query, missing lambda function");
             }
         }
         return new RetrieveAndCombineQuery(this);

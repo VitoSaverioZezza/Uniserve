@@ -133,8 +133,16 @@ public class Broker {
      * @param numShards The number of shards the table will have
      * @return true if and only if the specified table name has not been associated with any previously created table, false otherwise
      * */
-    public boolean createTable(String tableName, int numShards) {
-        CreateTableMessage m = CreateTableMessage.newBuilder().setTableName(tableName).setNumShards(numShards).build();
+    public boolean createTable(String tableName, int numShards, List<String> attributeNames, Boolean[] keyStructure) {
+        String[] attrNamesArray = attributeNames.toArray(new String[0]);
+        ByteString serAttrNamesArray = Utilities.objectToByteString(attrNamesArray);
+        ByteString serKeyStr = Utilities.objectToByteString(keyStructure);
+        CreateTableMessage m = CreateTableMessage.newBuilder()
+                .setTableName(tableName)
+                .setNumShards(numShards)
+                .setAttributeNames(serAttrNamesArray)
+                .setKeyStructure(serKeyStr)
+                .build();
         CreateTableResponse r = coordinatorBlockingStub.createTable(m);
         return r.getReturnCode() == QUERY_SUCCESS;
     }
@@ -152,7 +160,7 @@ public class Broker {
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
         TableInfo tableInfo = getTableInfo(writeQueryPlan.getQueriedTable());
         for (R row: rows) {
-            int partitionKey = row.getPartitionKey();
+            int partitionKey = row.getPartitionKey(tableInfo.getKeyStructure());
             assert(partitionKey >= 0);
             int shard = keyToShard(tableInfo.id, tableInfo.numShards, partitionKey);
             shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
@@ -215,7 +223,7 @@ public class Broker {
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
         TableInfo tableInfo = getTableInfo(writeQueryPlan.getQueriedTable());
         for (R row: rows) {
-            int partitionKey = row.getPartitionKey();
+            int partitionKey = row.getPartitionKey(tableInfo.getKeyStructure());
             assert(partitionKey >= 0);
             int shard = keyToShard(tableInfo.id, tableInfo.numShards, partitionKey);
             shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
@@ -271,7 +279,7 @@ public class Broker {
         TableInfo tableInfo = getTableInfo(plan.getQueriedTables());
 
         for (Row row: rows) {
-            int partitionKey = row.getPartitionKey();
+            int partitionKey = row.getPartitionKey(tableInfo.getKeyStructure());
             assert(partitionKey >= 0);
             int shard = keyToShard(tableInfo.id, tableInfo.numShards, partitionKey);
             shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
@@ -408,7 +416,7 @@ public class Broker {
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
         TableInfo tableInfo = getTableInfo(mapQueryPlan.getQueriedTable());
         for (R row: rows) {
-            int partitionKey = row.getPartitionKey();
+            int partitionKey = row.getPartitionKey(tableInfo.getKeyStructure());
             assert(partitionKey >= 0);
             int shard = keyToShard(tableInfo.id, tableInfo.numShards, partitionKey);
             shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
@@ -1365,11 +1373,16 @@ public class Broker {
      * @param tableName The name of the queried table
      * @return The table info object associated with the given name
      * */
-    private TableInfo getTableInfo(String tableName) {
+    public TableInfo getTableInfo(String tableName) {
         TableInfoResponse r = coordinatorBlockingStub.
                 tableInfo(TableInfoMessage.newBuilder().setTableName(tableName).build());
         assert(r.getReturnCode() == QUERY_SUCCESS);
         TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards());
+        String[] attributeNamesArray = (String[]) Utilities.byteStringToObject(r.getAttributeNames());
+        List<String> attributeNames = new ArrayList<>();
+        attributeNames.addAll(Arrays.asList(attributeNamesArray));
+        t.setAttributeNames(attributeNames);
+        t.setKeyStructure((Boolean[]) Utilities.byteStringToObject(r.getKeyStructure()));
         Object[] triggeredQueries = (Object[]) Utilities.byteStringToObject(r.getTriggeredQueries());
         for(Object query: triggeredQueries){
             t.addTriggeredQuery((PersistentReadQuery) query);

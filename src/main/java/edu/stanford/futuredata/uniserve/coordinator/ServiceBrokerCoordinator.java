@@ -10,8 +10,7 @@ import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorImplBase {
@@ -46,10 +45,15 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
             TableInfo t = coordinator.tableInfoMap.get(tableName);
             List<PersistentReadQuery> triggeredQueries = t.getQueriesTriggeredByAWriteOnThisTable();
             ByteString serializedQueries = Utilities.objectToByteString(triggeredQueries.toArray());
+            ByteString serAttrNamesArray = Utilities.objectToByteString(t.getAttributeNames().toArray());
+            ByteString serKeyStructure = Utilities.objectToByteString(t.getKeyStructure());
             return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
                     .setId(t.id)
                     .setTriggeredQueries(serializedQueries)
-                    .setNumShards(t.numShards).build();
+                    .setNumShards(t.numShards)
+                    .setAttributeNames(serAttrNamesArray)
+                    .setKeyStructure(serKeyStructure)
+                    .build();
         } else {
             return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }
@@ -61,10 +65,16 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         responseObserver.onCompleted();
     }
     private CreateTableResponse createTableHandler(CreateTableMessage m) {
+        String[] attrNamesArray = (String[]) Utilities.byteStringToObject(m.getAttributeNames());
+        List<String> attributeNames = new ArrayList<>();
+        attributeNames.addAll(Arrays.asList(attrNamesArray));
+        Boolean[] keyStructure = (Boolean[]) Utilities.byteStringToObject(m.getKeyStructure());
         String tableName = m.getTableName();
         int numShards = m.getNumShards();
         int tableID = coordinator.tableNumber.getAndIncrement();
         TableInfo t = new TableInfo(tableName, tableID, numShards);
+        t.setAttributeNames(attributeNames);
+        t.setKeyStructure(keyStructure);
         if (coordinator.tableInfoMap.putIfAbsent(tableName, t) != null) {
             coordinator.assignShards();
             return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();

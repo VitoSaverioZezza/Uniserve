@@ -195,7 +195,8 @@ public class DataStore<R extends Row, S extends Shard> {
                 return Optional.empty();
             }
         }
-        return shardFactory.createNewShard(shardPath, shardNum);
+        Optional<S> newShard = shardFactory.createNewShard(shardPath, shardNum);
+        return newShard;
     }
 
     /** Creates all metadata for a shard not yet seen on this server, creating the shard if it does not yet exist **/

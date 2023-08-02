@@ -12,10 +12,29 @@ public class TableInfo {
     private List<PersistentReadQuery> queriesTriggeredByAWriteOnThisTable = new ArrayList<>();
     private List<String> queryNames = new ArrayList<>();
 
+    private List<String> attributeNames = new ArrayList<>();
+    private Boolean[] keyStructure;
+
     public TableInfo(String name, Integer id, Integer numShards) {
         this.name = name;
         this.id = id;
         this.numShards = numShards;
+    }
+
+    public void setAttributeNames(List<String> attributeNames) {
+        this.attributeNames = attributeNames;
+    }
+
+    public void setKeyStructure(Boolean[] keyStructure) {
+        this.keyStructure = keyStructure;
+    }
+
+    public List<String> getAttributeNames() {
+        return attributeNames;
+    }
+
+    public Boolean[] getKeyStructure() {
+        return keyStructure;
     }
 
     public List<PersistentReadQuery> getQueriesTriggeredByAWriteOnThisTable(){

@@ -34,11 +34,15 @@ message TableInfoResponse {
     int32 id = 2;
     int32 numShards = 3;
     bytes triggeredQueries = 4;
+    bytes attributeNames = 5;
+    bytes keyStructure = 6;
 }
 
 message CreateTableMessage {
     string tableName = 1;
     int32 numShards = 2;
+    bytes attributeNames = 3;
+    bytes keyStructure = 4;
 }
 
 message CreateTableResponse {

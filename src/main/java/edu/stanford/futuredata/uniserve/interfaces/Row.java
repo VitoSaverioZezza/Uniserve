@@ -7,5 +7,5 @@ import java.io.Serializable;
  * */
 public interface Row extends Serializable {
     /**@return the partition key of the row*/
-    int getPartitionKey();
+    int getPartitionKey(Boolean[] keyStructure);
 }

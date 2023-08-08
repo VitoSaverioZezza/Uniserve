@@ -778,7 +778,21 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         responseObserver.onNext(retrieveAndCombineQueryHandler(request));
         responseObserver.onCompleted();
     }
+    //TODO: Manage reader locks
     private RetrieveAndCombineQueryResponse retrieveAndCombineQueryHandler(RetrieveAndCombineQueryMessage request){
+        if(request.getSubquery()){
+            long txID = request.getTxID();
+            Integer shardID = request.getShardID();
+            S ephemeralShard = dataStore.getSubqueryShard(txID, request.getTableName(), shardID);
+            RetrieveAndCombineQueryPlan<S, Object> plan = (RetrieveAndCombineQueryPlan<S, Object>) Utilities.objectToByteString(request.getSerializedQueryPlan());
+            if(ephemeralShard == null){
+                logger.warn("DS{} Got r&c read request for unassigned local shard {}", dataStore.dsID, shardID);
+                dataStore.shardLockMap.get(shardID).readerLockUnlock();
+                return RetrieveAndCombineQueryResponse.newBuilder().setState(Broker.QUERY_FAILURE).build();
+            }
+            ByteString retrievedData = plan.retrieve(ephemeralShard, request.getTableName());
+            return RetrieveAndCombineQueryResponse.newBuilder().setData(retrievedData).setState(Broker.QUERY_SUCCESS).build();
+        }
         int shardID = request.getShardID();
         ByteString serializedPlan = request.getSerializedQueryPlan();
         RetrieveAndCombineQueryPlan<S, Object> plan = (RetrieveAndCombineQueryPlan<S, Object>) Utilities.byteStringToObject(serializedPlan);
@@ -806,6 +820,85 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         ByteString retrievedData = plan.retrieve(localShard, request.getTableName());
         return RetrieveAndCombineQueryResponse.newBuilder().setData(retrievedData).setState(Broker.QUERY_SUCCESS).build();
     }
+
+
+    @Override
+    public StreamObserver<StoreSubqueryDataMessage> storeSubqueryData(StreamObserver<StoreSubqueryDataResponse> responseObserver){
+        return new StreamObserver<StoreSubqueryDataMessage>() {
+            long txID;
+            Map<String, List<ByteString>> serializedSubqueryData = new HashMap<>();
+            RetrieveAndCombineQueryPlan<S, Object> rcPlan = null;
+            ShuffleOnReadQueryPlan<S, Object> shufflePlan = null;
+            @Override
+            public void onNext(StoreSubqueryDataMessage message) {
+                if(message.getClientStatus() == 0){
+                    txID = message.getTransactionID();
+                    Object plan = Utilities.byteStringToObject(message.getPlan());
+                    if(plan instanceof RetrieveAndCombineQueryPlan){
+                        rcPlan = (RetrieveAndCombineQueryPlan<S, Object>) plan;
+                    }else{
+                        shufflePlan = (ShuffleOnReadQueryPlan<S, Object>) plan;
+                    }
+                    serializedSubqueryData.computeIfAbsent(message.getAlias(), k->new ArrayList<>()).add(message.getData());
+                }else{
+                    storeData();
+                }
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                responseObserver.onError(new Throwable());
+            }
+
+            @Override
+            public void onCompleted() {
+                responseObserver.onCompleted();
+            }
+
+            private void storeData(){
+                Map<String,List<Integer>> ephemeralShardsIDs = new HashMap<>();
+                boolean res = true;
+                for(Map.Entry<String, List<ByteString>> entry: serializedSubqueryData.entrySet()){
+                    String alias = entry.getKey();
+                    for (ByteString serializedChunk: entry.getValue()){
+                        List<Object> chunkList = new ArrayList<>(Arrays.asList((Object[])Utilities.byteStringToObject(serializedChunk)));
+                        Integer ephemeralShardID = dataStore.ephemeralShardNum.decrementAndGet();
+                        S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
+                        ephemeralShardsIDs.computeIfAbsent(alias,k->new ArrayList<>()).add(ephemeralShardID);
+                        if(rcPlan == null){
+                            shufflePlan.writeSubqueryResults(ephemeralShard, alias, chunkList);
+                        }else{
+                            rcPlan.writeSubqueryResults(ephemeralShard, alias, chunkList);
+                        }
+                        res = res && dataStore.storeSubqueryResults(ephemeralShard, alias, txID, ephemeralShardID);
+                    }
+                }
+                if(!res){
+                    responseObserver.onError(new Throwable("Subquery result storing error"));
+                }
+                for(Map.Entry<String, List<Integer>> entry : ephemeralShardsIDs.entrySet()) {
+                    String alias = entry.getKey();
+                    Integer[] ephemeralShardArray = entry.getValue().toArray(new Integer[0]);
+                    int STEPSIZE = 1000;
+                    for (int i = 0; i < ephemeralShardArray.length; i += STEPSIZE) {
+                        Integer[] chunk = Arrays.copyOfRange(ephemeralShardArray, i, Math.min(ephemeralShardArray.length, i + STEPSIZE));
+                        ByteString serializedDataChunk = Utilities.objectToByteString(chunk);
+                        StoreSubqueryDataResponse response = StoreSubqueryDataResponse.newBuilder()
+                                .setShardId(serializedDataChunk)
+                                .setServerStatus(0)
+                                .setAlias(alias)
+                                .build();
+                        responseObserver.onNext(response);
+                    }
+                }
+                StoreSubqueryDataResponse response = StoreSubqueryDataResponse.newBuilder().setServerStatus(1).build();
+                responseObserver.onNext(response);
+                responseObserver.onCompleted();
+            }
+        };
+    }
+
+
 
 
     @Override

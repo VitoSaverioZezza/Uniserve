@@ -5,6 +5,8 @@ import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.api.PersistentReadQuery;
+import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
+import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
@@ -471,7 +473,7 @@ public class Broker {
      *      represent intermediate shards locations to be returned to the caller, since those are results of
      *      sub-queries.
      * */
-    public <S extends Shard, R extends Row, V> V anchoredReadQuery(AnchoredReadQueryPlan<S, V> plan) {
+    public <S extends Shard, V> V anchoredReadQuery(AnchoredReadQueryPlan<S, V> plan) {
         //long txID = txIDs.getAndIncrement();
         long txID = zkCurator.getTxID();
 
@@ -626,7 +628,7 @@ public class Broker {
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;
     }
-    public <S extends Shard, R extends Row, V> V shuffleReadQuery(ShuffleOnReadQueryPlan<S, V> plan) {
+    public <S extends Shard, V> V shuffleReadQuery(ShuffleOnReadQueryPlan<S, V> plan) {
         //long txID = txIDs.getAndIncrement();
         long txID = zkCurator.getTxID();
 
@@ -728,14 +730,56 @@ public class Broker {
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         return ret;
     }
-    public <S extends Shard, R extends Row, V> V retrieveAndCombineReadQuery(RetrieveAndCombineQueryPlan<S,V> plan){
-        //long txID = txIDs.getAndIncrement();
+    public <S extends Shard, V> V retrieveAndCombineReadQuery(RetrieveAndCombineQueryPlan<S,V> plan){
         long txID = zkCurator.getTxID();
 
+        ByteString serializedQueryPlan = Utilities.objectToByteString(plan);
 
         Map<String, List<Integer>> tablesToKeysMap = plan.keysForQuery();
         Map<String, List<Integer>> tablesToShardsMap = new HashMap<>();
         Map<String, List<ByteString>> retrievedData = new HashMap<>();
+
+        /*Distribute the subquery results in the servers:
+        * A) build an assignment between dsID and subquery results
+        * B) send these data to the servers that will store them in shards, the response contains the shard ids of
+        *       the shards storing the objects
+        * C) include the alias-list<ShardIDs> into the tablesToShardMap
+        * D) treat them as normal data stored in the tables, but add transactionID to the messages sent in order to
+        *       retrieve the shards
+        *
+        * NEED DSID-LIST<SHARDID>
+        * */
+        Map<String, ReadQueryResults<S, Object>> subqueriesResults = plan.getSubqueriesResults();
+        Map<Integer, Map<String, List<Object>>> dsToSubqueryData = new HashMap<>();
+        int dsCount = dsIDToChannelMap.size();
+        for(Map.Entry<String, ReadQueryResults<S, Object>> entry : subqueriesResults.entrySet()){
+            String subqueryAlias = entry.getKey();
+            List<Object> subqueryResults = entry.getValue().getData();
+            for(Object subqueryRow: subqueryResults){
+                int dsID = subqueryRow.hashCode() % dsCount;
+                dsToSubqueryData.computeIfAbsent(dsID, k->new HashMap<>()).computeIfAbsent(subqueryAlias, k->new ArrayList<>()).add(subqueryRow);
+            }
+        }
+        List<StoreSubqueryDataThread> storeSubqueryDataThreads = new ArrayList<>();
+        Map<Integer, Map<String, List<Integer>>> dsIDToAliasShards = new ConcurrentHashMap<>();
+
+        AtomicBoolean forwardStatus = new AtomicBoolean(true);
+        for(Map.Entry<Integer, Map<String, List<Object>>> entry: dsToSubqueryData.entrySet()){
+            Map<String, List<Integer>> aliasToShardIDs = new ConcurrentHashMap<>();
+            dsIDToAliasShards.put(entry.getKey(), aliasToShardIDs);
+            int dsID = entry.getKey();
+            StoreSubqueryDataThread t = new StoreSubqueryDataThread(
+                    dsID, txID, entry.getValue(), aliasToShardIDs, forwardStatus, plan);
+            t.start();
+            storeSubqueryDataThreads.add(t);
+        }
+        try {
+            for(StoreSubqueryDataThread t: storeSubqueryDataThreads){
+                t.join();
+            }
+        }catch (InterruptedException e ){
+            logger.error("Failed join threads in store subquery data");
+        }
 
         long lcv = zkCurator.getLastCommittedVersion();
         for(String tableName: tablesToKeysMap.keySet()){
@@ -759,12 +803,12 @@ public class Broker {
             CountDownLatch tableLatch = new CountDownLatch(tablesToShardsMap.get(tableName).size());
             for(Integer shardID:tablesToShardsMap.get(tableName)){
                 BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(getStubForShard(shardID).getChannel());
-                ByteString serializedQueryPlan = Utilities.objectToByteString(plan);
                 RetrieveAndCombineQueryMessage requestMessage = RetrieveAndCombineQueryMessage.newBuilder()
                         .setShardID(shardID)
                         .setSerializedQueryPlan(serializedQueryPlan)
                         .setLastCommittedVersion(lcv)
                         .setTableName(tableName)
+                        .setSubquery(false)
                         .build();
                 StreamObserver<RetrieveAndCombineQueryResponse> responseStreamObserver = new StreamObserver<RetrieveAndCombineQueryResponse>() {
                     @Override
@@ -788,6 +832,50 @@ public class Broker {
                 tableLatch.await();
             }catch (Exception e){
                 logger.error("Retrieve and combine query failed");
+            }
+        }
+        for(String alias: subqueriesResults.keySet()){
+            retrievedData.put(alias, new CopyOnWriteArrayList<>());
+            int totShardCount = 0;
+            for(Map.Entry<Integer, Map<String, List<Integer>>> entry: dsIDToAliasShards.entrySet()){
+                totShardCount = totShardCount + entry.getValue().get(alias).size();
+            }
+            CountDownLatch tableLatch = new CountDownLatch(totShardCount);
+            for(Integer dsID: dsToSubqueryData.keySet()){
+                List<Integer> shardsIDs = dsIDToAliasShards.get(dsID).get(alias);
+                for(Integer shardID: shardsIDs){
+                    ManagedChannel channel = dsIDToChannelMap.get(dsID);
+                    BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+                    RetrieveAndCombineQueryMessage message = RetrieveAndCombineQueryMessage.newBuilder()
+                            .setTableName(alias)
+                            .setShardID(shardID)
+                            .setSerializedQueryPlan(serializedQueryPlan)
+                            .setTxID(txID)
+                            .setSubquery(true)
+                            .build();
+                    StreamObserver<RetrieveAndCombineQueryResponse> responseStreamObserver = new StreamObserver<RetrieveAndCombineQueryResponse>() {
+                        @Override
+                        public void onNext(RetrieveAndCombineQueryResponse response) {
+                            if(response.getState() == QUERY_SUCCESS){
+                                retrievedData.get(alias).add(response.getData());
+                            }
+                        }
+
+                        @Override
+                        public void onError(Throwable throwable) {}
+
+                        @Override
+                        public void onCompleted() {
+                            tableLatch.countDown();
+                        }
+                    };
+                    stub.retrieveAndCombineQuery(message, responseStreamObserver);
+                }
+                try {
+                    tableLatch.await();
+                }catch (Exception e){
+                    logger.error("Retrieve and combine query failed");
+                }
             }
         }
         for(Map.Entry<String, List<ByteString>> e: retrievedData.entrySet()){
@@ -1297,6 +1385,92 @@ public class Broker {
         }
     }
 
+    private class StoreSubqueryDataThread extends Thread{
+        private final Integer dsID;
+        private final long txID;
+        private final Map<String, List<Object>> dataToForward;
+        private final Map<String, List<Integer>> shardsIDs;
+        private final AtomicBoolean status;
+        private RetrieveAndCombineQueryPlan rcplan = null;
+        private ShuffleOnReadQueryPlan shufflePlan;
+
+        StoreSubqueryDataThread(Integer dsID, long txID, Map<String, List<Object>> dataToForward,
+                                Map<String, List<Integer>> shardsIDs, AtomicBoolean status, RetrieveAndCombineQueryPlan plan){
+            this.dsID = dsID;
+            this.txID = txID;
+            this.dataToForward = dataToForward;
+            this.shardsIDs = shardsIDs;
+            this.status = status;
+            this.rcplan = plan;
+        }
+
+        @Override
+        public void run(){
+            forwardData();
+        }
+
+        private void forwardData(){
+            CountDownLatch latch = new CountDownLatch(1);
+            ManagedChannel channel = dsIDToChannelMap.get(dsID);
+            assert (channel != null);
+            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+            StreamObserver<StoreSubqueryDataMessage> observer = stub.storeSubqueryData(new StreamObserver<StoreSubqueryDataResponse>(){
+                @Override
+                public void onNext(StoreSubqueryDataResponse storeSubqueryDataResponse) {
+                    if(storeSubqueryDataResponse.getServerStatus() == 0){
+                        ByteString serializedShardIDsChunk = storeSubqueryDataResponse.getShardId();
+                        Integer[] shardIDsChunkArray = (Integer[]) Utilities.byteStringToObject(serializedShardIDsChunk);
+                        shardsIDs.computeIfAbsent(storeSubqueryDataResponse.getAlias(), k-> new ArrayList<>()).addAll(Arrays.asList(shardIDsChunkArray));
+                    }else{
+                        latch.countDown();
+                    }
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    status.set(false);
+                    latch.countDown();
+                }
+
+                @Override
+                public void onCompleted() {
+                    latch.countDown();
+                }
+            });
+            for(String aliasName: dataToForward.keySet()){
+                Object[] dataArray = dataToForward.get(aliasName).toArray();
+                int chunkSize = 1000;
+                for(int i = 0; i<dataArray.length; i+=chunkSize) {
+                    Object[] chunk = Arrays.copyOfRange(dataArray, i, Math.min(dataArray.length, i + chunkSize));
+                    ByteString serializedDataChunk = Utilities.objectToByteString(chunk);
+                    ByteString serializedQueryPlan;
+                    if (rcplan != null)
+                        serializedQueryPlan = Utilities.objectToByteString(rcplan);
+                    else
+                        serializedQueryPlan = Utilities.objectToByteString(shufflePlan);
+                    StoreSubqueryDataMessage message = StoreSubqueryDataMessage.newBuilder()
+                            .setData(serializedDataChunk)
+                            .setAlias(aliasName)
+                            .setTransactionID(txID)
+                            .setClientStatus(0)
+                            .setPlan(serializedQueryPlan)
+                            .build();
+                    observer.onNext(message);
+                }
+            }
+            StoreSubqueryDataMessage message = StoreSubqueryDataMessage.newBuilder().setClientStatus(1).build();
+            observer.onNext(message);
+            try {
+                latch.await();
+            }catch (InterruptedException e){
+                logger.error("Subquery result forwarding error: " + e.getMessage());
+            }
+            observer.onCompleted();
+        }
+    }
+
+
+
     /*UTILITIES*/
 
     /**Given the name of the table written executes the stored queries that are triggered by the write operation
@@ -1378,9 +1552,11 @@ public class Broker {
                 tableInfo(TableInfoMessage.newBuilder().setTableName(tableName).build());
         assert(r.getReturnCode() == QUERY_SUCCESS);
         TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards());
-        String[] attributeNamesArray = (String[]) Utilities.byteStringToObject(r.getAttributeNames());
+        Object[] attributeNamesArray = (Object[]) Utilities.byteStringToObject(r.getAttributeNames());
         List<String> attributeNames = new ArrayList<>();
-        attributeNames.addAll(Arrays.asList(attributeNamesArray));
+        for (Object o:attributeNamesArray){
+            attributeNames.add((String) o);
+        }
         t.setAttributeNames(attributeNames);
         t.setKeyStructure((Boolean[]) Utilities.byteStringToObject(r.getKeyStructure()));
         Object[] triggeredQueries = (Object[]) Utilities.byteStringToObject(r.getTriggeredQueries());

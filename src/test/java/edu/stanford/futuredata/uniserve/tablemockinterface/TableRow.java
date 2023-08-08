@@ -20,7 +20,7 @@ public class TableRow implements Row {
 
     /**@return partition key of the data item*/
     @Override
-    public int getPartitionKey() {
+    public int getPartitionKey(Boolean[] keyStructure) {
         return this.key;
     }
 

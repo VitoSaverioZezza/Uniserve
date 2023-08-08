@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.api;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.api.lambdamethods.CombineLambdaRetAndComb;
@@ -32,6 +33,12 @@ public class RetrieveAndCombineQuery implements RetrieveAndCombineQueryPlan{
     public List<String> getTableNames() {
         return tableNames;
     }
+
+    @Override
+    public Map<String, ReadQueryResults> getSubqueriesResults() {
+        return null;
+    }
+
     @Override
     public Map<String, List<Integer>> keysForQuery() {
         return keysForQuery;
@@ -43,6 +50,12 @@ public class RetrieveAndCombineQuery implements RetrieveAndCombineQueryPlan{
         Object[] retrDataArray = retrDataList.toArray();
         return Utilities.objectToByteString(retrDataArray);
     }
+
+    @Override
+    public boolean writeSubqueryResults(Shard shard, String tableName, List data) {
+        return false;
+    }
+
     @Override
     public Object combine(Map map) {
         Map<String, List<ByteString>> serRetrievedData = (Map<String, List<ByteString>>) map;

@@ -35,4 +35,6 @@ public interface ShuffleOnReadQueryPlan<S extends Shard, T> extends Serializable
      * @param shardQueryResults values returned by all gather operations executed by all datastores
      * @return the query result*/
     T combine(List<ByteString> shardQueryResults);
+
+    default boolean writeSubqueryResults(S shard, String tableName, List<Object> data){return true;};
 }

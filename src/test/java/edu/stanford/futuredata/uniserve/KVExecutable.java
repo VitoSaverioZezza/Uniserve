@@ -94,7 +94,7 @@ public class KVExecutable {
 
     private static void runBroker(String zkHost, int zkPort) {
         Broker broker = new Broker(zkHost, zkPort);
-        broker.createTable("table", 1);
+        broker.createTable("table", 1, new ArrayList<>(), null);
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
         boolean writeSuccess  = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
         assert(writeSuccess);

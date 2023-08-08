@@ -11,7 +11,7 @@ public class KVRow implements Row {
         this.value = value;
     }
 
-    @Override
+
     public int getPartitionKey() {
         return this.key;
     }
@@ -26,5 +26,10 @@ public class KVRow implements Row {
 
     public void incrementValue(){
         value++;
+    }
+
+    @Override
+    public int getPartitionKey(Boolean[] keyStructure) {
+        return getPartitionKey();
     }
 }

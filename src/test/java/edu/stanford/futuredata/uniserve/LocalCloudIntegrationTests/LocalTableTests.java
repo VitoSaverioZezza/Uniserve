@@ -67,7 +67,7 @@ public class LocalTableTests {
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort);
-        assertTrue(broker.createTable("table1", numShards));
+        assertTrue(broker.createTable("table1", numShards, new ArrayList<>(), null));
 
         List<TableRow> rows = new ArrayList<>();
         for (int k = 0; k < 5; k++) {
@@ -102,8 +102,8 @@ public class LocalTableTests {
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort);
-        assertTrue(broker.createTable("peopleTable", numShards));
-        assertTrue(broker.createTable("stateTable", numShards));
+        assertTrue(broker.createTable("peopleTable", numShards, new ArrayList<>(), null));
+        assertTrue(broker.createTable("stateTable", numShards, new ArrayList<>(), null));
 
         int numStates = 10;
         List<TableRow> rows = new ArrayList<>();

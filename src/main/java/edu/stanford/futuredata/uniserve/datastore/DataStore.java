@@ -425,4 +425,19 @@ public class DataStore<R extends Row, S extends Shard> {
     public void removeVolatileScatterData(long transactionID){
         volatileScatterData.remove(transactionID);
     }
+
+
+    private final Map<Long, Map<String, Map<Integer, S>>> subqueryResults = new HashMap<>();
+
+    public boolean storeSubqueryResults(S ephemeralShard, String alias, Long txID, Integer shardID){
+        try {
+            subqueryResults.computeIfAbsent(txID, k -> new HashMap<>()).computeIfAbsent(alias, k -> new HashMap<>()).put(shardID, ephemeralShard);
+            return true;
+        }catch (Exception e){
+            return false;
+        }
+    }
+    public S getSubqueryShard(long txID, String alias, Integer shardID){
+        return subqueryResults.get(txID).get(alias).get(shardID);
+    }
 }

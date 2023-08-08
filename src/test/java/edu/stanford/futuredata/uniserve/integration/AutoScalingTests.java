@@ -59,8 +59,8 @@ public class AutoScalingTests {
 
         Broker broker = new Broker(zkHost, zkPort);
 
-        assertTrue(broker.createTable("table1", numShards));
-        assertTrue(broker.createTable("table2", numShards));
+        assertTrue(broker.createTable("table1", numShards, new ArrayList<>(), null));
+        assertTrue(broker.createTable("table2", numShards, new ArrayList<>(), null));
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan;
         writeQueryPlan = new KVWriteQueryPlanInsert("table1");

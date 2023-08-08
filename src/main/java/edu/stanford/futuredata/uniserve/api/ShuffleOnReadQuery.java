@@ -53,6 +53,12 @@ public class ShuffleOnReadQuery implements ShuffleOnReadQueryPlan {
         }
         return serScatterRes;
     }
+
+    @Override
+    public boolean writeSubqueryResults(Shard shard, String tableName, List data) {
+        return false;
+    }
+
     @Override
     public ByteString gather(Map ephemeralData, Map ephemeralShards) {
         Map<String, List<ByteString>> scatterResults = (Map<String, List<ByteString>>) ephemeralData;

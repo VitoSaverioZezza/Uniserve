@@ -17,6 +17,7 @@ public class RelRow implements Row {
         }
         return hashCodeKey;
     }
+    public Integer getSize(){ return data.size();}
     public Object getField(int attributeIndex){
         return data.get(attributeIndex);
     }

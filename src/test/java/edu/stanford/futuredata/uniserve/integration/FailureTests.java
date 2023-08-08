@@ -63,7 +63,7 @@ public class FailureTests {
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort);
-        broker.createTable("table", numShards);
+        broker.createTable("table", numShards, new ArrayList<>(), null);
         List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
             rows.add(new KVRow(i, i));
@@ -116,7 +116,7 @@ public class FailureTests {
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort);
-        broker.createTable("table", numShards);
+        broker.createTable("table", numShards, new ArrayList<>(), null);
         Thread t = new Thread(() -> {
             for (int i = 0; i < 10; i++) {
                 WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsertSlow();
@@ -171,7 +171,7 @@ public class FailureTests {
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort);
-        broker.createTable("table", numShards);
+        broker.createTable("table", numShards, new ArrayList<>(), null);
         List<KVRow> startRows = new ArrayList<>();
         for(int d = 0; d < numShards; d++) {
             startRows.add(new KVRow(d, 0));
@@ -238,7 +238,7 @@ public class FailureTests {
             dataStores.add(dataStore);
         }
         Broker broker = new Broker(zkHost, zkPort);
-        broker.createTable("table", numShards);
+        broker.createTable("table", numShards, new ArrayList<>(), null);
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));

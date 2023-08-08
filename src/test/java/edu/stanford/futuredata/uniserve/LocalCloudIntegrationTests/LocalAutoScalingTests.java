@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -60,8 +61,8 @@ public class LocalAutoScalingTests {
 
         Broker broker = new Broker(zkHost, zkPort);
 
-        assertTrue(broker.createTable("table1", numShards));
-        assertTrue(broker.createTable("table2", numShards));
+        assertTrue(broker.createTable("table1", numShards, new ArrayList<>(), null));
+        assertTrue(broker.createTable("table2", numShards, new ArrayList<>(), null));
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan;
         writeQueryPlan = new KVWriteQueryPlanInsert("table1");

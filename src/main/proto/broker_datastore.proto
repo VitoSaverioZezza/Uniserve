@@ -25,13 +25,30 @@ service BrokerDataStore {
     rpc RemoveVolatileData(RemoveVolatileDataMessage) returns (RemoveVolatileDataResponse){}
     rpc RemoveVolatileScatteredData(RemoveVolatileDataMessage) returns (RemoveVolatileDataResponse){}
 
+    rpc StoreSubqueryData(stream StoreSubqueryDataMessage) returns (stream StoreSubqueryDataResponse){}
     rpc RetrieveAndCombineQuery(RetrieveAndCombineQueryMessage) returns (RetrieveAndCombineQueryResponse){}
 }
+message StoreSubqueryDataMessage{
+    bytes data = 1;
+    int64 transactionID = 2;
+    string alias = 3;
+    bytes plan = 4;
+    int32 clientStatus = 5;
+}
+message StoreSubqueryDataResponse{
+    bytes shardId = 1;
+    int32 serverStatus = 2;
+    string alias = 3;
+}
+
+
 message RetrieveAndCombineQueryMessage{
     int32 shardID = 1;
     bytes serializedQueryPlan = 2;
     int64 lastCommittedVersion = 3;
     string tableName = 4;
+    int64 txID = 5;
+    bool subquery = 6;
 }
 
 message RetrieveAndCombineQueryResponse{

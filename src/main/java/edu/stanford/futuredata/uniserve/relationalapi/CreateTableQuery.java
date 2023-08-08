@@ -24,8 +24,9 @@ public class CreateTableQuery {
         if(!this.attributeNames.isEmpty())
             throw new RuntimeException("Attribute names already defined for table " + tableName);
         for(String attr :attributeNames){
-            Matcher matcher = aggregatePattern.matcher(attr);
-            if(matcher.hasMatch()){
+            Matcher matcherAggregate = aggregatePattern.matcher(attr);
+            boolean match = matcherAggregate.matches();
+            if(match){
                 throw new RuntimeException("Invalid attribute name " + attr + " attributes cannot have the same name as the syntax for aggregate requests");
             }
             if(this.attributeNames.contains(attr))

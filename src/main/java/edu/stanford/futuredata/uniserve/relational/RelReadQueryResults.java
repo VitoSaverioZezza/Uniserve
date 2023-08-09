@@ -2,10 +2,11 @@ package edu.stanford.futuredata.uniserve.relational;
 
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
-public class RelReadQueryResults implements ReadQueryResults<RelShard, RelRow> {
+public class RelReadQueryResults implements ReadQueryResults<RelShard, RelRow>, Serializable {
     List<RelRow> data = new ArrayList<>();
     List<String> fieldNames = new ArrayList<>();
     String name;

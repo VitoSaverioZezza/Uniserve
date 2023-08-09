@@ -23,5 +23,5 @@ public interface RetrieveAndCombineQueryPlan<S extends Shard, T> extends Seriali
     T combine(Map<String,List<ByteString>> retrieveResults);
 
     default boolean writeSubqueryResults(S shard, String tableName, List<Object> data){return true;}
-    default Map<String, ReadQueryResults<S, Object>> getSubqueriesResults(){return new HashMap<>();}
+    default Map<String, ReadQueryResults> getSubqueriesResults(){return new HashMap<>();}
 }

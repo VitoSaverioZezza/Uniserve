@@ -120,7 +120,8 @@ public class BrokerCurator {
                 byte[] b = cf.getData().forPath(path);
                 return ByteBuffer.wrap(b).getLong();
             } else {
-                return null;
+                writeLastCommittedVersion(0L);
+                return 0L;
             }
         } catch (Exception e) {
             logger.error("ZK Failure {}", e.getMessage());

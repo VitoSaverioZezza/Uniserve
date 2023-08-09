@@ -12,6 +12,7 @@ public class CreateTableQuery {
     private final List<String> attributeNames = new ArrayList<>();
     private final String tableName;
     private Boolean[] keyStructure;
+    private int shardNumber = Broker.SHARDS_PER_TABLE;
     public CreateTableQuery(String tableName, Broker broker){
         if(Character.isDigit(tableName.charAt(0))){
             throw new RuntimeException("Invalid table name: table name starts with a number");
@@ -43,7 +44,11 @@ public class CreateTableQuery {
         for(String keyAttribute: keyAttributes){
             int index = attributeNames.indexOf(keyAttribute);
             if(index == -1){
-                throw new RuntimeException("Attribute " + keyAttribute + " is not defined for table " + tableName);
+                StringBuilder attrNamesBuilder = new StringBuilder();
+                for(String a: attributeNames){
+                    attrNamesBuilder.append(a);
+                }
+                throw new RuntimeException("Attribute " + keyAttribute + " is not defined for table " + tableName + "\nAttributes names are: " + attrNamesBuilder.toString());
             }else{
                 keyStructure[index] = true;
             }
@@ -53,6 +58,7 @@ public class CreateTableQuery {
     public CreateTableQuery build(){
         return this;
     }
+    public CreateTableQuery shardNumber(int shardNumber){this.shardNumber=shardNumber; return this;}
 
-    public boolean run(){return broker.createTable(tableName, Broker.SHARDS_PER_TABLE, attributeNames, keyStructure);}
+    public boolean run(){return broker.createTable(tableName, shardNumber, attributeNames, keyStructure);}
 }

@@ -749,10 +749,10 @@ public class Broker {
         *
         * NEED DSID-LIST<SHARDID>
         * */
-        Map<String, ReadQueryResults<S, Object>> subqueriesResults = plan.getSubqueriesResults();
+        Map<String, ReadQueryResults> subqueriesResults = plan.getSubqueriesResults();
         Map<Integer, Map<String, List<Object>>> dsToSubqueryData = new HashMap<>();
         int dsCount = dsIDToChannelMap.size();
-        for(Map.Entry<String, ReadQueryResults<S, Object>> entry : subqueriesResults.entrySet()){
+        for(Map.Entry<String, ReadQueryResults> entry : subqueriesResults.entrySet()){
             String subqueryAlias = entry.getKey();
             List<Object> subqueryResults = entry.getValue().getData();
             for(Object subqueryRow: subqueryResults){
@@ -1563,6 +1563,10 @@ public class Broker {
         for(Object query: triggeredQueries){
             t.addTriggeredQuery((PersistentReadQuery) query);
         }
+
+
+
+
         return t;
     }
     /**Given a Table identifier, its number of shards and a row's partition key, returns the shard identifier

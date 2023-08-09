@@ -784,7 +784,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             long txID = request.getTxID();
             Integer shardID = request.getShardID();
             S ephemeralShard = dataStore.getSubqueryShard(txID, request.getTableName(), shardID);
-            RetrieveAndCombineQueryPlan<S, Object> plan = (RetrieveAndCombineQueryPlan<S, Object>) Utilities.objectToByteString(request.getSerializedQueryPlan());
+            RetrieveAndCombineQueryPlan<S, Object> plan = (RetrieveAndCombineQueryPlan<S, Object>) Utilities.byteStringToObject(request.getSerializedQueryPlan());
             if(ephemeralShard == null){
                 logger.warn("DS{} Got r&c read request for unassigned local shard {}", dataStore.dsID, shardID);
                 dataStore.shardLockMap.get(shardID).readerLockUnlock();

@@ -23,7 +23,6 @@ public class ReadQueryBuilder {
     private final List<Pair<Integer, String>> aggregates = new ArrayList<>();
     private String rawSelectionPredicate = "";
 
-    private String[] rawGroupFields = null;
     private String rawHavingPredicate = null;
     private boolean distinct = false;
     private boolean isStored = false;
@@ -42,10 +41,17 @@ public class ReadQueryBuilder {
 
     private Map<String, List<String>> cachedSourceSchemas = new HashMap<>(); //cache of source name (table or alias for subquery) and their schema
 
+    private String[] rawGroupFields = null;
 
     public ReadQueryBuilder(Broker broker){
         this.broker = broker;
     }
+
+    //TODO: Predicate definition for simple query
+    //TODO: Second part of the query for aggregates
+    //TODO: Just dance da da du du
+    //TODO: General cleanup
+    //TODO: Stored queries management
 
     //ASSUMPTION: ALL ARGUMENTS USE DOT NOTATION WITH TABLENAMES OR ALIASES
     public ReadQueryBuilder select(){return this;}
@@ -345,6 +351,7 @@ public class ReadQueryBuilder {
         intermediateQuery.setSrcInterProjectSchema(srcInterProjectSchema);
         intermediateQuery.setCachedSourceSchema(cachedSourceSchemas);
         intermediateQuery.setSubqueries(subqueriesAlias);
+        intermediateQuery.setSelectionPredicate(rawSelectionPredicate);
         return intermediateQuery;
     }
 

@@ -1,17 +1,12 @@
 package edu.stanford.futuredata.uniserve.rel;
 
-import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.integration.KVStoreTests;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
-import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
-import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
-import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import edu.stanford.futuredata.uniserve.rel.queryplans.SimpleReadAll;
 import edu.stanford.futuredata.uniserve.rel.queryplans.SubquerySimpleRead;
@@ -20,7 +15,6 @@ import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.relational.RelShardFactory;
 import edu.stanford.futuredata.uniserve.relationalapi.API;
-import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -36,7 +30,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class RelTest {
@@ -189,16 +182,15 @@ public class RelTest {
         RelReadQueryResults results = api.read()
                 .select("T1A.TableOne.A", "T2.G")
                 .from(api.read()
-                                .select("TableOne.A")
+                        .select("TableOne.A")
                                 .from("TableOne")
+                                .where("TableOne.A==7 || TableOne.A==12")
                                 .build()
                         ,"T1A")
                 .from("TableTwo", "T2")
+                .where("TableTwo.G == T1A.TableOne.A")
                 .build()
                 .run(broker);
-
-
-
 
         List<RelRow> data = results.getData();
         int count = 0;

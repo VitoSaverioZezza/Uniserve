@@ -2,7 +2,6 @@ package edu.stanford.futuredata.uniserve.relationalapi;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
@@ -10,6 +9,7 @@ import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.javatuples.Pair;
 
+import org.apache.commons.jexl3.*;
 import java.util.*;
 
 public class IntermediateQuery implements RetrieveAndCombineQueryPlan<RelShard, RelReadQueryResults> {
@@ -23,6 +23,8 @@ public class IntermediateQuery implements RetrieveAndCombineQueryPlan<RelShard, 
 
     private String resultName = String.valueOf(new Random().nextInt());
 
+    private String selectionPredicate = null;
+
     public void setIntermediateSchema(List<Pair<String, String>> intermediateSchema) {
         this.intermediateSchema = intermediateSchema;
     }
@@ -35,9 +37,11 @@ public class IntermediateQuery implements RetrieveAndCombineQueryPlan<RelShard, 
     public void setSrcInterProjectSchema(Map<String, List<String>> srcInterProjectSchema) {
         this.srcInterProjectSchema = srcInterProjectSchema;
     }
-
     public void setSubqueries(Map<String, ReadQuery> subqueriesResults) {
         this.subqueries = subqueriesResults;
+    }
+    public void setSelectionPredicate(String selectionPredicate) {
+        this.selectionPredicate = selectionPredicate;
     }
 
     public RelReadQueryResults run(Broker broker){
@@ -74,6 +78,13 @@ public class IntermediateQuery implements RetrieveAndCombineQueryPlan<RelShard, 
             List<Object> projRow = new ArrayList<>();
             for(String projAttr: tablesProjSchema){
                 projRow.add(row.getField(sourceSchema.indexOf(projAttr)));
+            }
+            /*If the resulting rows of the whole query are extracted from a single table it is possible to evaluate the predicate
+            * here since the row is fully built.
+            * Other small optimizations are possible by parsing the predicate at query building time
+            * */
+            if(tableNames.size() == 1 && !checkPredicate(projRow)){
+                continue;
             }
             projData.add(projRow);
         }
@@ -127,7 +138,8 @@ public class IntermediateQuery implements RetrieveAndCombineQueryPlan<RelShard, 
                 currentTableIndex = currentTableIndex -1;
             }else{
                 List<Object> r = new ArrayList<>(Arrays.asList(currentPrototype));
-                resultRows.add(r);
+                if(checkPredicate(r))
+                    resultRows.add(r);
             }
         }
     }
@@ -140,6 +152,32 @@ public class IntermediateQuery implements RetrieveAndCombineQueryPlan<RelShard, 
         return shard.insertRows(data1) && shard.committRows();
     }
 
+    private boolean checkPredicate(List<Object> row){
+        if(selectionPredicate == null || selectionPredicate.isEmpty()){
+            return true;
+        }
+        String predToTest = new String(selectionPredicate);
+
+        Map<String, Object> values = new HashMap<>();
+        for(Pair<String, String> attributePair: intermediateSchema){
+            String attr = attributePair.getValue0()+"."+attributePair.getValue1();
+            if(predToTest.contains(attr)){
+                values.put(attr, row.get(intermediateSchema.indexOf(attributePair)));
+            }
+        }
+
+        JexlEngine jexl = new JexlBuilder().create();
+        JexlExpression expression = jexl.createExpression(predToTest);
+        JexlContext context = new MapContext(values);
+        Object result = expression.evaluate(context);
+        try{
+            if(!(result instanceof Boolean)) return false;
+            else return (Boolean) result;
+        }catch (Exception e ){
+            System.out.println(e.getMessage());
+            return false;
+        }
+    }
 
     @Override
     public Map<String, ReadQuery> getSubqueriesResults(){

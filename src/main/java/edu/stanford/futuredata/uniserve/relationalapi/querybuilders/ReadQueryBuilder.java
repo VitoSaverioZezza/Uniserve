@@ -1,7 +1,9 @@
 package edu.stanford.futuredata.uniserve.relationalapi.querybuilders;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
+import edu.stanford.futuredata.uniserve.relationalapi.IntermediateQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import org.javatuples.Pair;
 
@@ -19,7 +21,7 @@ public class ReadQueryBuilder {
     private String[] fieldsAliases = null;
 
     private final List<Pair<Integer, String>> aggregates = new ArrayList<>();
-    private String rawSelectionPredicate = null;
+    private String rawSelectionPredicate = "";
 
     private String[] rawGroupFields = null;
     private String rawHavingPredicate = null;
@@ -28,12 +30,15 @@ public class ReadQueryBuilder {
 
     private Map<String, String> tableNameToAlias = new HashMap<>(); //contains ALL tables, values for tableNames without aliases are set to null;
     private Map<String, String> aliasToTableName = new HashMap<>(); //contains ONLY aliases of the tables
-    private Map<String, RelReadQueryResults> subqueriesAlias = new HashMap<>(); //contains ALL subqueries mappings
+    private Map<String, ReadQuery> subqueriesAlias = new HashMap<>(); //contains ALL subqueries mappings
 
-    private List<String> intermediateSchema = new ArrayList<>(); //ALL fields needed for the intermediate schema in dot notation
-    private Map<String, List<String>> sourceToSelectArguments = new HashMap<>(); //ALL fields selected, without aggregates and without attributes needed for predicates
-    private Map<String, List<Pair<Integer, String>>> sourceToAggregates = new HashMap<>(); //fields to be aggregate
-    private Map<String, List<String>> sourceToSelectionPredicateArguments = new HashMap<>(); //attributes needed for predicate evaluation
+    private Map<String, List<Pair<Integer, String>>> sourceToAggregates = new HashMap<>(); //fields to be aggregate in simple notation
+    private Map<String, List<String>> sourceToSelectionPredicateArguments = new HashMap<>(); //attributes needed for predicate evaluation in simple notation
+    private Map<String, List<String>> sourceToSelectArguments = new HashMap<>(); //ALL fields selected, without aggregates and without attributes needed
+
+    private List<Pair<String, String>> intermediateSchema = new ArrayList<>(); //ALL fields needed for the intermediate schema in dot notation, first the select,
+    private Map<String, List<String>> srcInterProjectSchema = new HashMap<>();
+    private String intermediateResID = String.valueOf(new Random().nextInt());
 
     private Map<String, List<String>> cachedSourceSchemas = new HashMap<>(); //cache of source name (table or alias for subquery) and their schema
 
@@ -83,11 +88,12 @@ public class ReadQueryBuilder {
         aliasToTableName.put(alias, tableName);
         return this;
     }
+
     public ReadQueryBuilder from(ReadQuery subquery, String alias){
         if(alias == null){
             throw new RuntimeException("Subquery has not alias");
         }
-        subqueriesAlias.put(alias, subquery.run());
+        subqueriesAlias.put(alias, subquery);
         return this;
     }
     public ReadQueryBuilder from(ReadQueryBuilder subqueryToBuild, String alias){
@@ -120,171 +126,59 @@ public class ReadQueryBuilder {
 
 
     public ReadQuery build(){
-        buildIntermediateSchemaAlternative();
-        //(2) build result schema -> parse select arguments and aggregates, then find a correspondence between the elements
-        //result schema and the source schema.
-        //(2) solve select elements
-
-        //(4) define queries
-        //(4.) predicates, operations on tables with push of projection and selection
-        return null;
+        ReadQuery ret = new ReadQuery();
+        ret.setIntermediateQuery(buildIntermediateQuery());
+        List<String> resSchema = new ArrayList<>();
+        for(Pair<String, String> entry: intermediateSchema){
+            resSchema.add(entry.getValue0()+"."+entry.getValue1());
+        }
+        ret.setResultSchema(resSchema);
+        return ret;
     }
 
-    /*
-    //TODO: this is very, very bad...
-    private void buildIntermediateSchema(){
-        Map<String, List<Integer>> sourceSelectedIndexes = new HashMap<>(); //no aggregates, no needed intermediates
-        //only arguments inside the select clause. The intermediate schema also needs predicate arguments and
-        // arguments of aggregate functions
-        if(rawSelectedFields.isEmpty()){
-            selectAll();
-            return;
-        }
+    private IntermediateQuery buildIntermediateQuery(){
+        Map<String, List<String>> sourceToAggregatedFields = new HashMap<>();
 
-        Map<String, List<String>> splitSelected = new HashMap<>();
-        List<String> notDotAttributeNames = new ArrayList<>();
-        Map<String, List<Integer>> tableToReqAttributeIndexes = new HashMap<>();
-        for(String rawSelectValue: rawSelectedFields){
-            String[] split = rawSelectValue.split("\\.");
-            if(split.length != 2){
-                notDotAttributeNames.add(rawSelectValue);
-            }else {
-                splitSelected.computeIfAbsent(split[0],k->new ArrayList<>()).add(split[1]);
-            }
-        }
-        for(Map.Entry<String, String> tableNameAlias : tableAliases.entrySet()){
-            String tableName = tableNameAlias.getKey();
-            List<String> sourceSchema = broker.getTableInfo(tableName).getAttributeNames();
-            if(splitSelected.containsKey(tableName) || splitSelected.containsKey(tableNameAlias.getValue())){
-                List<String> requestedAttributes = splitSelected.get(tableName);
-                requestedAttributes.addAll(splitSelected.get(tableNameAlias.getValue()));
-                for(String reqAttribute: requestedAttributes){
-                    int index = sourceSchema.indexOf(reqAttribute);
-                    if(index == -1){
-                        throw new RuntimeException("Requested attribute " + reqAttribute + " not defined for table " + tableName);
-                    }
-                    tableToReqAttributeIndexes.computeIfAbsent(tableName, k->new ArrayList<>()).add(index);
-                }
-            }
-            for(String notDotAttr: notDotAttributeNames){
-                int index = sourceSchema.indexOf(notDotAttr);
-                if(index != -1){
-                    tableToReqAttributeIndexes.computeIfAbsent(tableName, k->new ArrayList<>()).add(index);
-                    notDotAttributeNames.remove(notDotAttr);
-                }
-            }
-        }
-        for(Map.Entry<String, ReadQueryResults> aliasToResultMapEntry: subqueriesAlias.entrySet()){
-            String aliasName = aliasToResultMapEntry.getKey();
-            List<String> sourceSchema = aliasToResultMapEntry.getValue().getFieldNames();
-            if(splitSelected.containsKey(aliasName)){
-                List<String> requestedAttributes = splitSelected.get(aliasName);
-                for(String reqAttribute: requestedAttributes){
-                    int index = sourceSchema.indexOf(reqAttribute);
-                    if(index == -1){
-                        throw new RuntimeException("Requested attribute " + reqAttribute + " not defined for subquery " + aliasName);
-                    }
-                    tableToReqAttributeIndexes.computeIfAbsent(aliasName, k->new ArrayList<>()).add(index);
-                }
-            }
-            for(String notDotAttr: notDotAttributeNames){
-                int index = sourceSchema.indexOf(notDotAttr);
-                if(index != -1){
-                    tableToReqAttributeIndexes.computeIfAbsent(aliasName, k->new ArrayList<>()).add(index);
-                    notDotAttributeNames.remove(notDotAttr);
-                }
-            }
-        }
-
-        Map<String, List<Integer>> wherePreddicateAttributes = new HashMap<>();
-        if(rawSelectionPredicate!=null) {
-            String[] splitRawSelectionArray = rawSelectionPredicate.split(" ");
-            StringBuilder noSpaceBuilder = new StringBuilder();
-            for (String s : splitRawSelectionArray) {
-                noSpaceBuilder.append(s);
-            }
-            String noSpacePredicate = noSpaceBuilder.toString();
-            //Only find the names of the values to be retrieved, then use the JavaScript
-            for (Map.Entry<String, String> tableNameAlias : tableAliases.entrySet()) {
-                // (table.name == "string" AND attribute != 23) OR table1.attribute < table2.atr) AND attribute < 12)
-                List<String> tableSchema = broker.getTableInfo(tableNameAlias.getKey()).getAttributeNames();
-                for (String attrName : tableSchema) {
-                    if (noSpacePredicate.matches(tableNameAlias.getKey() + "\\." + attrName)) {
-                        noSpacePredicate = noSpacePredicate.replace(tableNameAlias.getKey() + "\\." + attrName, "");
-                        wherePreddicateAttributes.computeIfAbsent(tableNameAlias.getKey(), k -> new ArrayList<>()).add(tableSchema.indexOf(attrName));
-                    }
-                    if (noSpacePredicate.matches(tableNameAlias.getValue() + "\\." + attrName)) {
-                        noSpacePredicate = noSpacePredicate.replace(tableNameAlias.getKey() + "\\." + attrName, "");
-                        wherePreddicateAttributes.computeIfAbsent(tableNameAlias.getKey(), k -> new ArrayList<>()).add(tableSchema.indexOf(attrName));
-                    }
-                }
-            }
-            for (Map.Entry<String, ReadQueryResults> aliasToRQR : subqueriesAlias.entrySet()) {
-                List<String> subquerySchema = aliasToRQR.getValue().getFieldNames();
-                for (String attrName : subquerySchema) {
-                    if (noSpacePredicate.matches(aliasToRQR.getKey() + "\\." + attrName)) {
-                        noSpacePredicate = noSpacePredicate.replace(aliasToRQR.getKey() + "\\." + attrName, "");
-                        wherePreddicateAttributes.computeIfAbsent(aliasToRQR.getKey(), k -> new ArrayList<>()).add(subquerySchema.indexOf(attrName));
-                    }
-                }
-            }
-        }
-
-        Map<String, List<Integer>> tableToAggregatedFieldIndexes = new HashMap<>();
-        Map<String,List<String>> rawAggregatedAttributes = new HashMap<>();
-        for(Pair<Integer, String> aggregate: aggregates){
-            String[] split = aggregate.getValue1().split("\\.");
-            rawAggregatedAttributes.computeIfAbsent(split[0],k->new ArrayList<>()).add(split[1]);
-        }
-
-        for(Map.Entry<String, String> tableNameAlias: tableAliases.entrySet()){
-            List<String> aggregatedAttributes = rawAggregatedAttributes.get(tableNameAlias.getKey());
-            aggregatedAttributes.addAll(rawAggregatedAttributes.get(tableNameAlias.getValue()));
-            if(!aggregatedAttributes.isEmpty()){
-                List<String> tableSchema = broker.getTableInfo(tableNameAlias.getKey()).getAttributeNames();
-                List<Integer> aggregateIndexes = new ArrayList<>();
-                for(String s: aggregatedAttributes){
-                    aggregateIndexes.add(tableSchema.indexOf(s));
-                }
-                if(aggregateIndexes.contains(-1)){
-                    throw new RuntimeException("Attribute to be aggregate is not an attribute of given table");
-                }
-                tableToAggregatedFieldIndexes.put(tableNameAlias.getKey(), aggregateIndexes);
-            }
-        }
-        for(Map.Entry<String, ReadQueryResults> aliasSubq : subqueriesAlias.entrySet()){
-            List<String> aggregatedAttributes = rawAggregatedAttributes.get(aliasSubq.getKey());
-            if(!aggregatedAttributes.isEmpty()){
-                List<String> tableSchema = aliasSubq.getValue().getFieldNames();
-                List<Integer> aggregateIndexes = new ArrayList<>();
-                for(String s: aggregatedAttributes){
-                    aggregateIndexes.add(tableSchema.indexOf(s));
-                }
-                if(aggregateIndexes.contains(-1)){
-                    throw new RuntimeException("Attribute to be aggregate is not an attribute of given subquery");
-                }
-                tableToAggregatedFieldIndexes.put(aliasSubq.getKey(), aggregateIndexes);
-            }
-        }
-    }
-*/
-    private void buildIntermediateSchemaAlternative(){
+        /*
+        * If no selection attribute is specified, iterate through all tables and subqueries in order to select all their
+        * attributes.
+        * */
         if(rawSelectedFields.isEmpty()){
             for(String tableName: tableNameToAlias.keySet()){
                 List<String> tableSchema = broker.getTableInfo(tableName).getAttributeNames();
                 cachedSourceSchemas.put(tableName, tableSchema);
                 sourceToSelectArguments.put(tableName, tableSchema);
+                for(String attributeName: tableSchema){
+                    intermediateSchema.add(new Pair<>(tableName, attributeName));
+                }
+                srcInterProjectSchema.put(tableName, tableSchema);
             }
             for(String subqueryAlias: subqueriesAlias.keySet()){
-                List<String> subquerySchema = subqueriesAlias.get(subqueryAlias).getFieldNames();
+                List<String> subquerySchema = subqueriesAlias.get(subqueryAlias).getResultSchema();
                 cachedSourceSchemas.put(subqueryAlias, subquerySchema);
                 sourceToSelectArguments.put(subqueryAlias, subquerySchema);
+                for(String attributeName: subquerySchema){
+                    intermediateSchema.add(new Pair<>(subqueryAlias, attributeName));
+                }
+                srcInterProjectSchema.put(subqueryAlias, subquerySchema);
             }
-        }else{
+        }
+        else{
+            /*Filling the sourceToSelectArguments with the arguments of the select operator
+            * First split the raw attributes "Table.Attribute" in the two parts, then solve the first one since it
+            * can be an alias for a table or a subquery. Once that is solved, check whether the attribute is part of that
+            * schema and if so add it to the intermediate schema
+            * */
             for (String selectAttribute : rawSelectedFields) {
                 String[] split = selectAttribute.split("\\.");
                 String sourceName = split[0];
-                String attributeName = split[1];
+                StringBuilder builder = new StringBuilder();
+                for(int i = 1; i < split.length-1; i++) {
+                    builder.append(split[i]);
+                    builder.append(".");
+                }
+                builder.append(split[split.length-1]);
+                String attributeName = builder.toString();
                 List<String> sourceSchema = cachedSourceSchemas.get(sourceName);
                 String solvedSourceName;
                 if (sourceSchema == null) {
@@ -297,7 +191,11 @@ public class ReadQueryBuilder {
                         solvedSourceName = aliasToTableName.get(sourceName);
                         cachedSourceSchemas.put(solvedSourceName, sourceSchema);
                     } else {
-                        sourceSchema = subqueriesAlias.get(sourceName).getFieldNames();
+                        ReadQuery subqueryRes = subqueriesAlias.get(sourceName);
+                        sourceSchema = subqueryRes.getResultSchema();
+
+
+                        //sourceSchema = subqueriesAlias.get(sourceName).getFieldNames();
                         solvedSourceName = sourceName;
                         cachedSourceSchemas.put(solvedSourceName, sourceSchema);
                     }
@@ -312,16 +210,28 @@ public class ReadQueryBuilder {
                     throw new RuntimeException("Attribute " + attributeName + " is not defined for source " + solvedSourceName);
                 } else {
                     sourceToSelectArguments.computeIfAbsent(solvedSourceName, k -> new ArrayList<>()).add(attributeName);
+                    Pair<String, String> intermediateSchemaEntry = new Pair<>(solvedSourceName, attributeName);
+                    if(!intermediateSchema.contains(intermediateSchemaEntry))
+                        intermediateSchema.add(intermediateSchemaEntry);
+                    if(!srcInterProjectSchema.computeIfAbsent(solvedSourceName, k->new ArrayList<>()).contains(attributeName)){
+                        srcInterProjectSchema.get(solvedSourceName).add(attributeName);
+                    }
                 }
             }
         }
+        /*Filling sourceToAggregates, attributes not in the dot notation, stored in pairs with the operation code*/
         for(Pair<Integer, String> aggregate: aggregates){
             String rawAggregateName = aggregate.getValue1();
-            intermediateSchema.add(rawAggregateName);
             Integer aggregateOp = aggregate.getValue0();
             String [] split = rawAggregateName.split("\\.");
             String rawSourceName = split[0];
-            String attributeName = split[1];
+            StringBuilder builder = new StringBuilder();
+            for(int i = 1; i < split.length-1; i++) {
+                builder.append(split[i]);
+                builder.append(".");
+            }
+            builder.append(split[split.length-1]);
+            String attributeName = builder.toString();
             String solvedSourceName;
             List<String> sourceSchema = cachedSourceSchemas.get(rawSourceName);
             if(sourceSchema == null) {
@@ -334,7 +244,10 @@ public class ReadQueryBuilder {
                     solvedSourceName = aliasToTableName.get(rawSourceName);
                     cachedSourceSchemas.put(solvedSourceName, sourceSchema);
                 } else {
-                    sourceSchema = subqueriesAlias.get(rawSourceName).getFieldNames();
+                    ReadQuery subqueryResult = subqueriesAlias.get(rawSourceName);
+                    sourceSchema = subqueryResult.getResultSchema();
+
+                    //sourceSchema = subqueriesAlias.get(rawSourceName).getFieldNames();
                     solvedSourceName = rawSourceName;
                     cachedSourceSchemas.put(solvedSourceName, sourceSchema);
                 }
@@ -349,8 +262,20 @@ public class ReadQueryBuilder {
                 throw new RuntimeException("Attribute " + attributeName + " is not defined for source " + rawSourceName);
             }else{
                 sourceToAggregates.computeIfAbsent(solvedSourceName, k->new ArrayList<>()).add(new Pair<>(aggregateOp, attributeName));
+                sourceToAggregatedFields.computeIfAbsent(solvedSourceName, k->new ArrayList<>());
+                if(!sourceToAggregatedFields.get(solvedSourceName).contains(attributeName)){
+                    sourceToAggregatedFields.get(solvedSourceName).add(attributeName);
+                }
+                Pair<String, String> intermediateSchemaEntry = new Pair<>(solvedSourceName, attributeName);
+                if(!intermediateSchema.contains(intermediateSchemaEntry))
+                    intermediateSchema.add(intermediateSchemaEntry);
+                if(!srcInterProjectSchema.computeIfAbsent(solvedSourceName, k->new ArrayList<>()).contains(attributeName)){
+                    srcInterProjectSchema.get(solvedSourceName).add(attributeName);
+                }
             }
         }
+
+        /*Check all source names and their schema for matches in the predicate*/
         for(String tableName: tableNameToAlias.keySet()){
             List<String> tableSchema = cachedSourceSchemas.get(tableName);
             if(tableSchema == null){
@@ -361,7 +286,12 @@ public class ReadQueryBuilder {
                 String dotNotation = tableName + "." + attrName;
                 if(rawSelectionPredicate.contains(dotNotation)){
                     sourceToSelectionPredicateArguments.computeIfAbsent(tableName, k->new ArrayList<>()).add(attrName);
-                    intermediateSchema.add(dotNotation);
+                    Pair<String, String> intermediateSchemaEntry = new Pair<>(tableName, attrName);
+                    if(!intermediateSchema.contains(intermediateSchemaEntry))
+                        intermediateSchema.add(intermediateSchemaEntry);
+                    if(!srcInterProjectSchema.computeIfAbsent(tableName, k->new ArrayList<>()).contains(attrName)){
+                        srcInterProjectSchema.get(tableName).add(attrName);
+                    }
                 }
             }
         }
@@ -376,48 +306,47 @@ public class ReadQueryBuilder {
                 String dotNotation = tableName + "." + attrName;
                 if(rawSelectionPredicate.contains(dotNotation)){
                     sourceToSelectionPredicateArguments.computeIfAbsent(tableName, k->new ArrayList<>()).add(attrName);
-                    intermediateSchema.add(dotNotation);
+
+
+                    Pair<String, String> intermediateSchemaEntry = new Pair<>(tableName, attrName);
+                    if(!intermediateSchema.contains(intermediateSchemaEntry))
+                        intermediateSchema.add(intermediateSchemaEntry);
+                    if(!srcInterProjectSchema.computeIfAbsent(tableName, k->new ArrayList<>()).contains(attrName)){
+                        srcInterProjectSchema.get(tableName).add(attrName);
+                    }
+
                 }
             }
         }
-        for(Map.Entry<String, RelReadQueryResults> subqueryEntry: subqueriesAlias.entrySet()){
+        //for(Map.Entry<String, RelReadQueryResults> subqueryEntry: subqueriesAlias.entrySet()){
+        for(Map.Entry<String, ReadQuery> subqueryEntry: subqueriesAlias.entrySet()){
             String alias = subqueryEntry.getKey();
-            List<String> sourceSchema = subqueryEntry.getValue().getFieldNames();
+
+            ReadQuery subqueryResult = subqueryEntry.getValue();
+            List<String> sourceSchema = subqueryResult.getResultSchema();
+            //List<String> sourceSchema = subqueryEntry.getValue().getFieldNames();
             for(String attrName: sourceSchema){
                 String dotNotation = alias + "." + attrName;
                 if(rawSelectionPredicate.contains(dotNotation)){
                     sourceToSelectionPredicateArguments.computeIfAbsent(alias, k->new ArrayList<>()).add(attrName);
-                    intermediateSchema.add(dotNotation);
+                    Pair<String, String> intermediateSchemaEntry = new Pair<>(alias, attrName);
+                    if(!intermediateSchema.contains(intermediateSchemaEntry))
+                        intermediateSchema.add(intermediateSchemaEntry);
+                    if(!srcInterProjectSchema.computeIfAbsent(alias, k->new ArrayList<>()).contains(attrName)){
+                        srcInterProjectSchema.get(alias).add(attrName);
+                    }
                 }
             }
         }
+        IntermediateQuery intermediateQuery = new IntermediateQuery();
+        intermediateQuery.setIntermediateSchema(intermediateSchema);
+        List<String> tableNames = new ArrayList<>(tableNameToAlias.keySet());
+        intermediateQuery.setTableNames(tableNames);
+        intermediateQuery.setSrcInterProjectSchema(srcInterProjectSchema);
+        intermediateQuery.setCachedSourceSchema(cachedSourceSchemas);
+        intermediateQuery.setSubqueries(subqueriesAlias);
+        return intermediateQuery;
     }
-
-
-
-/*
-    private void selectAll(){
-        for(Map.Entry<String, String> tableAlias: tableAliases.entrySet()){
-            String tableName = tableAlias.getKey();
-            List<String> fieldNames = broker.getTableInfo(tableName).getAttributeNames();
-            List<Integer> allIndexes = new ArrayList<>();
-            for(int i = 0; i < fieldNames.size(); i++){
-                allIndexes.add(i);
-            }
-            projectionIntermediateTable.put(tableName, allIndexes);
-        }
-        for (Map.Entry<String, ReadQueryResults> aliasResults : subqueriesAlias.entrySet()){
-            String queryName = aliasResults.getKey();
-            List<String> fieldNames = aliasResults.getValue().getFieldNames();
-            List<Integer> allIndexes = new ArrayList<>();
-            for(int i = 0; i < fieldNames.size(); i++){
-                allIndexes.add(i);
-            }
-            projectionIntermediateTable.put(queryName, allIndexes);
-        }
-    }
-
- */
 
     private boolean noDuplicateInStringArray(String[] array){
         for(int i = 0; i<array.length; i++){

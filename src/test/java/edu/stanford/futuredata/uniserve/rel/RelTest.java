@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.rel;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
@@ -19,6 +20,7 @@ import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.relational.RelShardFactory;
 import edu.stanford.futuredata.uniserve.relationalapi.API;
+import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -117,8 +119,11 @@ public class RelTest {
         api.createTable("TableTwo").attributes("D", "E", "F", "G").keys("D").shardNumber(10).build().run();
         api.write().table(broker, "TableOne").data(rowsOne).build().run();
         api.write().table(broker, "TableTwo").data(rowsTwo).build().run();
+
+
         RetrieveAndCombineQueryPlan<RelShard, Object> readQP = new SimpleReadAll();
         RelReadQueryResults rqr = (RelReadQueryResults) broker.retrieveAndCombineReadQuery(readQP);
+
         for(Object r: rqr.getData()){
             RelRow row = (RelRow) r;
             System.out.print("AD: "+row.getField(0).toString() + " BE: " + row.getField(1).toString() + " CF: " + row.getField(2).toString());
@@ -130,7 +135,7 @@ public class RelTest {
             System.out.println("");
         }
         SubquerySimpleRead subqRQP = new SubquerySimpleRead();
-        subqRQP.setRQRInput("Results", rqr);
+        //subqRQP.setRQRInput("Results", rqr);
         RelReadQueryResults test = broker.retrieveAndCombineReadQuery(subqRQP);
         for(RelRow row: test.getData()){
             System.out.println("t: " + row.getField(0).toString());
@@ -139,6 +144,71 @@ public class RelTest {
             ldsc.clear();
         }catch (Exception e){
             ;
+        }
+    }
+
+    @Test
+    public void testIntermediate(){
+        Coordinator coordinator = new Coordinator(
+                null,
+                new DefaultLoadBalancer(),
+                new DefaultAutoScaler(),
+                zkHost, zkPort,
+                "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
+
+        LocalDataStoreCloud ldsc = new LocalDataStoreCloud();
+
+        DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldsc,
+                new RelShardFactory(),
+                Path.of("/var/tmp/RelUniserve"),
+                zkHost, zkPort,
+                "127.0.0.1", 8000,
+                -1,
+                false
+        );
+        dataStore.startServing();
+
+        Broker broker = new Broker(zkHost, zkPort);
+
+        List<RelRow> rowsOne = new ArrayList<>();
+        List<RelRow> rowsTwo = new ArrayList<>();
+        for(Integer i = 0; i<20; i++){
+            rowsOne.add(new RelRow(i, i+1, i+2));
+            rowsTwo.add(new RelRow(i, i+1, i+2, i+3));
+        }
+
+        API api = new API();
+        api.start(zkHost, zkPort);
+        api.createTable("TableOne").attributes("A", "B", "C").keys("A").shardNumber(10).build().run();
+        api.createTable("TableTwo").attributes("D", "E", "F", "G").keys("D").shardNumber(10).build().run();
+        api.write().table(broker, "TableOne").data(rowsOne).build().run();
+        api.write().table(broker, "TableTwo").data(rowsTwo).build().run();
+
+        RelReadQueryResults results = api.read()
+                .select("T1A.TableOne.A", "T2.G")
+                .from(api.read()
+                                .select("TableOne.A")
+                                .from("TableOne")
+                                .build()
+                        ,"T1A")
+                .from("TableTwo", "T2")
+                .build()
+                .run(broker);
+
+
+
+
+        List<RelRow> data = results.getData();
+        int count = 0;
+        for(RelRow row: data){
+            System.out.print("Row #" + count + ": ");
+            count++;
+            for(int i = 0; i< row.getSize(); i++){
+                System.out.print(row.getField(i) + ", ");
+            }
+            System.out.println();
         }
     }
 }

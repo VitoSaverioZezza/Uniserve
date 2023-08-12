@@ -1,39 +1,32 @@
 package edu.stanford.futuredata.uniserve.relationalapi;
 
-import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
-import edu.stanford.futuredata.uniserve.relational.RelShard;
 
+import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
-public class ReadQuery implements RetrieveAndCombineQueryPlan<RelShard, RelReadQueryResults> {
-    private Broker broker;
-    private List<String> tableNames;
-    private Map<String, RelReadQueryResults> subqueryResults;
+public class ReadQuery implements Serializable {
+    private List<String> resultSchema = new ArrayList<>();
+    private IntermediateQuery intermediateQuery = null;
 
-    public RelReadQueryResults run(){
-        return new RelReadQueryResults();
+    public IntermediateQuery getIntermediateQuery() {
+        return intermediateQuery;
     }
 
-    @Override
-    public List<String> getTableNames() {
-        return tableNames;
-    }
-    @Override
-    public Map<String, List<Integer>> keysForQuery() {
-        return null;
+    public void setIntermediateQuery(IntermediateQuery intermediateQuery) {
+        this.intermediateQuery = intermediateQuery;
     }
 
-    @Override
-    public ByteString retrieve(RelShard shard, String tableName) {
-        return null;
+    public List<String> getResultSchema() {
+        return resultSchema;
+    }
+    public void setResultSchema(List<String> resultSchema) {
+        this.resultSchema = resultSchema;
     }
 
-    @Override
-    public RelReadQueryResults combine(Map<String, List<ByteString>> retrieveResults) {
-        return null;
+    public RelReadQueryResults run(Broker broker){
+        return intermediateQuery.run(broker);
     }
 }

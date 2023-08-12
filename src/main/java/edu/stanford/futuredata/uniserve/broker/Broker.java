@@ -7,6 +7,7 @@ import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.api.PersistentReadQuery;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
+import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
@@ -749,7 +750,11 @@ public class Broker {
         *
         * NEED DSID-LIST<SHARDID>
         * */
-        Map<String, ReadQueryResults> subqueriesResults = plan.getSubqueriesResults();
+        Map<String, ReadQuery> subqueries = plan.getSubqueriesResults();
+        Map<String, ReadQueryResults> subqueriesResults = new HashMap<>();
+        for(Map.Entry<String, ReadQuery> entry: subqueries.entrySet()){
+            subqueriesResults.put(entry.getKey(), entry.getValue().run(this));
+        }
         Map<Integer, Map<String, List<Object>>> dsToSubqueryData = new HashMap<>();
         int dsCount = dsIDToChannelMap.size();
         for(Map.Entry<String, ReadQueryResults> entry : subqueriesResults.entrySet()){

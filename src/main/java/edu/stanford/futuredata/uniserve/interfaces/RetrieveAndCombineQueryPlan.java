@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.interfaces;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
+import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 
 import java.io.Serializable;
 import java.util.HashMap;
@@ -23,5 +24,5 @@ public interface RetrieveAndCombineQueryPlan<S extends Shard, T> extends Seriali
     T combine(Map<String,List<ByteString>> retrieveResults);
 
     default boolean writeSubqueryResults(S shard, String tableName, List<Object> data){return true;}
-    default Map<String, ReadQueryResults> getSubqueriesResults(){return new HashMap<>();}
+    default Map<String, ReadQuery> getSubqueriesResults(){return new HashMap<>();}
 }

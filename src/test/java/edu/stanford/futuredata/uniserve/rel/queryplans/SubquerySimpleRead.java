@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
+import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.util.ArrayList;
@@ -14,9 +15,9 @@ import java.util.List;
 import java.util.Map;
 
 public class SubquerySimpleRead implements RetrieveAndCombineQueryPlan<RelShard, RelReadQueryResults> {
-    Map<String, ReadQueryResults> rqr = new HashMap<>();
+    Map<String, ReadQuery> rqr = new HashMap<>();
 
-    public void setRQRInput(String alias, ReadQueryResults res){
+    public void setRQRInput(String alias, ReadQuery res){
         rqr.put(alias, res);
     }
 
@@ -70,7 +71,7 @@ public class SubquerySimpleRead implements RetrieveAndCombineQueryPlan<RelShard,
     }
 
     @Override
-    public Map<String, ReadQueryResults> getSubqueriesResults() {
+    public Map<String, ReadQuery> getSubqueriesResults() {
         return rqr;
     }
 }

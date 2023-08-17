@@ -1,8 +1,10 @@
 package edu.stanford.futuredata.uniserve.interfaces;
 
 import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 
 import java.io.Serializable;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -37,4 +39,6 @@ public interface ShuffleOnReadQueryPlan<S extends Shard, T> extends Serializable
     T combine(List<ByteString> shardQueryResults);
 
     default boolean writeSubqueryResults(S shard, String tableName, List<Object> data){return true;};
+    default Map<String, ReadQuery> getSubqueriesResults(){return new HashMap<>();}
+
 }

@@ -31,8 +31,8 @@ public class KVQueryEngine implements QueryEngine {
             AnchoredReadQueryPlan<KVShard, List<KVRow>> filterStoredDataPlan = new KVFilterOnRead();
             filteredData = broker.anchoredReadQuery(filterStoredDataPlan);
         }else{
-            VolatileShuffleQueryPlan<List<KVRow>> filterVolatileDataPlan = new KVFilterOnWrite();
-            List<Row> data1 = new ArrayList<>();
+            VolatileShuffleQueryPlan<List<KVRow>, Shard> filterVolatileDataPlan = new KVFilterOnWrite();
+            List<Object> data1 = new ArrayList<>();
             data1.addAll(data);
             filteredData = broker.volatileShuffleQuery(filterVolatileDataPlan, data1);
 
@@ -44,8 +44,8 @@ public class KVQueryEngine implements QueryEngine {
             AnchoredReadQueryPlan<KVShard, Integer> averageOnReadPlan = new KVAverageRead();
             return broker.anchoredReadQuery(averageOnReadPlan);
         }else{
-            VolatileShuffleQueryPlan<Integer> averageOnWritePlan = new KVVolatileAverage();
-            List<Row> filteredData1 = new ArrayList<>();
+            VolatileShuffleQueryPlan<Integer, Shard> averageOnWritePlan = new KVVolatileAverage();
+            List<Object> filteredData1 = new ArrayList<>();
             filteredData1.addAll(filteredData);
             return broker.volatileShuffleQuery(averageOnWritePlan, filteredData1);
         }

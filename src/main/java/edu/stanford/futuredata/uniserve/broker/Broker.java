@@ -271,24 +271,26 @@ public class Broker {
     }
 
     /*VOLATILE OPERATIONS*/
-    public<V> V volatileShuffleQuery(VolatileShuffleQueryPlan<V> plan, List<Row> rows){
+    public<V> V volatileShuffleQuery(VolatileShuffleQueryPlan plan, List<Object> rows){
         //long txID = txIDs.getAndIncrement();
         long txID = zkCurator.getTxID();
 
-        /* Map shardID to rows, this mapping will be used to determine which actor will store the volatile
-         * raw data to be later shuffled */
+        // Map shardID to rows, this mapping will be used to determine which actor will store the volatile
+        // raw data to be later shuffled
 
         Map<Integer, List<Row>> shardRowListMap = new HashMap<>();
-        TableInfo tableInfo = getTableInfo(plan.getQueriedTables());
 
-        for (Row row: rows) {
-            int partitionKey = row.getPartitionKey(tableInfo.getKeyStructure());
-            assert(partitionKey >= 0);
-            int shard = keyToShard(tableInfo.id, tableInfo.numShards, partitionKey);
-            shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
+        //assign subqueries results to datastores, as of now, there's only one subquery
+        Map<Integer, List<Object>> dsToSubqueryData = new HashMap<>();
+        int dsCount = dsIDToChannelMap.size();
+        List<Object> subqueryResults = rows;
+        for(Object subqueryRow: subqueryResults){
+            int dsID = subqueryRow.hashCode() % dsCount;
+            dsToSubqueryData.computeIfAbsent(dsID, k->new ArrayList<>()).add(subqueryRow);
         }
+
         Map<Integer, Row[]> shardRowArrayMap =
-                shardRowListMap
+                dsToSubqueryData
                         .entrySet()
                         .stream()
                         .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((Row[]) new Row[0])));
@@ -403,7 +405,7 @@ public class Broker {
          */
 
         long aggStart = System.nanoTime();
-        V result = plan.combine(gatherResults);
+        V result = (V) plan.combine(gatherResults);
         long aggEnd = System.nanoTime();
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID, gatherDSids);
@@ -630,14 +632,51 @@ public class Broker {
         return ret;
     }
     public <S extends Shard, V> V shuffleReadQuery(ShuffleOnReadQueryPlan<S, V> plan) {
-        //long txID = txIDs.getAndIncrement();
         long txID = zkCurator.getTxID();
+        //run subqueries
+        Map<String, ReadQuery> subqueries = plan.getSubqueriesResults();
+        Map<String, ReadQueryResults> subqueriesResults = new HashMap<>();
+        for(Map.Entry<String, ReadQuery> entry: subqueries.entrySet()){
+            subqueriesResults.put(entry.getKey(), entry.getValue().run(this));
+        }
+        //assign subqueries results to servers where they will be temporarely stored
+        Map<Integer, Map<String, List<Object>>> dsToSubqueryData = new HashMap<>();
+        int dsCount = dsIDToChannelMap.size();
+        for(Map.Entry<String, ReadQueryResults> entry : subqueriesResults.entrySet()){
+            String subqueryAlias = entry.getKey();
+            List<Object> subqueryResults = entry.getValue().getData();
+            for(Object subqueryRow: subqueryResults){
+                int dsID = subqueryRow.hashCode() % dsCount;
+                dsToSubqueryData.computeIfAbsent(dsID, k->new HashMap<>()).computeIfAbsent(subqueryAlias, k->new ArrayList<>()).add(subqueryRow);
+            }
+        }
+        List<StoreSubqueryDataThread> storeSubqueryDataThreads = new ArrayList<>();
+        //store the shard ids of the shards storing the results in each datastore
+        Map<Integer, Map<String, List<Integer>>> dsIDToAliasShards = new ConcurrentHashMap<>();
+        AtomicBoolean forwardStatus = new AtomicBoolean(true);
+        for(Map.Entry<Integer, Map<String, List<Object>>> entry: dsToSubqueryData.entrySet()){
+            Map<String, List<Integer>> aliasToShardIDs = new ConcurrentHashMap<>();
+            dsIDToAliasShards.put(entry.getKey(), aliasToShardIDs);
+            int dsID = entry.getKey();
+            StoreSubqueryDataThread t = new StoreSubqueryDataThread(
+                    dsID, txID, entry.getValue(), aliasToShardIDs, forwardStatus, plan);
+            t.start();
+            storeSubqueryDataThreads.add(t);
+        }
+        try {
+            for(StoreSubqueryDataThread t: storeSubqueryDataThreads){
+                t.join();
+            }
+        }catch (InterruptedException e ){
+            logger.error("Failed join threads in store subquery data");
+        }
+        //all results have been stored
 
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
 
-        /*Builds the targetShard mapping, consisting of:
-        * Map < tableName, List < Shard identifiers to be queried on the table > >*/
+        //Builds the targetShard mapping, consisting of:
+        //Map < tableName, List < Shard identifiers to be queried on the table > >
 
         for (Map.Entry<String, List<Integer>> entry : partitionKeys.entrySet()) {
             String tableName = entry.getKey();
@@ -659,7 +698,9 @@ public class Broker {
             }
             targetShards.put(tableName, shardNums);
         }
-        ByteString serializedTargetShards = Utilities.objectToByteString(targetShards);
+
+
+        //ByteString serializedTargetShards = Utilities.objectToByteString(targetShards);
         ByteString serializedQuery = Utilities.objectToByteString(plan);
         Set<Integer> dsIDs = dsIDToChannelMap.keySet();
         int numReducers = dsIDs.size();
@@ -685,6 +726,10 @@ public class Broker {
             *
             * The result of all the scatter-gather are stored in the intermediate structure
             * */
+            HashMap<String, List<Integer>> dsTargetShards = new HashMap<>(targetShards); //TODO: turns out this is indeed serializable, go clean up that array of object workaround
+            //Map<String, List<Integer>> dsSubqueryData = dsIDToAliasShards.get(dsID);
+            //dsTargetShards.putAll(dsSubqueryData);
+            ByteString serializedTargetShards = Utilities.objectToByteString(dsTargetShards);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             ShuffleReadQueryMessage m = ShuffleReadQueryMessage.newBuilder().
@@ -725,6 +770,9 @@ public class Broker {
             latch.await();
         } catch (InterruptedException ignored) {
         }
+
+
+
         long aggStart = System.nanoTime();
         V ret = plan.combine(intermediates);
         long aggEnd = System.nanoTime();
@@ -740,21 +788,14 @@ public class Broker {
         Map<String, List<Integer>> tablesToShardsMap = new HashMap<>();
         Map<String, List<ByteString>> retrievedData = new HashMap<>();
 
-        /*Distribute the subquery results in the servers:
-        * A) build an assignment between dsID and subquery results
-        * B) send these data to the servers that will store them in shards, the response contains the shard ids of
-        *       the shards storing the objects
-        * C) include the alias-list<ShardIDs> into the tablesToShardMap
-        * D) treat them as normal data stored in the tables, but add transactionID to the messages sent in order to
-        *       retrieve the shards
-        *
-        * NEED DSID-LIST<SHARDID>
-        * */
+        //run subqueries
         Map<String, ReadQuery> subqueries = plan.getSubqueriesResults();
         Map<String, ReadQueryResults> subqueriesResults = new HashMap<>();
         for(Map.Entry<String, ReadQuery> entry: subqueries.entrySet()){
             subqueriesResults.put(entry.getKey(), entry.getValue().run(this));
         }
+
+        //assign subqueries results to datastores
         Map<Integer, Map<String, List<Object>>> dsToSubqueryData = new HashMap<>();
         int dsCount = dsIDToChannelMap.size();
         for(Map.Entry<String, ReadQueryResults> entry : subqueriesResults.entrySet()){
@@ -765,9 +806,10 @@ public class Broker {
                 dsToSubqueryData.computeIfAbsent(dsID, k->new HashMap<>()).computeIfAbsent(subqueryAlias, k->new ArrayList<>()).add(subqueryRow);
             }
         }
+
+        //store results in assigned datastores, associated with transaction ids
         List<StoreSubqueryDataThread> storeSubqueryDataThreads = new ArrayList<>();
         Map<Integer, Map<String, List<Integer>>> dsIDToAliasShards = new ConcurrentHashMap<>();
-
         AtomicBoolean forwardStatus = new AtomicBoolean(true);
         for(Map.Entry<Integer, Map<String, List<Object>>> entry: dsToSubqueryData.entrySet()){
             Map<String, List<Integer>> aliasToShardIDs = new ConcurrentHashMap<>();
@@ -785,6 +827,9 @@ public class Broker {
         }catch (InterruptedException e ){
             logger.error("Failed join threads in store subquery data");
         }
+        //all subqueries results have been stored.
+        //dsIDToAliasShards contains the mapping between the server and the map between the subquery name and the shards storing
+        //its results.
 
         long lcv = zkCurator.getLastCommittedVersion();
         for(String tableName: tablesToKeysMap.keySet()){
@@ -888,6 +933,8 @@ public class Broker {
                 retrievedData.remove(e.getKey());
             }
         }
+        if(!subqueries.isEmpty())
+            removeSubQueryData(txID);
         return plan.combine(retrievedData);
     }
 
@@ -1303,14 +1350,14 @@ public class Broker {
         private final List<Integer> gatherDSlist;
         private final AtomicInteger queryStatus;
         private final Integer dsID;
-        private final VolatileShuffleQueryPlan<V> plan;
+        private final VolatileShuffleQueryPlan<V, Shard> plan;
 
         public ScatterVolatileDataThread(
                 Integer dsID,
                 long txID,
                 List<Integer> gatherDSlist,
                 AtomicInteger queryStatus,
-                VolatileShuffleQueryPlan<V> plan){
+                VolatileShuffleQueryPlan<V, Shard> plan){
             this.gatherDSlist = gatherDSlist;
             this.queryStatus = queryStatus;
             this.txID = txID;
@@ -1352,13 +1399,13 @@ public class Broker {
         private final long txID;
         private final List<ByteString> gatherResults;
         private final AtomicInteger queryStatus;
-        private final VolatileShuffleQueryPlan<V> plan;
+        private final VolatileShuffleQueryPlan<V, Shard> plan;
 
         public GatherVolatileDataThread(Integer dsID,
                                  long txID,
                                  List<ByteString> gatherResults,
                                  AtomicInteger queryStatus,
-                                 VolatileShuffleQueryPlan<V> plan){
+                                 VolatileShuffleQueryPlan<V, Shard> plan){
             this.dsID=dsID;
             this.txID=txID;
             this.gatherResults=gatherResults;
@@ -1408,6 +1455,17 @@ public class Broker {
             this.status = status;
             this.rcplan = plan;
         }
+
+        StoreSubqueryDataThread(Integer dsID, long txID, Map<String, List<Object>> dataToForward,
+                                Map<String, List<Integer>> shardsIDs, AtomicBoolean status, ShuffleOnReadQueryPlan plan){
+            this.dsID = dsID;
+            this.txID = txID;
+            this.dataToForward = dataToForward;
+            this.shardsIDs = shardsIDs;
+            this.status = status;
+            this.shufflePlan = plan;
+        }
+
 
         @Override
         public void run(){
@@ -1568,10 +1626,6 @@ public class Broker {
         for(Object query: triggeredQueries){
             t.addTriggeredQuery((PersistentReadQuery) query);
         }
-
-
-
-
         return t;
     }
     /**Given a Table identifier, its number of shards and a row's partition key, returns the shard identifier
@@ -1603,7 +1657,7 @@ public class Broker {
      * servers involved in the transaction
      * */
     private boolean volatileShuffleCleanup(List<Integer> dsIDsScatter, long txID, List<Integer> gatherDSids){
-        CountDownLatch failureLatch = new CountDownLatch(dsIDsScatter.size());
+        CountDownLatch latch = new CountDownLatch(dsIDsScatter.size());
         AtomicInteger outcome = new AtomicInteger(0);
         for(Integer dsID: dsIDsScatter){
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
@@ -1619,18 +1673,18 @@ public class Broker {
                 public void onError(Throwable throwable) {
                     logger.error("Broker: removeVolatileData Failed for transaction id {}", txID);
                     outcome.set(1);
-                    failureLatch.countDown();
+                    latch.countDown();
                 }
 
                 @Override
                 public void onCompleted() {
-                    failureLatch.countDown();
+                    latch.countDown();
                 }
             };
             stub.removeVolatileData(message, observer);
         }
         try {
-            failureLatch.await();
+            latch.await();
         }catch (InterruptedException e){
             logger.error("Broker: RemoveVolatileData Failed for transaction id {}", txID);
             return false;
@@ -1638,7 +1692,7 @@ public class Broker {
         if(gatherDSids == null || outcome.get() != 0) {
             return outcome.get() == 0;
         }
-        final CountDownLatch secondFailureLatch = new CountDownLatch(gatherDSids.size());
+        final CountDownLatch secondLatch = new CountDownLatch(gatherDSids.size());
         for(Integer dsID: gatherDSids){
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
@@ -1657,19 +1711,57 @@ public class Broker {
 
                 @Override
                 public void onCompleted() {
-                    secondFailureLatch.countDown();
+                    secondLatch.countDown();
                 }
             };
             stub.removeVolatileScatteredData(message, observer);
         }
         try{
-            secondFailureLatch.await();
+            secondLatch.await();
         }catch (InterruptedException e){
             logger.error("Broker: removeVolatileScatteredData Failed for transaction id {}", txID);
             return false;
         }
         return outcome.get() == 0;
     }
+
+    private boolean removeSubQueryData(long txID){
+        List<Integer> dsIDs = new ArrayList<>(dsIDToChannelMap.keySet());
+        CountDownLatch latch = new CountDownLatch(dsIDs.size());
+        AtomicInteger outcome = new AtomicInteger(0);
+        for(Integer dsID: dsIDs){
+            ManagedChannel channel = dsIDToChannelMap.get(dsID);
+            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+            RemoveVolatileDataMessage message = RemoveVolatileDataMessage.newBuilder().setTransactionID(txID).build();
+            StreamObserver<RemoveVolatileDataResponse> observer = new StreamObserver<>() {
+                @Override
+                public void onNext(RemoveVolatileDataResponse removeVolatileDataResponse) {
+                    ;
+                }
+
+                @Override
+                public void onError(Throwable throwable) {
+                    logger.error("Broker: removeSubQueryData Failed for transaction id {}", txID);
+                    outcome.set(1);
+                    latch.countDown();
+                }
+
+                @Override
+                public void onCompleted() {
+                    latch.countDown();
+                }
+            };
+            stub.removeSubQueryData(message, observer);
+        }
+        try {
+            latch.await();
+        }catch (InterruptedException e){
+            logger.error("Broker: removeSubQueryData Failed for transaction id {}", txID);
+            return false;
+        }
+        return outcome.get()==0;
+    }
+
 
 
     /**Sends the statistics to the Coordinator via the appropriate Broker-Coordinator service*/

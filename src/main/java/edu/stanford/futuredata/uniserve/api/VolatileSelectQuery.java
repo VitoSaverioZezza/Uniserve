@@ -14,7 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class VolatileSelectQuery implements VolatileShuffleQueryPlan<List<Object>> {
+public class VolatileSelectQuery implements VolatileShuffleQueryPlan<List<Object>, Shard> {
     private String tableName;
     private Serializable extractFromShardLambda;
     private Serializable writeRawDataLambda;

@@ -19,7 +19,7 @@ import java.util.Map;
 
 
 /**Returns the average of all values for all keys*/
-public class KVVolatileAverage implements VolatileShuffleQueryPlan< Integer> {
+public class KVVolatileAverage implements VolatileShuffleQueryPlan< Integer, Shard> {
     private String table = "intermediateFilter";
     private static final Logger logger = LoggerFactory.getLogger(KVVolatileAverage.class);
 

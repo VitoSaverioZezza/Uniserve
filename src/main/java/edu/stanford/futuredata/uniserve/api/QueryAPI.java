@@ -87,7 +87,7 @@ public class QueryAPI<S extends Shard> {
     public List<Object> selectQuery(String tableName,
                                     ExtractFromShardLambda<S, Collection> extractLogic,
                                     boolean onRead,
-                                    List<Row> rawData,
+                                    List<Object> rawData,
                                     WriteShardLambda<S> writeRawDataLogic
     ){
         if(onRead){

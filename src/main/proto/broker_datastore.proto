@@ -26,6 +26,7 @@ service BrokerDataStore {
     rpc RemoveVolatileScatteredData(RemoveVolatileDataMessage) returns (RemoveVolatileDataResponse){}
 
     rpc StoreSubqueryData(stream StoreSubqueryDataMessage) returns (stream StoreSubqueryDataResponse){}
+    rpc RemoveSubQueryData(RemoveVolatileDataMessage) returns (RemoveVolatileDataResponse){}
     rpc RetrieveAndCombineQuery(RetrieveAndCombineQueryMessage) returns (RetrieveAndCombineQueryResponse){}
 }
 message StoreSubqueryDataMessage{

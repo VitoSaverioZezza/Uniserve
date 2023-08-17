@@ -12,50 +12,79 @@ import org.javatuples.Pair;
 import org.apache.commons.jexl3.*;
 import java.util.*;
 
-public class IntermediateQuery implements RetrieveAndCombineQueryPlan<RelShard, RelReadQueryResults> {
+public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, RelReadQueryResults> {
     private List<String> tableNames = new ArrayList<>();
-
     private Map<String, ReadQuery> subqueries = new HashMap<>();
 
-    private List<Pair<String, String>> intermediateSchema;
-    private Map<String, List<String>> srcInterProjectSchema;
-    private Map<String, List<String>> cachedSourceSchema;
+    private Map<String, String> aliasToTableMap = new HashMap<>();
 
-    private String resultName = String.valueOf(new Random().nextInt());
+    private List<String> userFinalSchema = new ArrayList<>();
+    private List<String> systemFinalSchema = new ArrayList<>();
+    private List<String> systemCombineSchema = new ArrayList<>();
+    private Map<String, List<String>> cachedSourcesSchema = new HashMap<>();
+    private Map<String, List<String>> sourcesSubschemasForCombine = new HashMap<>();
+    private List<Pair<String, String>> splitSystemCombineSchema = new ArrayList<>();
 
-    private String selectionPredicate = null;
+    private String selectionPredicate = "";
 
-    public void setIntermediateSchema(List<Pair<String, String>> intermediateSchema) {
-        this.intermediateSchema = intermediateSchema;
+    public ProdSelProjQuery setAliasToTableMap(Map<String, String> aliasToTableMap) {
+        this.aliasToTableMap = aliasToTableMap;
+        return this;
     }
-    public void setTableNames(List<String> tableNames) {
+    public ProdSelProjQuery setTableNames(List<String> tableNames) {
         this.tableNames = tableNames;
+        return this;
     }
-    public void setCachedSourceSchema(Map<String, List<String>> cachedSourceSchema) {
-        this.cachedSourceSchema = cachedSourceSchema;
-    }
-    public void setSrcInterProjectSchema(Map<String, List<String>> srcInterProjectSchema) {
-        this.srcInterProjectSchema = srcInterProjectSchema;
-    }
-    public void setSubqueries(Map<String, ReadQuery> subqueriesResults) {
+    public ProdSelProjQuery setSubqueries(Map<String, ReadQuery> subqueriesResults) {
         this.subqueries = subqueriesResults;
+        return this;
     }
-    public void setSelectionPredicate(String selectionPredicate) {
+    public ProdSelProjQuery setSystemFinalSchema(List<String> systemFinalSchema){
+        this.systemFinalSchema = systemFinalSchema;
+        return this;
+    }
+    public ProdSelProjQuery setSystemCombineSchema(List<String> systemCombineSchema){
+        this.systemCombineSchema = systemCombineSchema;
+        for (String dotAttribute : systemCombineSchema){
+            String[] split = dotAttribute.split("\\.");
+            StringBuilder attrBuilder = new StringBuilder();
+            for(int i = 1; i<split.length-1; i++){
+                attrBuilder.append(split[i]);
+                attrBuilder.append(".");
+            }
+            attrBuilder.append(split[split.length-1]);
+            splitSystemCombineSchema.add(new Pair<>(split[0], attrBuilder.toString()));
+        }
+        return this;
+    }
+    public ProdSelProjQuery setSourcesSubschemasForCombine(Map<String, List<String>> sourcesSubschemasForCombine){
+        this.sourcesSubschemasForCombine = sourcesSubschemasForCombine;
+        return this;
+    }
+    public ProdSelProjQuery setCachedSourcesSchema(Map<String, List<String>> cachedSourcesSchema) {
+        this.cachedSourcesSchema = cachedSourcesSchema;
+        return this;
+    }
+    public ProdSelProjQuery setUserFinalSchema(List<String> userFinalSchema){
+        this.userFinalSchema = userFinalSchema;
+        return this;
+    }
+    public ProdSelProjQuery setSelectionPredicate(String selectionPredicate) {
         this.selectionPredicate = selectionPredicate;
+        return this;
     }
 
     public RelReadQueryResults run(Broker broker){
+        System.out.println("User-defined final schema: " + userFinalSchema);
+        System.out.println("System final schema: " + systemFinalSchema);
+        System.out.println("System combine schema: " + systemCombineSchema);
+
+
         RelReadQueryResults res;
         res = broker.retrieveAndCombineReadQuery(this);
-        res.setName(resultName);
-        List<String> intermediateFieldNames = new ArrayList<>();
-        for(Pair<String, String> sourceField: intermediateSchema){
-            intermediateFieldNames.add(sourceField.getValue0()+"."+sourceField.getValue1());
-        }
-        res.setFieldNames(intermediateFieldNames);
+        res.setFieldNames(userFinalSchema);
         return res;
     }
-
     @Override
     public List<String> getTableNames() {
         return tableNames;
@@ -67,31 +96,29 @@ public class IntermediateQuery implements RetrieveAndCombineQueryPlan<RelShard, 
             returnedStructure.put(tabName, List.of(-1));
         return returnedStructure;
     }
-
     @Override
     public ByteString retrieve(RelShard shard, String tableName) {
         List<RelRow> shardData = shard.getData();
-        List<String> sourceSchema = cachedSourceSchema.get(tableName);
-        List<String> tablesProjSchema = srcInterProjectSchema.get(tableName);
-        List<List<Object>> projData = new ArrayList<>();
+        List<String> sourceSchema = cachedSourcesSchema.get(tableName);
+        List<String> subschema = sourcesSubschemasForCombine.get(tableName);
+        List<List<Object>> dataToCombine = new ArrayList<>();
         for(RelRow row: shardData){
             List<Object> projRow = new ArrayList<>();
-            for(String projAttr: tablesProjSchema){
+            for(String projAttr: subschema){
                 projRow.add(row.getField(sourceSchema.indexOf(projAttr)));
             }
-            /*If the resulting rows of the whole query are extracted from a single table it is possible to evaluate the predicate
+            /*If the resulting rows of the whole query are extracted from a single table/subquery it is possible to evaluate the predicate
             * here since the row is fully built.
             * Other small optimizations are possible by parsing the predicate at query building time
             * */
-            if(tableNames.size() == 1 && !checkPredicate(projRow)){
+            if((tableNames.size()+subqueries.size()) == 1 && !checkPredicate(projRow)){
                 continue;
             }
-            projData.add(projRow);
+            dataToCombine.add(projRow);
         }
-        Object[] projRowArray = projData.toArray();
+        Object[] projRowArray = dataToCombine.toArray();
         return Utilities.objectToByteString(projRowArray);
     }
-
     @Override
     public RelReadQueryResults combine(Map<String, List<ByteString>> retrieveResults) {
         Map<String, List<List<Object>>> tableToProjDataMap = new HashMap<>();
@@ -108,27 +135,34 @@ public class IntermediateQuery implements RetrieveAndCombineQueryPlan<RelShard, 
         }
 
         //product
-        List<String> sourcesList = new ArrayList<>(srcInterProjectSchema.keySet());
+        List<String> sourcesList = new ArrayList<>(cachedSourcesSchema.keySet());
         List<List<Object>> resultRows = new ArrayList<>();
-        Object[] currentPrototype = new Object[intermediateSchema.size()];
+        Object[] currentPrototype = new Object[systemCombineSchema.size()];
         int currentTableIndex = 0;
         cartesianProduct(currentTableIndex, resultRows, sourcesList, currentPrototype, tableToProjDataMap);
         RelReadQueryResults res = new RelReadQueryResults();
         List<RelRow> dataRows = new ArrayList<>();
-        for(List<Object> row: resultRows) {
-            dataRows.add(new RelRow(row.toArray()));
+
+
+
+        for(List<Object> nonProjRow: resultRows) {
+            List<Object> projRow = new ArrayList<>(systemFinalSchema.size());
+            for(String finalAttribute: systemFinalSchema){
+                int index = systemFinalSchema.indexOf(finalAttribute);
+                projRow.add(index, nonProjRow.get(systemCombineSchema.indexOf(finalAttribute)));
+            }
+            dataRows.add(new RelRow(projRow.toArray()));
         }
         res.addData(dataRows);
         return res;
     }
-
     private void cartesianProduct(int currentTableIndex, List<List<Object>> resultRows, List<String> sourcesList, Object[] currentPrototype, Map<String, List<List<Object>>> retrievedData){
         String sourceName = sourcesList.get(currentTableIndex);
-        List<String> intermediateProjSchema = srcInterProjectSchema.get(sourceName);
+        List<String> intermediateProjSchema = sourcesSubschemasForCombine.get(sourceName);
         List<List<Object>> retrievedTableData = retrievedData.get(sourceName);
         for(List<Object> row: retrievedTableData){
-            for(int i = 0; i<intermediateSchema.size(); i++){
-                Pair<String, String> intermediateAttributeDescription = intermediateSchema.get(i);
+            for(int i = 0; i<systemCombineSchema.size(); i++){
+                Pair<String, String> intermediateAttributeDescription = splitSystemCombineSchema.get(i);
                 if(intermediateAttributeDescription.getValue0().equals(sourceName)){
                     currentPrototype[i] = row.get(intermediateProjSchema.indexOf(intermediateAttributeDescription.getValue1()));
                 }
@@ -151,18 +185,34 @@ public class IntermediateQuery implements RetrieveAndCombineQueryPlan<RelShard, 
         }
         return shard.insertRows(data1) && shard.committRows();
     }
-
     private boolean checkPredicate(List<Object> row){
         if(selectionPredicate == null || selectionPredicate.isEmpty()){
             return true;
         }
         String predToTest = new String(selectionPredicate);
-
         Map<String, Object> values = new HashMap<>();
-        for(Pair<String, String> attributePair: intermediateSchema){
+
+        //TODO: can be done better but it gave me enough trouble, I'll check it later.
+        for(Map.Entry<String, String> aliasTableName: aliasToTableMap.entrySet()){
+            List<String> sourceSchema = cachedSourcesSchema.get(aliasTableName.getValue());
+            for(String attribute: sourceSchema){
+                String systemName = aliasTableName.getValue() + "." + attribute;
+                String aliasName = aliasTableName.getKey() + "." + attribute;
+                if(predToTest.contains(aliasName)){
+                    values.put(aliasName, row.get(systemCombineSchema.indexOf(systemName)));
+                }
+            }
+        }
+
+        for(Pair<String, String> attributePair: splitSystemCombineSchema){
             String attr = attributePair.getValue0()+"."+attributePair.getValue1();
             if(predToTest.contains(attr)){
-                values.put(attr, row.get(intermediateSchema.indexOf(attributePair)));
+                values.put(attr, row.get(splitSystemCombineSchema.indexOf(attributePair)));
+            }
+        }
+        for(String finalSchemaName: systemFinalSchema){
+            if(predToTest.contains(finalSchemaName)){
+                values.put(finalSchemaName, row.get(systemFinalSchema.indexOf(finalSchemaName)));
             }
         }
 

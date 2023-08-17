@@ -426,6 +426,17 @@ public class DataStore<R extends Row, S extends Shard> {
         volatileScatterData.remove(transactionID);
     }
 
+    public void removeSubQueryData(long transactionID){
+        Map<String, Map<Integer, S>> subQdata = subqueryResults.get(transactionID);
+        for(Map.Entry<String, Map<Integer, S>> subquery: subQdata.entrySet()){
+            for(Map.Entry<Integer, S> subqueryShard: subquery.getValue().entrySet()){
+                subqueryShard.getValue().destroy();
+                subquery.getValue().remove(subqueryShard.getKey());
+            }
+            subQdata.remove(subquery.getKey());
+        }
+        subqueryResults.remove(transactionID);
+    }
 
     private final Map<Long, Map<String, Map<Integer, S>>> subqueryResults = new HashMap<>();
 

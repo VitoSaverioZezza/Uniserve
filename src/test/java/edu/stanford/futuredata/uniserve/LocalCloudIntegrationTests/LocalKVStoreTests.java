@@ -546,15 +546,15 @@ public class LocalKVStoreTests {
         }
         final Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards, new ArrayList<>(), null);
-        VolatileShuffleQueryPlan<Integer> totalAverage = new KVVolatileAverage();
-        List<Row> rows = new ArrayList<>();
+        VolatileShuffleQueryPlan<Integer, Shard> totalAverage = new KVVolatileAverage();
+        List<Object> rows = new ArrayList<>();
         int sum = 0, avg = 0;
         for(int i = 1; i<11; i++){
             rows.add(new KVRow(i, 4*i));
             sum += 4*i;
         }
         avg = sum/10;
-        assertEquals(avg,broker.volatileShuffleQuery(totalAverage, rows));
+        assertEquals(avg, Optional.ofNullable(broker.volatileShuffleQuery(totalAverage, rows)));
         for(LocalDataStoreCloud dsCloud: dsClouds){
             try{
                 dsCloud.clear();

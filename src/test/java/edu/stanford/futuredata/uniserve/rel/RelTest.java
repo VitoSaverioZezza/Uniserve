@@ -26,11 +26,18 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Random;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 public class RelTest {
     private static final Logger logger = LoggerFactory.getLogger(KVStoreTests.class);
@@ -140,8 +147,162 @@ public class RelTest {
         }
     }
 
+
+    @Test
+    public void a(){
+
+    }
+
     @Test
     public void testIntermediate(){
+        Coordinator coordinator = new Coordinator(
+                null,
+                new DefaultLoadBalancer(),
+                new DefaultAutoScaler(),
+                zkHost, zkPort,
+                "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
+
+        LocalDataStoreCloud ldsc = new LocalDataStoreCloud();
+
+        DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldsc,
+                new RelShardFactory(),
+                Path.of("/var/tmp/RelUniserve"),
+                zkHost, zkPort,
+                "127.0.0.1", 8000,
+                -1,
+                false
+        );
+        dataStore.startServing();
+
+        Broker broker = new Broker(zkHost, zkPort);
+
+        List<RelRow> actorRows = new ArrayList<>();
+        List<RelRow> filmRows = new ArrayList<>();
+
+        String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/ActorTestFile.txt";
+        String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/FilmTestFile.txt";
+
+        int filmCount = 0;
+        try (BufferedReader br = new BufferedReader(new FileReader(filmFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 2) {
+                    filmRows.add(new RelRow(filmCount, parts[0], Integer.valueOf(parts[1])));
+                    filmCount++;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        int count = 0;
+        try (BufferedReader br = new BufferedReader(new FileReader(actorFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 3) {
+                    actorRows.add(new RelRow(count, parts[0], parts[1],Integer.valueOf(parts[2]), new Random().nextInt(filmCount)));
+                    count++;
+                }else{
+                    System.out.println("No match for " + line);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        API api = new API();
+        api.start(zkHost, zkPort);
+        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").shardNumber(10).keys("ID").build().run();
+        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").shardNumber(10).build().run();
+        api.write().table(broker, "Actors").data(actorRows).build().run();
+        api.write().table(broker, "Films").data(filmRows).build().run();
+
+        RelReadQueryResults results = api.read()
+                .select("Actors.FullName", "A.Salary")
+                .alias("Full Name", "Salary")
+                .from("Actors", "A")
+                .build()
+                .run(broker);
+        List<RelRow> data = results.getData();
+
+        List<RelRow> notMatching = new ArrayList<>();
+        for(int i = 0; i<actorRows.size(); i++){
+            RelRow originalRow = actorRows.get(i);
+            boolean match = false;
+            for(int j = 0; j<data.size() && !match; j++){
+                RelRow queryRow = data.get(j);
+                if(originalRow.getField(1).equals(queryRow.getField(0)) && originalRow.getField(3).equals(queryRow.getField(1))){
+                    match = true;
+                }
+            }
+            if(!match){
+                notMatching.add(originalRow);
+            }
+        }
+        assertTrue(notMatching.isEmpty());
+
+        //join
+        RelReadQueryResults joinResults = api.read()
+                .select("A.FullName", "F.Director")
+                .alias("Actor Name", "Director Name")
+                .from("Actors", "A")
+                .from("Films", "F")
+                .where("A.FilmID == F.ID")
+                .build()
+                .run(broker);
+        List<RelRow> joinResRows = joinResults.getData();
+
+        List<List<Object>> joinTest = new ArrayList<>();
+        for(RelRow film: filmRows){
+            for(RelRow actor: actorRows){
+                if(film.getField(0).equals(actor.getField(4))){
+                    joinTest.add(List.of(actor.getField(1), film.getField(1)));
+                }
+            }
+        }
+        for(int i = 0; i<joinTest.size(); i++){
+            boolean match = false;
+            List<Object> testRow = joinTest.get(i);
+            for(int j = joinResRows.size()-1 ; j>=0 && !match; j--){
+                RelRow resRow = joinResRows.get(j);
+                if(resRow.getField(0).equals(testRow.get(0)) && resRow.getField(1).equals(resRow.getField(1))){
+                    match = true;
+                    joinResRows.remove(resRow);
+                }
+            }
+        }
+        if(!joinResRows.isEmpty()){
+            printRowList(joinResRows);
+        }
+        System.out.println();
+        if(!joinResRows.isEmpty()){
+            List<RelRow> rerere = new ArrayList<>();
+            for(List<Object> testRow: joinTest){
+                rerere.add(new RelRow(testRow.toArray()));
+            }
+            printRowList(rerere);
+        }
+        assertTrue(joinResRows.isEmpty());
+    }
+
+    private void printRowList(List<RelRow> data){
+        for(RelRow row:data){
+            StringBuilder rowBuilder = new StringBuilder();
+            rowBuilder.append("Row #" + data.indexOf(row) + " ");
+            for (int j = 0; j<row.getSize()-1; j++){
+                rowBuilder.append(row.getField(j) + ", ");
+            }
+            rowBuilder.append(row.getField(row.getSize()-1));
+            System.out.println(rowBuilder.toString());
+        }
+    }
+
+
+
+    @Test
+    public void aggregateTest(){
         Coordinator coordinator = new Coordinator(
                 null,
                 new DefaultLoadBalancer(),
@@ -168,8 +329,8 @@ public class RelTest {
         List<RelRow> rowsOne = new ArrayList<>();
         List<RelRow> rowsTwo = new ArrayList<>();
         for(Integer i = 0; i<20; i++){
-            rowsOne.add(new RelRow(i, i+1, i+2));
-            rowsTwo.add(new RelRow(i, i+1, i+2, i+3));
+            rowsOne.add(new RelRow(i,    i+1, i+2));
+            rowsOne.add(new RelRow(i+20, i+1, i+10));
         }
 
         API api = new API();
@@ -180,20 +341,19 @@ public class RelTest {
         api.write().table(broker, "TableTwo").data(rowsTwo).build().run();
 
         RelReadQueryResults results = api.read()
-                .select("T1A.TableOne.A", "T2.G")
-                .from(api.read()
-                        .select("TableOne.A")
-                                .from("TableOne")
-                                .where("TableOne.A==7 || TableOne.A==12")
-                                .build()
-                        ,"T1A")
-                .from("TableTwo", "T2")
-                .where("TableTwo.G == T1A.TableOne.A")
-                .build()
-                .run(broker);
-
+                .select("TableOne.B")
+                .avg("TableOne.C", "AVG")
+                .count("TableOne.C", "count")
+                .from("TableOne")
+                .where("TableOne.A < 30")
+                .build().run(broker);
         List<RelRow> data = results.getData();
         int count = 0;
+        List<String> resultSchema = results.getFieldNames();
+        for(String field: resultSchema){
+            System.out.print(field + " ");
+        }
+        System.out.println();
         for(RelRow row: data){
             System.out.print("Row #" + count + ": ");
             count++;

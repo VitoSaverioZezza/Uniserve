@@ -13,7 +13,7 @@ import org.w3c.dom.UserDataHandler;
 
 import java.util.*;
 
-public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<Integer> {
+public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<Integer, Shard> {
 
     private final String table;
 

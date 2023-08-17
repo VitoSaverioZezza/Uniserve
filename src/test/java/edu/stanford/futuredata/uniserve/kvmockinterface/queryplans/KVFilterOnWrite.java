@@ -13,7 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class KVFilterOnWrite implements VolatileShuffleQueryPlan<List<KVRow>> {
+public class KVFilterOnWrite implements VolatileShuffleQueryPlan<List<KVRow>, Shard> {
     private String table = "filterAndAverageRaw";
 
     @Override

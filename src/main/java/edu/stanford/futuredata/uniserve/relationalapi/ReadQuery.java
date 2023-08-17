@@ -8,25 +8,37 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ReadQuery implements Serializable {
+    private ProdSelProjQuery simpleQuery = null;
     private List<String> resultSchema = new ArrayList<>();
-    private IntermediateQuery intermediateQuery = null;
+    private AggregateQuery aggregateQuery = null;
 
-    public IntermediateQuery getIntermediateQuery() {
-        return intermediateQuery;
+    public RelReadQueryResults run(Broker broker){
+        if(simpleQuery != null){
+            return simpleQuery.run(broker);
+        }else{
+            return aggregateQuery.run(broker);
+        }
+    }
+    public ReadQuery setAggregateQuery(AggregateQuery aggregateQuery){
+        this.aggregateQuery = aggregateQuery;
+        return this;
     }
 
-    public void setIntermediateQuery(IntermediateQuery intermediateQuery) {
-        this.intermediateQuery = intermediateQuery;
+
+    public ReadQuery setSimpleQuery(ProdSelProjQuery simpleQuery) {
+        this.simpleQuery = simpleQuery;
+        return this;
+    }
+    public ProdSelProjQuery getSimpleQuery() {
+        return simpleQuery;
+    }
+
+    public ReadQuery setResultSchema(List<String> resultSchema) {
+        this.resultSchema = resultSchema;
+        return this;
     }
 
     public List<String> getResultSchema() {
         return resultSchema;
-    }
-    public void setResultSchema(List<String> resultSchema) {
-        this.resultSchema = resultSchema;
-    }
-
-    public RelReadQueryResults run(Broker broker){
-        return intermediateQuery.run(broker);
     }
 }

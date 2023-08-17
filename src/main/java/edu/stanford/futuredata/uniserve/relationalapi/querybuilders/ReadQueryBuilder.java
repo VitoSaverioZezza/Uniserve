@@ -1,9 +1,8 @@
 package edu.stanford.futuredata.uniserve.relationalapi.querybuilders;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
-import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
-import edu.stanford.futuredata.uniserve.relationalapi.IntermediateQuery;
+import edu.stanford.futuredata.uniserve.relationalapi.AggregateQuery;
+import edu.stanford.futuredata.uniserve.relationalapi.ProdSelProjQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import org.javatuples.Pair;
 
@@ -14,16 +13,18 @@ public class ReadQueryBuilder {
     public static final Integer MIN = 2;
     public static final Integer MAX = 3;
     public static final Integer COUNT = 4;
+    public static final Integer SUM = 5;
 
     private final Broker broker;
 
     private List<String> rawSelectedFields = new ArrayList<>();
-    private String[] fieldsAliases = null;
+    private List<String> fieldsAliases = new ArrayList<>();
+    private List<String> aggregateAttributesNames = new ArrayList<>();
 
     private final List<Pair<Integer, String>> aggregates = new ArrayList<>();
     private String rawSelectionPredicate = "";
 
-    private String rawHavingPredicate = null;
+    private String rawHavingPredicate = "";
     private boolean distinct = false;
     private boolean isStored = false;
 
@@ -31,59 +32,85 @@ public class ReadQueryBuilder {
     private Map<String, String> aliasToTableName = new HashMap<>(); //contains ONLY aliases of the tables
     private Map<String, ReadQuery> subqueriesAlias = new HashMap<>(); //contains ALL subqueries mappings
 
-    private Map<String, List<Pair<Integer, String>>> sourceToAggregates = new HashMap<>(); //fields to be aggregate in simple notation
-    private Map<String, List<String>> sourceToSelectionPredicateArguments = new HashMap<>(); //attributes needed for predicate evaluation in simple notation
-    private Map<String, List<String>> sourceToSelectArguments = new HashMap<>(); //ALL fields selected, without aggregates and without attributes needed
 
-    private List<Pair<String, String>> intermediateSchema = new ArrayList<>(); //ALL fields needed for the intermediate schema in dot notation, first the select,
-    private Map<String, List<String>> srcInterProjectSchema = new HashMap<>();
-    private String intermediateResID = String.valueOf(new Random().nextInt());
-
-    private Map<String, List<String>> cachedSourceSchemas = new HashMap<>(); //cache of source name (table or alias for subquery) and their schema
-
-    private String[] rawGroupFields = null;
+    //TODO: Second part of the query for aggregates
+    //TODO: General cleanup
+    //TODO: Stored queries management
 
     public ReadQueryBuilder(Broker broker){
         this.broker = broker;
     }
 
-    //TODO: Predicate definition for simple query
-    //TODO: Second part of the query for aggregates
-    //TODO: Just dance da da du du
-    //TODO: General cleanup
-    //TODO: Stored queries management
-
     //ASSUMPTION: ALL ARGUMENTS USE DOT NOTATION WITH TABLENAMES OR ALIASES
-    public ReadQueryBuilder select(){return this;}
+    public ReadQueryBuilder select(){
+        if(fieldsAliases != null){
+            throw new RuntimeException("Cannot select new attributes after aliases definition");
+        }
+        return this;
+    }
     public ReadQueryBuilder select(String... selectedFields){
+        if(!fieldsAliases.isEmpty()){
+            throw new RuntimeException("Cannot select new attributes after aliases definition");
+        }
         this.rawSelectedFields.addAll(Arrays.asList(selectedFields));
         return this;
     }
     public ReadQueryBuilder alias(String... aliases){
-        fieldsAliases = aliases;
+        if(rawSelectedFields.isEmpty()){
+            throw new RuntimeException("Alias specified for non-explicitly declared selection attributes");
+        }
+        if(!fieldsAliases.isEmpty()){
+            throw new RuntimeException("Cannot select new attributes after aliases definition");
+        }
+        fieldsAliases = Arrays.asList(aliases);
         if(!noDuplicateInStringArray(aliases))
             throw new RuntimeException("Error in parameter alias definition: Multiple projection args have the same alias");
-        if(fieldsAliases.length != rawSelectedFields.size()){
+        if((fieldsAliases.size() + aggregateAttributesNames.size())!= (rawSelectedFields.size() + aggregates.size())){
             throw new RuntimeException("Wrong number of aliases provided for selected fields");
         }
         return this;
     }
-    public ReadQueryBuilder avg(String aggregatedField){
+    public ReadQueryBuilder avg(String aggregatedField, String alias){
+        if(!fieldsAliases.isEmpty()){
+            throw new RuntimeException("Cannot select new aggregates after aliases definition");
+        }
         this.aggregates.add(new Pair<>(AVG, aggregatedField));
+        this.aggregateAttributesNames.add(alias);
         return this;
     }
-    public ReadQueryBuilder min(String aggregatedField){
+    public ReadQueryBuilder min(String aggregatedField, String alias){
+        if(!fieldsAliases.isEmpty()){
+            throw new RuntimeException("Cannot select new aggregates after aliases definition");
+        }
         this.aggregates.add(new Pair<>(MIN, aggregatedField));
+        this.aggregateAttributesNames.add(alias);
         return this;
     }
-    public ReadQueryBuilder max(String aggregatedField){
+    public ReadQueryBuilder max(String aggregatedField, String alias){
+        if(!fieldsAliases.isEmpty()){
+            throw new RuntimeException("Cannot select new aggregates after aliases definition");
+        }
         this.aggregates.add(new Pair<>(MAX, aggregatedField));
+        this.aggregateAttributesNames.add(alias);
         return this;
     }
-    public ReadQueryBuilder count(String aggregatedField){
+    public ReadQueryBuilder count(String aggregatedField, String alias){
+        if(!fieldsAliases.isEmpty()){
+            throw new RuntimeException("Cannot select new aggregates after aliases definition");
+        }
         this.aggregates.add(new Pair<>(COUNT, aggregatedField));
+        this.aggregateAttributesNames.add(alias);
         return this;
     }
+    public ReadQueryBuilder sum(String aggregatedField, String alias){
+        if(!fieldsAliases.isEmpty()){
+            throw new RuntimeException("Cannot select new aggregates after aliases definition");
+        }
+        aggregates.add(new Pair<>(SUM, aggregatedField));
+        this.aggregateAttributesNames.add(alias);
+        return this;
+    }
+
 
     public ReadQueryBuilder from(String tableName ){
         tableNameToAlias.put(tableName, null);
@@ -94,7 +121,6 @@ public class ReadQueryBuilder {
         aliasToTableName.put(alias, tableName);
         return this;
     }
-
     public ReadQueryBuilder from(ReadQuery subquery, String alias){
         if(alias == null){
             throw new RuntimeException("Subquery has not alias");
@@ -108,13 +134,6 @@ public class ReadQueryBuilder {
 
     public ReadQueryBuilder where(String selectionPredicate){
         this.rawSelectionPredicate = selectionPredicate;
-        return this;
-    }
-    public ReadQueryBuilder group(String... groupFields){
-        if(!noDuplicateInStringArray(groupFields)){
-            throw new RuntimeException("Error: Duplicate elements in group clause");
-        }
-        this.rawGroupFields = groupFields;
         return this;
     }
     public ReadQueryBuilder having(String havingPredicate){
@@ -132,228 +151,272 @@ public class ReadQueryBuilder {
 
 
     public ReadQuery build(){
-        ReadQuery ret = new ReadQuery();
-        ret.setIntermediateQuery(buildIntermediateQuery());
-        List<String> resSchema = new ArrayList<>();
-        for(Pair<String, String> entry: intermediateSchema){
-            resSchema.add(entry.getValue0()+"."+entry.getValue1());
+        if(aggregates.isEmpty()){
+            return buildSimpleQuery();
+        }else{
+            return buildAggregateQuery();
         }
-        ret.setResultSchema(resSchema);
-        return ret;
     }
 
-    private IntermediateQuery buildIntermediateQuery(){
-        Map<String, List<String>> sourceToAggregatedFields = new HashMap<>();
 
-        /*
-        * If no selection attribute is specified, iterate through all tables and subqueries in order to select all their
-        * attributes.
-        * */
+    private ReadQuery buildSimpleQuery(){
+        String selectionPredicate = rawSelectionPredicate;
+
+        List<String> userFinalSchema = new ArrayList<>();
+        List<String> systemFinalSchema = new ArrayList<>();
+        List<String> systemCombineSchema = new ArrayList<>();
+        Map<String, List<String>> sourcesSubschemasForCombine = new HashMap<>();
+        Map<String, List<String>> sourcesSchema = new HashMap<>();
+
         if(rawSelectedFields.isEmpty()){
-            for(String tableName: tableNameToAlias.keySet()){
-                List<String> tableSchema = broker.getTableInfo(tableName).getAttributeNames();
-                cachedSourceSchemas.put(tableName, tableSchema);
-                sourceToSelectArguments.put(tableName, tableSchema);
-                for(String attributeName: tableSchema){
-                    intermediateSchema.add(new Pair<>(tableName, attributeName));
+            //selectAll
+            for(Map.Entry<String, String> tableAlias: tableNameToAlias.entrySet()){
+                String tableName = tableAlias.getKey();
+                List<String> sourceTableSchema = broker.getTableInfo(tableName).getAttributeNames();
+                sourcesSchema.put(tableName, sourceTableSchema);
+                sourcesSubschemasForCombine.put(tableName, sourceTableSchema);
+                for(String attributeName: sourceTableSchema){
+                    userFinalSchema.add(tableName+"."+attributeName);
+                    systemFinalSchema.add(tableName+"."+attributeName);
+                    systemCombineSchema.add(tableName+"."+attributeName);
                 }
-                srcInterProjectSchema.put(tableName, tableSchema);
             }
-            for(String subqueryAlias: subqueriesAlias.keySet()){
-                List<String> subquerySchema = subqueriesAlias.get(subqueryAlias).getResultSchema();
-                cachedSourceSchemas.put(subqueryAlias, subquerySchema);
-                sourceToSelectArguments.put(subqueryAlias, subquerySchema);
+            for(Map.Entry<String, ReadQuery> subquery: subqueriesAlias.entrySet()){
+                String subqueryAlias = subquery.getKey();
+                List<String> subquerySchema = subquery.getValue().getResultSchema();
+                sourcesSchema.put(subqueryAlias, subquerySchema);
+                sourcesSubschemasForCombine.put(subqueryAlias, subquerySchema);
                 for(String attributeName: subquerySchema){
-                    intermediateSchema.add(new Pair<>(subqueryAlias, attributeName));
+                    userFinalSchema.add(subqueryAlias+"."+attributeName);
+                    systemFinalSchema.add(subqueryAlias+"."+attributeName);
+                    systemCombineSchema.add(subqueryAlias+"."+attributeName);
                 }
-                srcInterProjectSchema.put(subqueryAlias, subquerySchema);
             }
         }
         else{
-            /*Filling the sourceToSelectArguments with the arguments of the select operator
-            * First split the raw attributes "Table.Attribute" in the two parts, then solve the first one since it
-            * can be an alias for a table or a subquery. Once that is solved, check whether the attribute is part of that
-            * schema and if so add it to the intermediate schema
-            * */
-            for (String selectAttribute : rawSelectedFields) {
-                String[] split = selectAttribute.split("\\.");
-                String sourceName = split[0];
-                StringBuilder builder = new StringBuilder();
-                for(int i = 1; i < split.length-1; i++) {
-                    builder.append(split[i]);
-                    builder.append(".");
-                }
-                builder.append(split[split.length-1]);
-                String attributeName = builder.toString();
-                List<String> sourceSchema = cachedSourceSchemas.get(sourceName);
-                String solvedSourceName;
-                if (sourceSchema == null) {
-                    if (tableNameToAlias.containsKey(sourceName)) {
-                        sourceSchema = broker.getTableInfo(sourceName).getAttributeNames();
-                        solvedSourceName = sourceName;
-                        cachedSourceSchemas.put(solvedSourceName, sourceSchema);
-                    } else if (aliasToTableName.containsKey(sourceName)) {
-                        sourceSchema = broker.getTableInfo(aliasToTableName.get(sourceName)).getAttributeNames();
-                        solvedSourceName = aliasToTableName.get(sourceName);
-                        cachedSourceSchemas.put(solvedSourceName, sourceSchema);
-                    } else {
-                        ReadQuery subqueryRes = subqueriesAlias.get(sourceName);
-                        sourceSchema = subqueryRes.getResultSchema();
+            for(String rawSelectedAttributeName: rawSelectedFields){
+                //all attributes in the select clause are in dotted notation, but the table name can be specified with alias
+                Pair<String, String> splitRaw = splitRawAttribute(rawSelectedAttributeName);
+                String systemAttributeName = splitRaw.getValue0()+"."+splitRaw.getValue1();
 
-
-                        //sourceSchema = subqueriesAlias.get(sourceName).getFieldNames();
-                        solvedSourceName = sourceName;
-                        cachedSourceSchemas.put(solvedSourceName, sourceSchema);
-                    }
-                    if (sourceSchema == null) {
-                        throw new RuntimeException("Impossible to solve source " + sourceName);
-                    }
-                } else {
-                    solvedSourceName = sourceName;
+                systemFinalSchema.add(systemAttributeName);
+                systemCombineSchema.add(systemAttributeName);
+                sourcesSubschemasForCombine.computeIfAbsent(splitRaw.getValue0(), k->new ArrayList<>()).add(splitRaw.getValue1());
+                if(subqueriesAlias.containsKey(splitRaw.getValue0()) && !sourcesSchema.containsKey(splitRaw.getValue0())){
+                    sourcesSchema.put(splitRaw.getValue0(), subqueriesAlias.get(splitRaw.getValue0()).getResultSchema());
+                }else {
+                    sourcesSchema.computeIfAbsent(splitRaw.getValue0(), k -> broker.getTableInfo(splitRaw.getValue0()).getAttributeNames());
                 }
-                int index = sourceSchema.indexOf(attributeName);
-                if (index == -1) {
-                    throw new RuntimeException("Attribute " + attributeName + " is not defined for source " + solvedSourceName);
-                } else {
-                    sourceToSelectArguments.computeIfAbsent(solvedSourceName, k -> new ArrayList<>()).add(attributeName);
-                    Pair<String, String> intermediateSchemaEntry = new Pair<>(solvedSourceName, attributeName);
-                    if(!intermediateSchema.contains(intermediateSchemaEntry))
-                        intermediateSchema.add(intermediateSchemaEntry);
-                    if(!srcInterProjectSchema.computeIfAbsent(solvedSourceName, k->new ArrayList<>()).contains(attributeName)){
-                        srcInterProjectSchema.get(solvedSourceName).add(attributeName);
+                if(!fieldsAliases.isEmpty() && !(fieldsAliases.get(rawSelectedFields.indexOf(rawSelectedAttributeName)).isEmpty())){
+                    userFinalSchema.add(fieldsAliases.get(rawSelectedFields.indexOf(rawSelectedAttributeName)));
+                }else{
+                    userFinalSchema.add(rawSelectedAttributeName);
+                }
+            }
+            if(!selectionPredicate.isEmpty()){
+                for (Map.Entry<String,String> tableNameAndAlias: tableNameToAlias.entrySet()){
+                    String tableName = tableNameAndAlias.getKey();
+                    if(!selectionPredicate.contains(tableName)){
+                        continue;
+                    }
+                    List<String> sourceSchema = broker.getTableInfo(tableName).getAttributeNames();
+                    for(String attribute: sourceSchema){
+                        if(selectionPredicate.contains(tableName+"."+attribute)){
+                            sourcesSchema.put(tableName, sourceSchema);
+                            sourcesSubschemasForCombine.computeIfAbsent(tableName, k->new ArrayList<>()).add(attribute);
+                            systemCombineSchema.add(tableName+"."+attribute);
+                        }
                     }
                 }
-            }
-        }
-        /*Filling sourceToAggregates, attributes not in the dot notation, stored in pairs with the operation code*/
-        for(Pair<Integer, String> aggregate: aggregates){
-            String rawAggregateName = aggregate.getValue1();
-            Integer aggregateOp = aggregate.getValue0();
-            String [] split = rawAggregateName.split("\\.");
-            String rawSourceName = split[0];
-            StringBuilder builder = new StringBuilder();
-            for(int i = 1; i < split.length-1; i++) {
-                builder.append(split[i]);
-                builder.append(".");
-            }
-            builder.append(split[split.length-1]);
-            String attributeName = builder.toString();
-            String solvedSourceName;
-            List<String> sourceSchema = cachedSourceSchemas.get(rawSourceName);
-            if(sourceSchema == null) {
-                if (tableNameToAlias.containsKey(rawSourceName)) {
-                    sourceSchema = broker.getTableInfo(rawSourceName).getAttributeNames();
-                    solvedSourceName = rawSourceName;
-                    cachedSourceSchemas.put(solvedSourceName, sourceSchema);
-                } else if (aliasToTableName.containsKey(rawSourceName)) {
-                    sourceSchema = broker.getTableInfo(aliasToTableName.get(rawSourceName)).getAttributeNames();
-                    solvedSourceName = aliasToTableName.get(rawSourceName);
-                    cachedSourceSchemas.put(solvedSourceName, sourceSchema);
-                } else {
-                    ReadQuery subqueryResult = subqueriesAlias.get(rawSourceName);
-                    sourceSchema = subqueryResult.getResultSchema();
-
-                    //sourceSchema = subqueriesAlias.get(rawSourceName).getFieldNames();
-                    solvedSourceName = rawSourceName;
-                    cachedSourceSchemas.put(solvedSourceName, sourceSchema);
+                for(Map.Entry<String,String> aliasAndTableName: aliasToTableName.entrySet()){
+                    String alias = aliasAndTableName.getKey();
+                    if(!selectionPredicate.contains(alias)){
+                        continue;
+                    }
+                    String tableName = aliasAndTableName.getValue();
+                    List<String> sourceSchema = broker.getTableInfo(tableName).getAttributeNames();
+                    for(String attribute: sourceSchema){
+                        if(selectionPredicate.contains(alias+"."+attribute)){
+                            sourcesSchema.put(tableName, sourceSchema);
+                            sourcesSubschemasForCombine.computeIfAbsent(tableName, k->new ArrayList<>()).add(attribute);
+                            systemCombineSchema.add(tableName+"."+attribute);
+                        }
+                    }
                 }
-                if (sourceSchema == null) {
-                    throw new RuntimeException("Impossible to solve source " + rawSourceName);
-                }
-            }else{
-                solvedSourceName = rawSourceName;
-            }
-            int index = sourceSchema.indexOf(attributeName);
-            if(index == -1){
-                throw new RuntimeException("Attribute " + attributeName + " is not defined for source " + rawSourceName);
-            }else{
-                sourceToAggregates.computeIfAbsent(solvedSourceName, k->new ArrayList<>()).add(new Pair<>(aggregateOp, attributeName));
-                sourceToAggregatedFields.computeIfAbsent(solvedSourceName, k->new ArrayList<>());
-                if(!sourceToAggregatedFields.get(solvedSourceName).contains(attributeName)){
-                    sourceToAggregatedFields.get(solvedSourceName).add(attributeName);
-                }
-                Pair<String, String> intermediateSchemaEntry = new Pair<>(solvedSourceName, attributeName);
-                if(!intermediateSchema.contains(intermediateSchemaEntry))
-                    intermediateSchema.add(intermediateSchemaEntry);
-                if(!srcInterProjectSchema.computeIfAbsent(solvedSourceName, k->new ArrayList<>()).contains(attributeName)){
-                    srcInterProjectSchema.get(solvedSourceName).add(attributeName);
-                }
-            }
-        }
-
-        /*Check all source names and their schema for matches in the predicate*/
-        for(String tableName: tableNameToAlias.keySet()){
-            List<String> tableSchema = cachedSourceSchemas.get(tableName);
-            if(tableSchema == null){
-                tableSchema = broker.getTableInfo(tableName).getAttributeNames();
-                cachedSourceSchemas.put(tableName, tableSchema);
-            }
-            for(String attrName: tableSchema){
-                String dotNotation = tableName + "." + attrName;
-                if(rawSelectionPredicate.contains(dotNotation)){
-                    sourceToSelectionPredicateArguments.computeIfAbsent(tableName, k->new ArrayList<>()).add(attrName);
-                    Pair<String, String> intermediateSchemaEntry = new Pair<>(tableName, attrName);
-                    if(!intermediateSchema.contains(intermediateSchemaEntry))
-                        intermediateSchema.add(intermediateSchemaEntry);
-                    if(!srcInterProjectSchema.computeIfAbsent(tableName, k->new ArrayList<>()).contains(attrName)){
-                        srcInterProjectSchema.get(tableName).add(attrName);
+                for (Map.Entry<String,ReadQuery> aliasAndReadQuery: subqueriesAlias.entrySet()){
+                    String alias = aliasAndReadQuery.getKey();
+                    if(!selectionPredicate.contains(alias)){
+                        continue;
+                    }
+                    List<String> sourceSchema = aliasAndReadQuery.getValue().getResultSchema();
+                    for(String attribute: sourceSchema){
+                        if(selectionPredicate.contains(alias+"."+attribute)){
+                            sourcesSchema.put(alias, sourceSchema);
+                            sourcesSubschemasForCombine.computeIfAbsent(alias, k->new ArrayList<>()).add(attribute);
+                            systemCombineSchema.add(alias+"."+attribute);
+                        }
                     }
                 }
             }
         }
-        for(Map.Entry<String,String> aliasToStringEntry: aliasToTableName.entrySet()){
-            List<String> tableSchema = cachedSourceSchemas.get(aliasToStringEntry.getValue());
-            String tableName = aliasToStringEntry.getValue();
-            if(tableSchema == null){
-                tableSchema = broker.getTableInfo(tableName).getAttributeNames();
-                cachedSourceSchemas.put(tableName, tableSchema);
-            }
-            for(String attrName: tableSchema){
-                String dotNotation = tableName + "." + attrName;
-                if(rawSelectionPredicate.contains(dotNotation)){
-                    sourceToSelectionPredicateArguments.computeIfAbsent(tableName, k->new ArrayList<>()).add(attrName);
-
-
-                    Pair<String, String> intermediateSchemaEntry = new Pair<>(tableName, attrName);
-                    if(!intermediateSchema.contains(intermediateSchemaEntry))
-                        intermediateSchema.add(intermediateSchemaEntry);
-                    if(!srcInterProjectSchema.computeIfAbsent(tableName, k->new ArrayList<>()).contains(attrName)){
-                        srcInterProjectSchema.get(tableName).add(attrName);
-                    }
-
-                }
-            }
-        }
-        //for(Map.Entry<String, RelReadQueryResults> subqueryEntry: subqueriesAlias.entrySet()){
-        for(Map.Entry<String, ReadQuery> subqueryEntry: subqueriesAlias.entrySet()){
-            String alias = subqueryEntry.getKey();
-
-            ReadQuery subqueryResult = subqueryEntry.getValue();
-            List<String> sourceSchema = subqueryResult.getResultSchema();
-            //List<String> sourceSchema = subqueryEntry.getValue().getFieldNames();
-            for(String attrName: sourceSchema){
-                String dotNotation = alias + "." + attrName;
-                if(rawSelectionPredicate.contains(dotNotation)){
-                    sourceToSelectionPredicateArguments.computeIfAbsent(alias, k->new ArrayList<>()).add(attrName);
-                    Pair<String, String> intermediateSchemaEntry = new Pair<>(alias, attrName);
-                    if(!intermediateSchema.contains(intermediateSchemaEntry))
-                        intermediateSchema.add(intermediateSchemaEntry);
-                    if(!srcInterProjectSchema.computeIfAbsent(alias, k->new ArrayList<>()).contains(attrName)){
-                        srcInterProjectSchema.get(alias).add(attrName);
-                    }
-                }
-            }
-        }
-        IntermediateQuery intermediateQuery = new IntermediateQuery();
-        intermediateQuery.setIntermediateSchema(intermediateSchema);
-        List<String> tableNames = new ArrayList<>(tableNameToAlias.keySet());
-        intermediateQuery.setTableNames(tableNames);
-        intermediateQuery.setSrcInterProjectSchema(srcInterProjectSchema);
-        intermediateQuery.setCachedSourceSchema(cachedSourceSchemas);
-        intermediateQuery.setSubqueries(subqueriesAlias);
-        intermediateQuery.setSelectionPredicate(rawSelectionPredicate);
-        return intermediateQuery;
+        ProdSelProjQuery simpleQuery = new ProdSelProjQuery()
+                .setSystemFinalSchema(systemFinalSchema)
+                .setSystemCombineSchema(systemCombineSchema)
+                .setSourcesSubschemasForCombine(sourcesSubschemasForCombine)
+                .setCachedSourcesSchema(sourcesSchema)
+                .setUserFinalSchema(userFinalSchema)
+                .setSelectionPredicate(selectionPredicate)
+                .setTableNames(new ArrayList<>(tableNameToAlias.keySet()))
+                .setSubqueries(subqueriesAlias)
+                .setAliasToTableMap(aliasToTableName);
+        ReadQuery res = new ReadQuery()
+                .setSimpleQuery(simpleQuery)
+                .setResultSchema(userFinalSchema);
+        return res;
     }
+    private ReadQuery buildAggregateQuery(){
+        String selectionPredicate = rawSelectionPredicate;
+        String parsedHavingPredicate = rawHavingPredicate;
+
+        List<String> userFinalSchema = new ArrayList<>();   //result schema of the whole query
+        List<Pair<Integer, String>> systemAggregateSubschema = new ArrayList<>(); //aggregate part of the schema going as input of the final combine operation
+        List<String> systemGroupSubschema = new ArrayList<>(); //group part of the schema going as input of the final combine operation
+        List<String> systemGatherSchema = new ArrayList<>(); //schema of the input of the gather operation, it includes the group attributes and attributes to be aggregated
+
+
+
+        List<String> systemIntermediateSchema = new ArrayList<>();  //result schema of the subquery that will be input of the main one, this includes group attributes
+                                                                    //and attributes that need to be aggregated
+        List<String> systemIntermediateCombineSchema = new ArrayList<>(); //schema that includes group attributes, attributes to be aggregated and attributes that
+                                                                            //are argument of the selection predicate
+        Map<String, List<String>> intermediateSourcesSchemas = new HashMap<>();
+        Map<String, List<String>> intermediateSourcesSubschemasForCombine = new HashMap<>();
+
+        if(rawSelectedFields.isEmpty()){
+            throw new RuntimeException("No group attributes specified");
+        }
+        for(String rawSelectedAttributeName: rawSelectedFields){
+            //these attributes will be used as arguments for the group operation in the scatter and gather.
+
+            Pair<String, String> splitRaw = splitRawAttribute(rawSelectedAttributeName);
+            String systemAttributeName = splitRaw.getValue0()+"."+splitRaw.getValue1();
+
+            systemIntermediateSchema.add(systemAttributeName);
+            systemIntermediateCombineSchema.add(systemAttributeName);
+            intermediateSourcesSubschemasForCombine.computeIfAbsent(splitRaw.getValue0(), k->new ArrayList<>()).add(splitRaw.getValue1());
+            if(subqueriesAlias.containsKey(splitRaw.getValue0()) && !intermediateSourcesSchemas.containsKey(splitRaw.getValue0())){
+                intermediateSourcesSchemas.put(splitRaw.getValue0(), subqueriesAlias.get(splitRaw.getValue0()).getResultSchema());
+            }else {
+                intermediateSourcesSchemas.computeIfAbsent(splitRaw.getValue0(), k -> broker.getTableInfo(splitRaw.getValue0()).getAttributeNames());
+            }
+            systemGroupSubschema.add(systemAttributeName);
+            systemGatherSchema.add(systemAttributeName);
+            if(!fieldsAliases.isEmpty() && !fieldsAliases.get(rawSelectedFields.indexOf(rawSelectedAttributeName)).isEmpty()){
+                userFinalSchema.add(fieldsAliases.get(rawSelectedFields.indexOf(rawSelectedAttributeName)));
+            }else{
+                userFinalSchema.add(rawSelectedAttributeName);
+            }
+        }
+        for(Pair<Integer, String> aggregate: aggregates){
+            String rawAggregatedAttribute = aggregate.getValue1();
+            Pair<String, String> splitRaw = splitRawAttribute(rawAggregatedAttribute);
+            String systemAttributeName = splitRaw.getValue0() + "." + splitRaw.getValue1();
+
+            systemIntermediateSchema.add(systemAttributeName);
+            systemIntermediateCombineSchema.add(systemAttributeName);
+            intermediateSourcesSubschemasForCombine.computeIfAbsent(splitRaw.getValue0(), k->new ArrayList<>()).add(splitRaw.getValue1());
+            if(subqueriesAlias.containsKey(splitRaw.getValue0()) && !intermediateSourcesSchemas.containsKey(splitRaw.getValue0())){
+                intermediateSourcesSchemas.put(splitRaw.getValue0(), subqueriesAlias.get(splitRaw.getValue0()).getResultSchema());
+            }else {
+                intermediateSourcesSchemas.computeIfAbsent(splitRaw.getValue0(), k -> broker.getTableInfo(splitRaw.getValue0()).getAttributeNames());
+            }
+            systemGatherSchema.add(systemAttributeName);
+            systemAggregateSubschema.add(new Pair<>(aggregate.getValue0(), systemAttributeName));
+            userFinalSchema.add(aggregateAttributesNames.get(aggregates.indexOf(aggregate)));
+        }
+
+        if(!selectionPredicate.isEmpty()){
+            for (Map.Entry<String,String> tableNameAndAlias: tableNameToAlias.entrySet()){
+                String tableName = tableNameAndAlias.getKey();
+                if(!selectionPredicate.contains(tableName)){
+                    continue;
+                }
+                List<String> sourceSchema = broker.getTableInfo(tableName).getAttributeNames();
+                for(String attribute: sourceSchema){
+                    if(selectionPredicate.contains(tableName+"."+attribute)){
+                        intermediateSourcesSchemas.put(tableName, sourceSchema);
+                        intermediateSourcesSubschemasForCombine.computeIfAbsent(tableName, k->new ArrayList<>()).add(attribute);
+                        systemIntermediateCombineSchema.add(tableName+"."+attribute);
+                    }
+                }
+            }
+            for(Map.Entry<String,String> aliasAndTableName: aliasToTableName.entrySet()){
+                String alias = aliasAndTableName.getKey();
+                if(!selectionPredicate.contains(alias)){
+                    continue;
+                }
+                String tableName = aliasAndTableName.getValue();
+                List<String> sourceSchema = broker.getTableInfo(tableName).getAttributeNames();
+                for(String attribute: sourceSchema){
+                    if(selectionPredicate.contains(tableName+"."+attribute)){
+                        intermediateSourcesSchemas.put(tableName, sourceSchema);
+                        intermediateSourcesSubschemasForCombine.computeIfAbsent(tableName, k->new ArrayList<>()).add(attribute);
+                        systemIntermediateCombineSchema.add(tableName+"."+attribute);
+                    }
+                }
+            }
+            for (Map.Entry<String,ReadQuery> aliasAndReadQuery: subqueriesAlias.entrySet()){
+                String alias = aliasAndReadQuery.getKey();
+                if(!selectionPredicate.contains(alias)){
+                    continue;
+                }
+                List<String> sourceSchema = aliasAndReadQuery.getValue().getResultSchema();
+                for(String attribute: sourceSchema){
+                    if(selectionPredicate.contains(alias+"."+attribute)){
+                        intermediateSourcesSchemas.put(alias, sourceSchema);
+                        intermediateSourcesSubschemasForCombine.computeIfAbsent(alias, k->new ArrayList<>()).add(attribute);
+                        systemIntermediateCombineSchema.add(alias+"."+attribute);
+                    }
+                }
+            }
+        }
+        ProdSelProjQuery intermediateQuery = new ProdSelProjQuery()
+                .setCachedSourcesSchema(intermediateSourcesSchemas)
+                .setSelectionPredicate(selectionPredicate)
+                .setSubqueries(subqueriesAlias)
+                .setTableNames(new ArrayList<>(tableNameToAlias.keySet()))
+                .setSystemCombineSchema(systemIntermediateCombineSchema)
+                .setSourcesSubschemasForCombine(intermediateSourcesSubschemasForCombine)
+                .setSystemFinalSchema(systemIntermediateSchema)
+                .setUserFinalSchema(systemIntermediateSchema);
+        String intermediateQueryStringID = Integer.toString(new Random().nextInt());
+        ReadQuery intermediateQueryWrapper = new ReadQuery().setSimpleQuery(intermediateQuery).setResultSchema(systemIntermediateSchema);
+        AggregateQuery aggregateQuery = new AggregateQuery()
+                .setIntermediateQuery(intermediateQueryStringID, intermediateQueryWrapper)
+                .setAggregatesSubschema(systemAggregateSubschema)
+                .setGatherInputRowsSchema(systemGatherSchema)
+                .setGroupAttributesSubschema(systemGroupSubschema)
+                .setFinalSchema(userFinalSchema);
+        return new ReadQuery().setResultSchema(userFinalSchema).setAggregateQuery(aggregateQuery);
+    }
+
+
+    private Pair<String, String> splitRawAttribute(String rawAttribute){
+        String[] split = rawAttribute.split("\\.");
+        String sourceName = split[0];
+        if(aliasToTableName.get(sourceName) != null){
+            sourceName = aliasToTableName.get(sourceName);
+        }
+        StringBuilder attributeNameBuilder = new StringBuilder();
+        for(int i = 1; i<split.length-1; i++){
+            attributeNameBuilder.append(split[i]);
+            attributeNameBuilder.append(".");
+        }
+        attributeNameBuilder.append(split[split.length-1]);
+        String attrName = attributeNameBuilder.toString();
+        return new Pair<>(sourceName, attrName);
+    }
+
 
     private boolean noDuplicateInStringArray(String[] array){
         for(int i = 0; i<array.length; i++){

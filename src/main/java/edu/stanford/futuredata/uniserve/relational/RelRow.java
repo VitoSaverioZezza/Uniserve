@@ -22,7 +22,6 @@ public class RelRow implements Row {
                 hashCodeKey += data.get(i).hashCode();
             }
         }
-        System.out.print("Key = " + hashCodeKey);
         return hashCodeKey;
     }
     public Integer getSize(){ return data.size();}

@@ -898,7 +898,15 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         };
     }
 
-
+    @Override
+    public void removeSubQueryData(RemoveVolatileDataMessage request, StreamObserver<RemoveVolatileDataResponse> responseObserver){
+        responseObserver.onNext(removeSubQueryDataHandler(request));
+        responseObserver.onCompleted();
+    }
+    private RemoveVolatileDataResponse removeSubQueryDataHandler(RemoveVolatileDataMessage m){
+        dataStore.removeSubQueryData(m.getTransactionID());
+        return RemoveVolatileDataResponse.newBuilder().build();
+    }
 
 
     @Override
@@ -924,7 +932,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                  if(ephemeralShard == null){
                      logger.error("Ephemeral shard creation failed");
                  }
-                 VolatileShuffleQueryPlan<Object> plan = (VolatileShuffleQueryPlan<Object>) Utilities.byteStringToObject(message.getPlan());
+                 VolatileShuffleQueryPlan<Object, Shard> plan = (VolatileShuffleQueryPlan<Object, Shard>) Utilities.byteStringToObject(message.getPlan());
                  success.set(plan.write(ephemeralShard, rows));
                  if(success.get()){
                      success.set(dataStore.addVolatileData(txID, ephemeralShard) && success.get());
@@ -969,7 +977,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         /*The return message contains the state and eventually all the datastore ids to which the
         * scattered data has been sent.
         * */
-        VolatileShuffleQueryPlan<Object> plan = (VolatileShuffleQueryPlan<Object>) Utilities.byteStringToObject(message.getPlan());
+        VolatileShuffleQueryPlan<Object, Shard> plan = (VolatileShuffleQueryPlan) Utilities.byteStringToObject(message.getPlan());
         long txID = message.getTransactionID();
         List<Row> volatileData = new ArrayList<>();
         int actorCount = message.getActorCount();
@@ -1066,7 +1074,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         /*The return message contains the state and eventually all the datastore ids to which the
          * scattered data has been sent.
          * */
-        VolatileShuffleQueryPlan<Object> plan = (VolatileShuffleQueryPlan<Object>) Utilities.byteStringToObject(message.getPlan());
+        VolatileShuffleQueryPlan<Object, Shard> plan = (VolatileShuffleQueryPlan) Utilities.byteStringToObject(message.getPlan());
         long txID = message.getTransactionID();
         List<ByteString> scatterResults = dataStore.getVolatileScatterData(txID);
         ByteString gatherResult = plan.gather(scatterResults);

@@ -47,12 +47,14 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
             ByteString serializedQueries = Utilities.objectToByteString(triggeredQueries.toArray());
             ByteString serAttrNamesArray = Utilities.objectToByteString(t.getAttributeNames().toArray());
             ByteString serKeyStructure = Utilities.objectToByteString(t.getKeyStructure());
+            ByteString serShardIDs = Utilities.objectToByteString((ArrayList<Integer>) coordinator.getShardIDsForTable(tableName));
             return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
                     .setId(t.id)
                     .setTriggeredQueries(serializedQueries)
                     .setNumShards(t.numShards)
                     .setAttributeNames(serAttrNamesArray)
                     .setKeyStructure(serKeyStructure)
+                    .setShardIDs(serShardIDs)
                     .build();
         } else {
             return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();

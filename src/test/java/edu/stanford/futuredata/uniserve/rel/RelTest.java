@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.integration.KVStoreTests;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import edu.stanford.futuredata.uniserve.rel.queryplans.SimpleReadAll;
@@ -20,6 +21,7 @@ import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
+import org.apache.zookeeper.common.Time;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -31,13 +33,9 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
-import java.util.Random;
+import java.util.*;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class RelTest {
     private static final Logger logger = LoggerFactory.getLogger(KVStoreTests.class);
@@ -154,7 +152,7 @@ public class RelTest {
     }
 
     @Test
-    public void testIntermediate(){
+    public void simpleQueriesTests(){
         Coordinator coordinator = new Coordinator(
                 null,
                 new DefaultLoadBalancer(),
@@ -214,11 +212,12 @@ public class RelTest {
         }
         API api = new API();
         api.start(zkHost, zkPort);
-        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").shardNumber(10).keys("ID").build().run();
-        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").shardNumber(10).build().run();
+        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").shardNumber(10000).keys("ID").build().run();
+        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").shardNumber(10000).build().run();
         api.write().table(broker, "Actors").data(actorRows).build().run();
         api.write().table(broker, "Films").data(filmRows).build().run();
 
+        //aliases tests
         RelReadQueryResults results = api.read()
                 .select("Actors.FullName", "A.Salary")
                 .alias("Full Name", "Salary")
@@ -245,11 +244,11 @@ public class RelTest {
 
         //join
         RelReadQueryResults joinResults = api.read()
-                .select("A.FullName", "F.Director")
-                .alias("Actor Name", "Director Name")
+                .select("A.FullName", "F.Director", "F.ID")
+                .alias("ActorName", "DirectorName", "")
                 .from("Actors", "A")
                 .from("Films", "F")
-                .where("A.FilmID == F.ID")
+                .where("A.FilmID == F.ID && DirectorName == \"Christopher Nolan\"")
                 .build()
                 .run(broker);
         List<RelRow> joinResRows = joinResults.getData();
@@ -257,7 +256,7 @@ public class RelTest {
         List<List<Object>> joinTest = new ArrayList<>();
         for(RelRow film: filmRows){
             for(RelRow actor: actorRows){
-                if(film.getField(0).equals(actor.getField(4))){
+                if(film.getField(1).equals("Christopher Nolan") && film.getField(0).equals(actor.getField(4))){
                     joinTest.add(List.of(actor.getField(1), film.getField(1)));
                 }
             }
@@ -299,8 +298,6 @@ public class RelTest {
         }
     }
 
-
-
     @Test
     public void aggregateTest(){
         Coordinator coordinator = new Coordinator(
@@ -311,9 +308,7 @@ public class RelTest {
                 "127.0.0.1", 7777);
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
-
         LocalDataStoreCloud ldsc = new LocalDataStoreCloud();
-
         DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldsc,
                 new RelShardFactory(),
                 Path.of("/var/tmp/RelUniserve"),
@@ -323,44 +318,110 @@ public class RelTest {
                 false
         );
         dataStore.startServing();
-
         Broker broker = new Broker(zkHost, zkPort);
-
-        List<RelRow> rowsOne = new ArrayList<>();
-        List<RelRow> rowsTwo = new ArrayList<>();
-        for(Integer i = 0; i<20; i++){
-            rowsOne.add(new RelRow(i,    i+1, i+2));
-            rowsOne.add(new RelRow(i+20, i+1, i+10));
+        List<RelRow> actorRows = new ArrayList<>();
+        List<RelRow> filmRows = new ArrayList<>();
+        String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/ActorTestFile.txt";
+        String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/FilmTestFile.txt";
+        int totFilmBudget = 0, avgFilmBudget = 0, minBudget = Integer.MAX_VALUE, maxBudget = Integer.MIN_VALUE;
+        int filmCount = 0;
+        int count = 0;
+        try (BufferedReader br = new BufferedReader(new FileReader(filmFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 2) {
+                    int budget = Integer.parseInt(parts[1]);
+                    filmRows.add(new RelRow(filmCount, parts[0], budget));
+                    filmCount++;
+                    totFilmBudget += budget;
+                    minBudget = Integer.min(minBudget, budget);
+                    maxBudget = Integer.max(maxBudget, budget);
+                }
+            }
+            avgFilmBudget = totFilmBudget / filmCount;
+        } catch (IOException e) {
+            e.printStackTrace();
         }
-
+        try (BufferedReader br = new BufferedReader(new FileReader(actorFilePath))) {
+            String line;
+            Random rng = new Random(Time.currentElapsedTime());
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 3) {
+                    int random = rng.nextInt();
+                    if(random <0){
+                        random *= -1;
+                    }
+                    actorRows.add(new RelRow(count, parts[0], parts[1], Integer.valueOf(parts[2]), random % filmCount));
+                    count++;
+                } else {
+                    System.out.println("No match for " + line);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         API api = new API();
         api.start(zkHost, zkPort);
-        api.createTable("TableOne").attributes("A", "B", "C").keys("A").shardNumber(10).build().run();
-        api.createTable("TableTwo").attributes("D", "E", "F", "G").keys("D").shardNumber(10).build().run();
-        api.write().table(broker, "TableOne").data(rowsOne).build().run();
-        api.write().table(broker, "TableTwo").data(rowsTwo).build().run();
-
-        RelReadQueryResults results = api.read()
-                .select("TableOne.B")
-                .avg("TableOne.C", "AVG")
-                .count("TableOne.C", "count")
-                .from("TableOne")
-                .where("TableOne.A < 30")
+        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").shardNumber(10).keys("ID").build().run();
+        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").shardNumber(10).build().run();
+        api.write().table(broker, "Actors").data(actorRows).build().run();
+        api.write().table(broker, "Films").data(filmRows).build().run();
+        RelReadQueryResults totBudget = api.read()
+                .select()
+                .from("Films")
+                .sum("Films.Budget", "TotBudget")
+                .count("Films.Budget", "Count")
+                .avg("Films.Budget", "AvgFilmBudget")
+                .max("Films.Budget", "MaxBudget")
+                .min("Films.Budget", "MinBudget")
                 .build().run(broker);
-        List<RelRow> data = results.getData();
-        int count = 0;
-        List<String> resultSchema = results.getFieldNames();
-        for(String field: resultSchema){
-            System.out.print(field + " ");
-        }
-        System.out.println();
-        for(RelRow row: data){
-            System.out.print("Row #" + count + ": ");
-            count++;
-            for(int i = 0; i< row.getSize(); i++){
-                System.out.print(row.getField(i) + ", ");
+        assertEquals(totFilmBudget, (int) (Integer) totBudget.getData().get(0).getField(0));
+        assertEquals(filmCount, (int) (Integer) totBudget.getData().get(0).getField(1));
+        assertEquals(avgFilmBudget, (int) (Integer) totBudget.getData().get(0).getField(2));
+        assertEquals(maxBudget, (int) (Integer) totBudget.getData().get(0).getField(3));
+        assertEquals(minBudget, (int) (Integer) totBudget.getData().get(0).getField(4));
+
+        RelReadQueryResults totalActorEarnings = api.read()
+                .select("F.Director")
+                .alias("DirectorName")
+                .sum("A.Salary", "TotalActorsEarnings")
+                .count("A.Salary", "NumFilms")
+                .from("Actors", "A")
+                .from("Films", "F")
+                .where("A.FilmID == F.ID")
+                .having("NumFilms > 1")
+                .build().run(broker);
+        System.out.println(totalActorEarnings.getFieldNames());
+        printRowList(totalActorEarnings.getData());
+
+        Map<String, Integer> sums = new HashMap<>();
+        Map<String, Integer> counts = new HashMap<>();
+
+        for(int i = 0; i<filmRows.size(); i++){
+            RelRow filmRow = filmRows.get(i);
+            for(int j = 0; j<actorRows.size(); j++){
+                RelRow actorRow = actorRows.get(j);
+                if(actorRow.getField(4).equals(filmRow.getField(0))){
+                    if(sums.containsKey((String) filmRow.getField(1))){
+                        sums.put((String) filmRow.getField(1), (sums.get((String) filmRow.getField(1))+(Integer)actorRow.getField(3)));
+                    }else{
+                        sums.put((String) filmRow.getField(1), (Integer) actorRow.getField(3));
+                    }
+                    if(counts.containsKey((String) filmRow.getField(1))){
+                        counts.put((String) filmRow.getField(1), (sums.get((String) filmRow.getField(1))+1));
+                    }else{
+                        counts.put((String) filmRow.getField(1), 1);
+                    }
+                }
             }
-            System.out.println();
+        }
+        for(RelRow resRow: totalActorEarnings.getData()){
+            String directorName = (String) resRow.getField(0);
+            if(counts.containsKey(directorName) && counts.get(directorName)>1){
+                assertEquals(sums.get(directorName), (Integer) resRow.getField(1));
+            }
         }
     }
 }

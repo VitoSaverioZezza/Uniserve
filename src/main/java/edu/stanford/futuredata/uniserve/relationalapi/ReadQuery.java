@@ -11,14 +11,23 @@ public class ReadQuery implements Serializable {
     private ProdSelProjQuery simpleQuery = null;
     private List<String> resultSchema = new ArrayList<>();
     private AggregateQuery aggregateQuery = null;
+    private SimpleAggregateQuery simpleAggregateQuery = null;
 
     public RelReadQueryResults run(Broker broker){
         if(simpleQuery != null){
             return simpleQuery.run(broker);
+        }else if(simpleAggregateQuery != null){
+            return simpleAggregateQuery.run(broker);
         }else{
             return aggregateQuery.run(broker);
         }
     }
+
+    public ReadQuery setSimpleAggregateQuery(SimpleAggregateQuery simpleAggregateQuery){
+        this.simpleAggregateQuery = simpleAggregateQuery;
+        return this;
+    }
+
     public ReadQuery setAggregateQuery(AggregateQuery aggregateQuery){
         this.aggregateQuery = aggregateQuery;
         return this;

@@ -12,8 +12,11 @@ public class TableInfo {
     private List<PersistentReadQuery> queriesTriggeredByAWriteOnThisTable = new ArrayList<>();
     private List<String> queryNames = new ArrayList<>();
 
+    private ArrayList<Integer> tableShardsIDs = new ArrayList<>();
+
     private List<String> attributeNames = new ArrayList<>();
     private Boolean[] keyStructure;
+
 
     public TableInfo(String name, Integer id, Integer numShards) {
         this.name = name;
@@ -21,26 +24,27 @@ public class TableInfo {
         this.numShards = numShards;
     }
 
+    public ArrayList<Integer> getTableShardsIDs() {
+        return tableShardsIDs;
+    }
+    public void setTableShardsIDs(ArrayList<Integer> tableShardsIDs) {
+        this.tableShardsIDs = tableShardsIDs;
+    }
     public void setAttributeNames(List<String> attributeNames) {
         this.attributeNames = attributeNames;
     }
-
     public void setKeyStructure(Boolean[] keyStructure) {
         this.keyStructure = keyStructure;
     }
-
     public List<String> getAttributeNames() {
         return attributeNames;
     }
-
     public Boolean[] getKeyStructure() {
         return keyStructure;
     }
-
     public List<PersistentReadQuery> getQueriesTriggeredByAWriteOnThisTable(){
         return queriesTriggeredByAWriteOnThisTable;
     }
-
     public void addTriggeredQuery(PersistentReadQuery query){
         if(queryNames.contains(query.getQueryName())){
             query.setRegistered(true);

@@ -11,6 +11,7 @@ import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.ReadQueryBuilder;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
+import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
 
 import java.util.*;
@@ -21,7 +22,18 @@ public class AggregateQuery implements VolatileShuffleQueryPlan<RelReadQueryResu
     private List<String> groupAttributesSubschema = new ArrayList<>();
     private List<String> gatherInputRowsSchema = new ArrayList<>();
     private Map<String, ReadQuery> intermediateQuery = new HashMap<>();
+    private String havingPredicate = "";
+    private List<String> aggregatesAliases = new ArrayList<>();
 
+
+    public AggregateQuery setAggregatesAliases(List<String> aggregatesAliases){
+        this.aggregatesAliases = aggregatesAliases;
+        return this;
+    }
+    public AggregateQuery setHavingPredicate(String havingPredicate){
+        this.havingPredicate = havingPredicate;
+        return this;
+    }
     public AggregateQuery setFinalSchema(List<String> finalSchema){
         this.finalSchema = finalSchema;
         return this;
@@ -81,19 +93,12 @@ public class AggregateQuery implements VolatileShuffleQueryPlan<RelReadQueryResu
         return ret;
     }
 
+
+
+
     @Override
     public ByteString gather(List<ByteString> ephemeralData) {
         List<ByteString> serializedScatteredData = ephemeralData;
-
-
-
-        if(serializedScatteredData == null){
-            System.out.println("Null scattered data for source " + intermediateQuery.keySet());
-            serializedScatteredData = new ArrayList<>();
-        }
-
-
-
         Map<List<Object>, List<RelRow>> groups = new HashMap<>();
         for(ByteString serRowChunkArray: serializedScatteredData){
             Object[] dataChunkArray = (Object[]) Utilities.byteStringToObject(serRowChunkArray);
@@ -106,11 +111,40 @@ public class AggregateQuery implements VolatileShuffleQueryPlan<RelReadQueryResu
         List<RelRow> resultRows = new ArrayList<>();
         for(Map.Entry<List<Object>, List<RelRow>> group: groups.entrySet()){
             List<Object> result = group.getKey();
-            result.addAll(computeAggregates(group.getValue()));
-            resultRows.add(new RelRow(result.toArray()));
-
+            List<Object> aggregatedAttributeRes = computeAggregates(group.getValue());
+            if(checkHavingPredicate(aggregatedAttributeRes)) {
+                result.addAll(aggregatedAttributeRes);
+                resultRows.add(new RelRow(result.toArray()));
+            }
         }
         return Utilities.objectToByteString(resultRows.toArray());
+    }
+
+    private boolean checkHavingPredicate(List<Object> row){
+        if(havingPredicate == null || havingPredicate.isEmpty()){
+            return true;
+        }
+        String predToTest = new String(havingPredicate);
+        Map<String, Object> values = new HashMap<>();
+        for(String aggregateAlias: aggregatesAliases){
+            if(havingPredicate.contains(aggregateAlias)){
+                values.put(aggregateAlias, row.get(aggregatesAliases.indexOf(aggregateAlias)));
+            }
+        }
+        for(int i=groupAttributesSubschema.size(); i < gatherInputRowsSchema.size()-1; i++){
+            values.put(finalSchema.get(i), row.get(i));
+        }
+        JexlEngine jexl = new JexlBuilder().create();
+        JexlExpression expression = jexl.createExpression(predToTest);
+        JexlContext context = new MapContext(values);
+        Object result = expression.evaluate(context);
+        try{
+            if(!(result instanceof Boolean)) return false;
+            else return (Boolean) result;
+        }catch (Exception e ){
+            System.out.println(e.getMessage());
+            return false;
+        }
     }
 
     private List<Object> computeAggregates(List<RelRow> groupRows) {

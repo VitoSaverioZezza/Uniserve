@@ -196,7 +196,17 @@ public class DataStore<R extends Row, S extends Shard> {
             }
         }
         Optional<S> newShard = shardFactory.createNewShard(shardPath, shardNum);
-        return newShard;
+        if(newShard.isEmpty()) {
+            logger.error("Error in shard creation for shard ID: " + shardNum);
+        }
+        RegisterNewShardMessage message = RegisterNewShardMessage.newBuilder().setShardID(shardNum).build();
+        RegisterNewShardResponse response = coordinatorStub.registerNewShard(message);
+        if (response.getStatus() == 0) {
+            return newShard;
+        } else {
+            logger.error("Error in shard registration");
+            return Optional.empty();
+        }
     }
 
     /** Creates all metadata for a shard not yet seen on this server, creating the shard if it does not yet exist **/
@@ -240,7 +250,6 @@ public class DataStore<R extends Row, S extends Shard> {
             }
             Optional<S> shard = downloadShardFromCloud(shardNum, z.cloudName, z.versionNumber);
             if (shard.isEmpty()) {
-                logger.info("DS.ensureShardCached: empty shard {}", shardNum);
                 return false;
             }
             shardMap.putIfAbsent(shardNum, shard.get());
@@ -425,7 +434,6 @@ public class DataStore<R extends Row, S extends Shard> {
     public void removeVolatileScatterData(long transactionID){
         volatileScatterData.remove(transactionID);
     }
-
     public void removeSubQueryData(long transactionID){
         Map<String, Map<Integer, S>> subQdata = subqueryResults.get(transactionID);
         for(Map.Entry<String, Map<Integer, S>> subquery: subQdata.entrySet()){

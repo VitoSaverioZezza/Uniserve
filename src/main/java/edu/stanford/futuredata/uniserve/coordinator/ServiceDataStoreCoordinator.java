@@ -40,6 +40,16 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         responseObserver.onCompleted();
     }
 
+    @Override
+    public void registerNewShard(RegisterNewShardMessage request, StreamObserver<RegisterNewShardResponse> responseObserver){
+        responseObserver.onNext(registerNewShardHandler(request));
+        responseObserver.onCompleted();
+    }
+    private RegisterNewShardResponse registerNewShardHandler(RegisterNewShardMessage request){
+        coordinator.addShardIDToTable(request.getShardID());
+        return RegisterNewShardResponse.newBuilder().setStatus(0).build();
+    }
+
 
     private RegisterDataStoreResponse registerDataStoreHandler(RegisterDataStoreMessage m) {
         String host = m.getHost();

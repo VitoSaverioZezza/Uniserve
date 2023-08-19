@@ -75,11 +75,6 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
     }
 
     public RelReadQueryResults run(Broker broker){
-        System.out.println("User-defined final schema: " + userFinalSchema);
-        System.out.println("System final schema: " + systemFinalSchema);
-        System.out.println("System combine schema: " + systemCombineSchema);
-
-
         RelReadQueryResults res;
         res = broker.retrieveAndCombineReadQuery(this);
         res.setFieldNames(userFinalSchema);
@@ -101,6 +96,12 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         List<RelRow> shardData = shard.getData();
         List<String> sourceSchema = cachedSourcesSchema.get(tableName);
         List<String> subschema = sourcesSubschemasForCombine.get(tableName);
+
+        if(subschema ==null){
+            System.out.println("No entry for " + tableName + " in sourcesSubschemasForCombine");
+            return Utilities.objectToByteString(new Object[0]);
+        }
+
         List<List<Object>> dataToCombine = new ArrayList<>();
         for(RelRow row: shardData){
             List<Object> projRow = new ArrayList<>();
@@ -143,8 +144,6 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         RelReadQueryResults res = new RelReadQueryResults();
         List<RelRow> dataRows = new ArrayList<>();
 
-
-
         for(List<Object> nonProjRow: resultRows) {
             List<Object> projRow = new ArrayList<>(systemFinalSchema.size());
             for(String finalAttribute: systemFinalSchema){
@@ -177,6 +176,7 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
             }
         }
     }
+
     @Override
     public boolean writeSubqueryResults(RelShard shard, String tableName, List<Object> data){
         List<RelRow> data1 = new ArrayList<>();
@@ -203,6 +203,11 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
                 }
             }
         }
+        for(String attrAlias: userFinalSchema){
+            if (predToTest.contains(attrAlias)){
+                values.put(attrAlias, row.get(systemCombineSchema.indexOf(systemFinalSchema.get(userFinalSchema.indexOf(attrAlias)))));
+            }
+        }
 
         for(Pair<String, String> attributePair: splitSystemCombineSchema){
             String attr = attributePair.getValue0()+"."+attributePair.getValue1();
@@ -221,8 +226,11 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         JexlContext context = new MapContext(values);
         Object result = expression.evaluate(context);
         try{
-            if(!(result instanceof Boolean)) return false;
-            else return (Boolean) result;
+            if(!(result instanceof Boolean))
+                return false;
+            else {
+                return (Boolean) result;
+            }
         }catch (Exception e ){
             System.out.println(e.getMessage());
             return false;

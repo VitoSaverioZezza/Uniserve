@@ -36,6 +36,7 @@ message TableInfoResponse {
     bytes triggeredQueries = 4;
     bytes attributeNames = 5;
     bytes keyStructure = 6;
+    bytes shardIDs = 7;
 }
 
 message CreateTableMessage {

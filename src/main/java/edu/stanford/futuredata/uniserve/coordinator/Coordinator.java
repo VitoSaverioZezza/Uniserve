@@ -3,6 +3,7 @@ package edu.stanford.futuredata.uniserve.coordinator;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
+import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
@@ -24,6 +25,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 public class Coordinator {
+
     private static final Logger logger = LoggerFactory.getLogger(Coordinator.class);
     /**Coordinator's IP*/
     private final String coordinatorHost;
@@ -73,6 +75,22 @@ public class Coordinator {
     public final Semaphore loadBalancerSemaphore = new Semaphore(0);
     /**Query per shards on the cached actors*/
     public Map<Integer, Integer> cachedQPSLoad = null;
+    public Map<String, List<Integer>> tablesToAllocatedShards = new HashMap<>();
+
+    public void addShardIDToTable(Integer shardID){
+        tablesToAllocatedShards.computeIfAbsent(getTableIDFromShard(shardID), k->new ArrayList<>()).add(shardID);
+    }
+    private String getTableIDFromShard(Integer shardID){
+        Integer tableID = shardID / Broker.SHARDS_PER_TABLE;
+        for(Map.Entry<String, TableInfo> entry: tableInfoMap.entrySet()){
+            if(entry.getValue().id.equals(tableID))
+                return entry.getKey();
+        }
+        return null;
+    }
+    public List<Integer> getShardIDsForTable(String table){
+        return tablesToAllocatedShards.get(table);
+    }
 
     // Lock protects shardToPrimaryDataStoreMap, shardToReplicaDataStoreMap, and shardToReplicaRatioMap.
     // Each operation modifying these maps follows this process:  Lock, change the local copies, unlock, perform

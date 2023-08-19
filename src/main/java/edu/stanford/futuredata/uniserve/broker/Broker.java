@@ -477,7 +477,6 @@ public class Broker {
      *      sub-queries.
      * */
     public <S extends Shard, V> V anchoredReadQuery(AnchoredReadQueryPlan<S, V> plan) {
-        //long txID = txIDs.getAndIncrement();
         long txID = zkCurator.getTxID();
 
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
@@ -498,6 +497,7 @@ public class Broker {
                 // -1 is a wildcard--run on all shards.
                 shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards)
                         .boxed().collect(Collectors.toList());
+                shardNums = tableInfo.getTableShardsIDs();
             } else {
                 shardNums = tablePartitionKeys.stream().map(i -> keyToShard(tableID, numShards, i))
                         .distinct().collect(Collectors.toList());
@@ -689,6 +689,8 @@ public class Broker {
                 // -1 is a wildcard--run on all shards.
                 shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards)
                         .boxed().collect(Collectors.toList());
+                shardNums = tableInfo.getTableShardsIDs();
+
             } else {
                 shardNums = tablePartitionKeys.stream().map(i -> keyToShard(tableID, numShards, i))
                         .distinct().collect(Collectors.toList());
@@ -842,6 +844,7 @@ public class Broker {
                         tableInfo.id * SHARDS_PER_TABLE, tableInfo.id * SHARDS_PER_TABLE + tableInfo.numShards
                         )
                         .boxed().collect(Collectors.toList());
+                shardNums = tableInfo.getTableShardsIDs();
             }else{
                 shardNums = keyList.stream().map(i -> keyToShard(tableInfo.id, tableInfo.numShards, i))
                         .distinct().collect(Collectors.toList());
@@ -1626,6 +1629,7 @@ public class Broker {
         for(Object query: triggeredQueries){
             t.addTriggeredQuery((PersistentReadQuery) query);
         }
+        t.setTableShardsIDs((ArrayList<Integer>) Utilities.byteStringToObject(r.getShardIDs()));
         return t;
     }
     /**Given a Table identifier, its number of shards and a row's partition key, returns the shard identifier

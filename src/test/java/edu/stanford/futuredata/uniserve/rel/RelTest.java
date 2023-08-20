@@ -80,73 +80,6 @@ public class RelTest {
     }
 
     @Test
-    public void simpleRelTest(){
-        Coordinator coordinator = new Coordinator(
-                null,
-                new DefaultLoadBalancer(),
-                new DefaultAutoScaler(),
-                zkHost, zkPort,
-                "127.0.0.1", 7777);
-        coordinator.runLoadBalancerDaemon = false;
-        coordinator.startServing();
-
-        LocalDataStoreCloud ldsc = new LocalDataStoreCloud();
-
-        DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldsc,
-                new RelShardFactory(),
-                Path.of("/var/tmp/RelUniserve"),
-                zkHost, zkPort,
-                "127.0.0.1", 8000,
-                -1,
-                false
-        );
-        dataStore.startServing();
-
-        Broker broker = new Broker(zkHost, zkPort);
-
-        List<RelRow> rowsOne = new ArrayList<>();
-        List<RelRow> rowsTwo = new ArrayList<>();
-        for(Integer i = 0; i<20; i++){
-            rowsOne.add(new RelRow(i, i+1, i+2));
-            rowsTwo.add(new RelRow(i, i+1, i+2, i+3));
-        }
-
-        API api = new API();
-        api.start(zkHost, zkPort);
-        api.createTable("TableOne").attributes("A", "B", "C").keys("A").shardNumber(10).build().run();
-        api.createTable("TableTwo").attributes("D", "E", "F", "G").keys("D").shardNumber(10).build().run();
-        api.write().table(broker, "TableOne").data(rowsOne).build().run();
-        api.write().table(broker, "TableTwo").data(rowsTwo).build().run();
-
-
-        RetrieveAndCombineQueryPlan<RelShard, Object> readQP = new SimpleReadAll();
-        RelReadQueryResults rqr = (RelReadQueryResults) broker.retrieveAndCombineReadQuery(readQP);
-
-        for(Object r: rqr.getData()){
-            RelRow row = (RelRow) r;
-            System.out.print("AD: "+row.getField(0).toString() + " BE: " + row.getField(1).toString() + " CF: " + row.getField(2).toString());
-            if(row.getField(3) != null){
-                System.out.print(" G: " + row.getField(3).toString());
-            }else{
-                System.out.print(" G: null");
-            }
-            System.out.println("");
-        }
-        SubquerySimpleRead subqRQP = new SubquerySimpleRead();
-        //subqRQP.setRQRInput("Results", rqr);
-        RelReadQueryResults test = broker.retrieveAndCombineReadQuery(subqRQP);
-        for(RelRow row: test.getData()){
-            System.out.println("t: " + row.getField(0).toString());
-        }
-        try {
-            ldsc.clear();
-        }catch (Exception e){
-            ;
-        }
-    }
-
-
-    @Test
     public void a(){
 
     }
@@ -284,6 +217,13 @@ public class RelTest {
             printRowList(rerere);
         }
         assertTrue(joinResRows.isEmpty());
+        coordinator.stopServing();
+        dataStore.shutDown();
+        try{
+            ldsc.clear();
+        }catch (Exception e){
+            ;
+        }
     }
 
     private void printRowList(List<RelRow> data){
@@ -422,6 +362,13 @@ public class RelTest {
             if(counts.containsKey(directorName) && counts.get(directorName)>1){
                 assertEquals(sums.get(directorName), (Integer) resRow.getField(1));
             }
+        }
+        coordinator.stopServing();
+        dataStore.shutDown();
+        try{
+            ldsc.clear();
+        }catch (Exception e){
+            ;
         }
     }
 }

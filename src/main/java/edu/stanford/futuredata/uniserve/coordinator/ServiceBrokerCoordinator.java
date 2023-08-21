@@ -46,6 +46,8 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
             TableInfo t = coordinator.tableInfoMap.get(tableName);
             List<PersistentReadQuery> triggeredQueries = t.getQueriesTriggeredByAWriteOnThisTable();
             ByteString serializedQueries = Utilities.objectToByteString(triggeredQueries.toArray());
+            //ArrayList<ReadQuery> readQueries = (ArrayList<ReadQuery>) t.triggeredQueries;
+            //ByteString serReadQueries = Utilities.objectToByteString(readQueries);
             ByteString serAttrNamesArray = Utilities.objectToByteString(t.getAttributeNames().toArray());
             ByteString serKeyStructure = Utilities.objectToByteString(t.getKeyStructure());
             ByteString serShardIDs = Utilities.objectToByteString((ArrayList<Integer>) coordinator.getShardIDsForTable(tableName));
@@ -105,6 +107,7 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         responseObserver.onCompleted();
     }
     public StoreReadQueryResponse storeReadQueryHandler(StoreReadQueryMessage request){
+        System.out.println("Succesfully called coordinator's gRPC method");
         ReadQuery readQuery = (ReadQuery) Utilities.byteStringToObject(request.getReadQuery());
         return StoreReadQueryResponse.newBuilder().setStatus(coordinator.storeReadQuery(readQuery)).build();
     }

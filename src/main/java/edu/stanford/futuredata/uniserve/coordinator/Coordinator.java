@@ -374,7 +374,13 @@ public class Coordinator {
     }
 
     public Integer storeReadQuery(ReadQuery readQuery){
-        List<String> sources = readQuery.getSources();
+        System.out.println("In coordinator's method that will store them in each source table");
+        List<String> sources = readQuery.getSourceTables();
+        for(String sourceTableName: sources){
+            System.out.println("For table: " + sourceTableName);
+            TableInfo tableInfo = tableInfoMap.get(sourceTableName);
+            boolean added = tableInfo.addTriggeredQuery(readQuery);
+        }
         return 0;
     }
 

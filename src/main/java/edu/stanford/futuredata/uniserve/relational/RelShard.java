@@ -53,11 +53,25 @@ public class RelShard implements Shard {
         }
         return Optional.of(shardPath);
     }
-
     public List<RelRow> getData(){
         return data;
     }
-    public boolean insertRows(List<RelRow> rows){uncommittedRows.addAll(rows);return true;}
-    public boolean committRows(){data.addAll(uncommittedRows);return true;}
-    public boolean abortTransactions(){uncommittedRows.clear();return true;}
+    public boolean insertRows(List<RelRow> rows){
+        uncommittedRows.addAll(rows);
+        return true;
+    }
+    public boolean committRows(){
+        data.addAll(uncommittedRows);
+        uncommittedRows.clear();
+        return true;
+    }
+    public boolean abortTransactions(){
+        uncommittedRows.clear();
+        return true;
+    }
+    public void removeRows(List<RelRow> rowsToRemove){
+        for(RelRow row: rowsToRemove){
+            data.remove(row);
+        }
+    }
 }

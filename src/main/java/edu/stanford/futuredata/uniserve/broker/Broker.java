@@ -1768,7 +1768,9 @@ public class Broker {
 
 
     public boolean storeReadQuery(ReadQuery readQuery){
+        System.out.println("In Broker, preparing subq");
         readQuery.setResultTableID(Integer.toString(zkCurator.getResultTableID()));
+        System.out.println("result table id from ZK = " + readQuery.getResultTableID());
         StoreReadQueryResponse response = coordinatorBlockingStub.storeReadQuery(StoreReadQueryMessage.newBuilder().setReadQuery(Utilities.objectToByteString(readQuery)).build());
         return response.getStatus() == 0;
         //set the name of the table that will store the query results

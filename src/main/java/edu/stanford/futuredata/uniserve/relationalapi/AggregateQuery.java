@@ -24,7 +24,13 @@ public class AggregateQuery implements VolatileShuffleQueryPlan<RelReadQueryResu
     private Map<String, ReadQuery> intermediateQuery = new HashMap<>();
     private String havingPredicate = "";
     private List<String> aggregatesAliases = new ArrayList<>();
+    private boolean stored = false;
 
+
+    public AggregateQuery setStored(){
+        this.stored = true;
+        return this;
+    }
 
     public AggregateQuery setAggregatesAliases(List<String> aggregatesAliases){
         this.aggregatesAliases = aggregatesAliases;
@@ -62,6 +68,11 @@ public class AggregateQuery implements VolatileShuffleQueryPlan<RelReadQueryResu
     public String getQueriedTables() {
         return new ArrayList<>(intermediateQuery.keySet()).get(0);
     }
+
+    public ReadQuery getIntermediateQuery(){
+        return intermediateQuery.get(new ArrayList<>(intermediateQuery.keySet()).get(0));
+    }
+
 
     @Override
     public Map<Integer, List<ByteString>> scatter(RelShard shard, int numRepartitions) {
@@ -230,4 +241,14 @@ public class AggregateQuery implements VolatileShuffleQueryPlan<RelReadQueryResu
         return res;
     }
 
+
+    public List<Pair<Integer, String>> getAggregatesSubschema() {
+        return aggregatesSubschema;
+    }
+    public List<String> getGroupAttributesSubschema(){
+        return groupAttributesSubschema;
+    }
+    public String getHavingPredicate(){
+        return havingPredicate;
+    }
 }

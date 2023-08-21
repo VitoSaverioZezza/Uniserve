@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.utilities;
 
 import edu.stanford.futuredata.uniserve.api.PersistentReadQuery;
+import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -13,6 +14,7 @@ public class TableInfo {
     private List<String> queryNames = new ArrayList<>();
 
     private ArrayList<Integer> tableShardsIDs = new ArrayList<>();
+    public List<ReadQuery> triggeredQueries = new ArrayList<>();
 
     private List<String> attributeNames = new ArrayList<>();
     private Boolean[] keyStructure;
@@ -24,6 +26,18 @@ public class TableInfo {
         this.numShards = numShards;
     }
 
+    public boolean addTriggeredQuery(ReadQuery rq){
+        System.out.println("In tableInfo");
+        for(ReadQuery readQuery: triggeredQueries){
+            if(readQuery.equals(rq)){
+                System.out.println("already registered");
+                return false;
+            }
+        }
+        System.out.println("Query not registered, added now");
+        this.triggeredQueries.add(rq);
+        return true;
+    }
     public ArrayList<Integer> getTableShardsIDs() {
         return tableShardsIDs;
     }

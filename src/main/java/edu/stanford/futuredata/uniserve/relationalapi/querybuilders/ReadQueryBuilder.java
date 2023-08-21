@@ -1,10 +1,12 @@
 package edu.stanford.futuredata.uniserve.relationalapi.querybuilders;
 
+import com.amazonaws.partitions.PartitionRegionImpl;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.relationalapi.AggregateQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.ProdSelProjQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.SimpleAggregateQuery;
+import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import org.javatuples.Pair;
 
 import java.util.*;
@@ -36,7 +38,6 @@ public class ReadQueryBuilder {
     private Map<String, ReadQuery> subqueriesAlias = new HashMap<>(); //contains ALL subqueries mappings
 
 
-    //TODO: Second part of the query for aggregates
     //TODO: General cleanup
     //TODO: Stored queries management
 
@@ -144,15 +145,6 @@ public class ReadQueryBuilder {
         }
     }
 
-    private List<String> parseGroupClause(){
-        List<String> parsedGroupAttributes = new ArrayList<>();
-        for(String rawGroupAttribute : rawGroupAttributes){
-            Pair<String, String> splitRawAttr = splitRawAttribute(rawGroupAttribute);
-            parsedGroupAttributes.add(splitRawAttr.getValue0() + "." + splitRawAttr.getValue1());
-        }
-        return parsedGroupAttributes;
-    }
-
     private ReadQuery buildSimpleAggregateQuery(){
         String selectionPredicate = rawSelectionPredicate;
         String parsedHavingPredicate = rawHavingPredicate;
@@ -247,9 +239,13 @@ public class ReadQueryBuilder {
                 .setGatherInputRowsSchema(systemGatherSchema)
                 .setFinalSchema(userFinalSchema);
         ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setSimpleAggregateQuery(aggregateQuery);
+
+        String registeredID = isQueryAlreadyRegistered(ret);
+        if(!registeredID.isEmpty()){
+            ret = new ReadQueryBuilder(broker).select().from(registeredID).build();
+        }
         return ret;
     }
-
     private ReadQuery buildSimpleQuery(){
         String selectionPredicate = rawSelectionPredicate;
 
@@ -364,20 +360,12 @@ public class ReadQueryBuilder {
             simpleQuery = simpleQuery.setDistinct();
         }
         ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setSimpleQuery(simpleQuery);
-
-        if(isStored){
-            boolean successfulStore = storeQuery(ret);
+        String registeredID = isQueryAlreadyRegistered(ret);
+        if(!registeredID.isEmpty()){
+            ret = new ReadQueryBuilder(broker).select().from(registeredID).build();
         }
-
         return ret;
     }
-
-    private boolean storeQuery(ReadQuery readQuery){
-        return broker.storeReadQuery(readQuery);
-    }
-
-
-
     private ReadQuery buildAggregateQuery(){
         String selectionPredicate = rawSelectionPredicate;
         String parsedHavingPredicate = rawHavingPredicate;
@@ -510,10 +498,24 @@ public class ReadQueryBuilder {
                 .setAggregatesAliases(aggregateAttributesNames)
                 .setFinalSchema(userFinalSchema);
         ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setAggregateQuery(aggregateQuery);
+        String registeredID = isQueryAlreadyRegistered(ret);
+        if(isStored){
+            ret.setStored();
+        }
+        if(!registeredID.isEmpty()){
+            ret = new ReadQueryBuilder(broker).select().from(registeredID).build();
+        }
         return ret;
     }
 
-
+    private List<String> parseGroupClause(){
+        List<String> parsedGroupAttributes = new ArrayList<>();
+        for(String rawGroupAttribute : rawGroupAttributes){
+            Pair<String, String> splitRawAttr = splitRawAttribute(rawGroupAttribute);
+            parsedGroupAttributes.add(splitRawAttr.getValue0() + "." + splitRawAttr.getValue1());
+        }
+        return parsedGroupAttributes;
+    }
     private Pair<String, String> splitRawAttribute(String rawAttribute){
         String[] split = rawAttribute.split("\\.");
         String sourceName = split[0];
@@ -529,7 +531,6 @@ public class ReadQueryBuilder {
         String attrName = attributeNameBuilder.toString();
         return new Pair<>(sourceName, attrName);
     }
-
     private boolean noDuplicateInStringArray(String[] array){
         for(int i = 0; i<array.length; i++){
             for(int j = i+1; j < array.length; j++){
@@ -539,5 +540,17 @@ public class ReadQueryBuilder {
             }
         }
         return true;
+    }
+
+    private String isQueryAlreadyRegistered(ReadQuery newQuery){
+        String aSource = newQuery.getSourceTables().get(0);
+        TableInfo aSourceInfo = broker.getTableInfo(aSource);
+        List<ReadQuery> registeredQueries = aSourceInfo.triggeredQueries;
+        for(ReadQuery registeredQuery: registeredQueries){
+            if(newQuery.equals(registeredQuery)){
+                return registeredQuery.getResultTableID();
+            }
+        }
+        return "";
     }
 }

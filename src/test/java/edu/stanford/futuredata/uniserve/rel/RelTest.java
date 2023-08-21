@@ -16,6 +16,7 @@ import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.relational.RelShardFactory;
 import edu.stanford.futuredata.uniserve.relationalapi.API;
+import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -81,7 +82,12 @@ public class RelTest {
 
     @Test
     public void a(){
-
+        LocalDataStoreCloud localDataStoreCloud = new LocalDataStoreCloud();
+        try {
+            localDataStoreCloud.clear();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Test
@@ -411,6 +417,91 @@ public class RelTest {
             }
             assertTrue(contained);
         }
+        coordinator.stopServing();
+        dataStore.shutDown();
+        try{
+            ldsc.clear();
+        }catch (Exception e){
+            ;
+        }
+    }
+
+
+    @Test
+    public void storedTest(){
+        System.out.println("Starting aggregate test components");
+        Coordinator coordinator = new Coordinator(
+                null,
+                new DefaultLoadBalancer(),
+                new DefaultAutoScaler(),
+                zkHost, zkPort,
+                "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
+        LocalDataStoreCloud ldsc = new LocalDataStoreCloud();
+        DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldsc,
+                new RelShardFactory(),
+                Path.of("/var/tmp/RelUniserve"),
+                zkHost, zkPort,
+                "127.0.0.1", 8000,
+                -1,
+                false
+        );
+        dataStore.startServing();
+        Broker broker = new Broker(zkHost, zkPort);
+        List<RelRow> actorRows = new ArrayList<>();
+        List<RelRow> filmRows = new ArrayList<>();
+        String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/ActorTestFile.txt";
+        String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/FilmTestFile.txt";
+        int totFilmBudget = 0, avgFilmBudget = 0, minBudget = Integer.MAX_VALUE, maxBudget = Integer.MIN_VALUE;
+        int filmCount = 0;
+        int count = 0;
+        try (BufferedReader br = new BufferedReader(new FileReader(filmFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 2) {
+                    int budget = Integer.parseInt(parts[1]);
+                    filmRows.add(new RelRow(filmCount, parts[0], budget));
+                    filmCount++;
+                    totFilmBudget += budget;
+                    minBudget = Integer.min(minBudget, budget);
+                    maxBudget = Integer.max(maxBudget, budget);
+                }
+            }
+            avgFilmBudget = totFilmBudget / filmCount;
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try (BufferedReader br = new BufferedReader(new FileReader(actorFilePath))) {
+            String line;
+            Random rng = new Random(Time.currentElapsedTime());
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 3) {
+                    int random = rng.nextInt();
+                    if(random <0){
+                        random *= -1;
+                    }
+                    actorRows.add(new RelRow(count, parts[0], parts[1], Integer.valueOf(parts[2]), random % filmCount));
+                    count++;
+                } else {
+                    System.out.println("No match for " + line);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        API api = new API();
+        api.start(zkHost, zkPort);
+        System.out.println("Actors and Films table creation...");
+        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").keys("ID").build().run();
+        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").build().run();
+        api.write().table(broker, "Actors").data(actorRows).build().run();
+        api.write().table(broker, "Films").data(filmRows).build().run();
+        RelReadQueryResults q1 = api.read()
+                .select("Films.ID").from("Films").store().build().run(broker);
+        ReadQueryResults q2 = api.read().select().from("Films").store().build().run(broker);
         coordinator.stopServing();
         dataStore.shutDown();
         try{

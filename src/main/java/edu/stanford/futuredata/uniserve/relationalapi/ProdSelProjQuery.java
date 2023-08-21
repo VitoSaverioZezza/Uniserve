@@ -37,6 +37,12 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
 
     private Boolean distinct = false;
 
+    private boolean stored = false;
+
+    public ProdSelProjQuery setStored(){
+        this.stored = true;
+        return this;
+    }
     public ProdSelProjQuery setAliasToTableMap(Map<String, String> aliasToTableMap) {
         this.aliasToTableMap = aliasToTableMap;
         return this;
@@ -260,4 +266,7 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
     public Map<String, ReadQuery> getSubqueriesResults(){
         return subqueries;
     }
+
+    public List<String> getSystemFinalSchema(){return systemFinalSchema;}
+    public String getSelectionPredicate(){return selectionPredicate;}
 }

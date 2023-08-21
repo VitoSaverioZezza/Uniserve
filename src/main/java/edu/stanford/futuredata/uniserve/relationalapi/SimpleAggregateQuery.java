@@ -17,6 +17,12 @@ public class SimpleAggregateQuery implements RetrieveAndCombineQueryPlan<RelShar
     private List<Pair<Integer, String>> aggregatesSubschema = new ArrayList<>();
     private List<String> gatherInputRowsSchema = new ArrayList<>();
     private List<String> userFinalSchema = new ArrayList<>();
+    private boolean stored = false;
+
+    public SimpleAggregateQuery setStored(){
+        this.stored = true;
+        return this;
+    }
 
 
     public SimpleAggregateQuery setIntermediateQuery(String queryName, ReadQuery intermediateQuery){
@@ -155,4 +161,12 @@ public class SimpleAggregateQuery implements RetrieveAndCombineQueryPlan<RelShar
     public Map<String, ReadQuery> getSubqueriesResults() {
         return subquery;
     }
+
+
+
+
+    public List<Pair<Integer, String>> getAggregatesSubschema(){
+        return aggregatesSubschema;
+    }
+
 }

@@ -1767,6 +1767,15 @@ public class Broker {
     }
 
 
+    public boolean storeReadQuery(ReadQuery readQuery){
+        readQuery.setResultTableID(Integer.toString(zkCurator.getResultTableID()));
+        StoreReadQueryResponse response = coordinatorBlockingStub.storeReadQuery(StoreReadQueryMessage.newBuilder().setReadQuery(Utilities.objectToByteString(readQuery)).build());
+        return response.getStatus() == 0;
+        //set the name of the table that will store the query results
+        //send the query object to the coordinator
+    }
+
+
 
     /**Sends the statistics to the Coordinator via the appropriate Broker-Coordinator service*/
     public void sendStatisticsToCoordinator() {

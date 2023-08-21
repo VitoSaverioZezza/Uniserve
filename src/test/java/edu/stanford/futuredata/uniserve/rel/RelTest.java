@@ -217,6 +217,24 @@ public class RelTest {
             printRowList(rerere);
         }
         assertTrue(joinResRows.isEmpty());
+        //distinct
+        RelRow originalRow = filmRows.get(0);
+        RelRow newRow = new RelRow(123, originalRow.getField(1), originalRow.getField(2));
+        api.write().data(newRow).table(broker, "Films").build().run();
+        RelReadQueryResults duplic = api.read().select("F.Director", "F.Budget").from("Films", "F").distinct().build().run(broker);
+        assertEquals(filmRows.size(), duplic.getData().size());
+
+        //write subquery results
+        api.createTable("NolanEntries").attributes("ID", "Director", "Budget").keys("ID").build().run();
+        api.write().table(broker, "NolanEntries").data(
+                api.read()
+                        .select()
+                        .from("Films")
+                        .where("Films.Director == \"Christopher Nolan\"")
+                        .build()
+                ).build().run();
+        RelReadQueryResults nolanEntries = api.read().select().from("NolanEntries").build().run(broker);
+        printRowList(nolanEntries.getData());
         coordinator.stopServing();
         dataStore.shutDown();
         try{
@@ -240,6 +258,7 @@ public class RelTest {
 
     @Test
     public void aggregateTest(){
+        System.out.println("Starting aggregate test components");
         Coordinator coordinator = new Coordinator(
                 null,
                 new DefaultLoadBalancer(),
@@ -304,10 +323,13 @@ public class RelTest {
         }
         API api = new API();
         api.start(zkHost, zkPort);
-        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").shardNumber(10).keys("ID").build().run();
-        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").shardNumber(10).build().run();
+        System.out.println("Actors and Films table creation...");
+        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").keys("ID").build().run();
+        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").build().run();
+        System.out.println("Updating Actors and Films tables...");
         api.write().table(broker, "Actors").data(actorRows).build().run();
         api.write().table(broker, "Films").data(filmRows).build().run();
+        System.out.println("Aggregating on Films' Budgets");
         RelReadQueryResults totBudget = api.read()
                 .select()
                 .from("Films")
@@ -322,7 +344,7 @@ public class RelTest {
         assertEquals(avgFilmBudget, (int) (Integer) totBudget.getData().get(0).getField(2));
         assertEquals(maxBudget, (int) (Integer) totBudget.getData().get(0).getField(3));
         assertEquals(minBudget, (int) (Integer) totBudget.getData().get(0).getField(4));
-
+        System.out.println("Aggregating on multiple sources...");
         RelReadQueryResults totalActorEarnings = api.read()
                 .select("F.Director")
                 .alias("DirectorName")
@@ -333,9 +355,6 @@ public class RelTest {
                 .where("A.FilmID == F.ID")
                 .having("NumFilms > 1")
                 .build().run(broker);
-        System.out.println(totalActorEarnings.getFieldNames());
-        printRowList(totalActorEarnings.getData());
-
         Map<String, Integer> sums = new HashMap<>();
         Map<String, Integer> counts = new HashMap<>();
 
@@ -362,6 +381,35 @@ public class RelTest {
             if(counts.containsKey(directorName) && counts.get(directorName)>1){
                 assertEquals(sums.get(directorName), (Integer) resRow.getField(1));
             }
+        }
+        System.out.println("Testing group clause...");
+        RelReadQueryResults totalActorEarningsGroup = api.read()
+                .select("F.Director")
+                .alias("DirectorName")
+                .sum("A.Salary", "TotalActorsEarnings")
+                .count("A.Salary", "NumFilms")
+                .from("Actors", "A")
+                .from("Films", "F")
+                .where("A.FilmID == F.ID")
+                .having("NumFilms > 1")
+                .group("Films.Director")
+                .build().run(broker);
+        List<RelRow> groups = totalActorEarningsGroup.getData();
+        for(RelRow row: groups){
+            boolean contained = false;
+            for(RelRow row1: totalActorEarnings.getData()){
+                boolean equal = true;
+                for(int i = 0; i<row.getSize() && equal; i++){
+                    if(!row.getField(i).equals(row1.getField(i))){
+                        equal = false;
+                    }
+                }
+                if(equal) {
+                    contained = true;
+                    break;
+                }
+            }
+            assertTrue(contained);
         }
         coordinator.stopServing();
         dataStore.shutDown();

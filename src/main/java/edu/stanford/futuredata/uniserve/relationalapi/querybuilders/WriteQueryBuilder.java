@@ -1,7 +1,9 @@
 package edu.stanford.futuredata.uniserve.relationalapi.querybuilders;
 
+import edu.stanford.futuredata.uniserve.api.querybuilders.ReadQueryBuilder;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
+import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.SimpleWriteQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.WriteQuery;
 
@@ -40,6 +42,12 @@ public class WriteQueryBuilder {
         data.addAll(rows);
         return this;
     }
+    public WriteQueryBuilder data(ReadQuery subquery){
+        data.addAll(subquery.run(broker).getData());
+        return this;
+    }
+
+
     public WriteQueryBuilder consistent(){
         consistent = true;
         return this;

@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.api.PersistentReadQuery;
+import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.stub.StreamObserver;
@@ -96,5 +97,15 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
             coordinator.tableInfoMap.get(source).addTriggeredQuery(plan);
         }
         return RegisterQueryResponse.newBuilder().build();
+    }
+
+    @Override
+    public void storeReadQuery(StoreReadQueryMessage request, StreamObserver<StoreReadQueryResponse> responseObserver){
+        responseObserver.onNext(storeReadQueryHandler(request));
+        responseObserver.onCompleted();
+    }
+    public StoreReadQueryResponse storeReadQueryHandler(StoreReadQueryMessage request){
+        ReadQuery readQuery = (ReadQuery) Utilities.byteStringToObject(request.getReadQuery());
+        return StoreReadQueryResponse.newBuilder().setStatus(coordinator.storeReadQuery(readQuery)).build();
     }
 }

@@ -12,7 +12,16 @@ service BrokerCoordinator {
     rpc TableInfo (TableInfoMessage) returns (TableInfoResponse) {}
     rpc CreateTable (CreateTableMessage) returns (CreateTableResponse) {}
     rpc RegisterQuery (RegisterQueryMessage) returns (RegisterQueryResponse) {}
+    rpc StoreReadQuery (StoreReadQueryMessage) returns (StoreReadQueryResponse){}
 }
+
+message StoreReadQueryMessage{
+    bytes readQuery = 1;
+}
+message StoreReadQueryResponse{
+    int32 status = 1;
+}
+
 
 message RegisterQueryMessage{
     bytes plan = 1;

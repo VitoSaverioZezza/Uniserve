@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
+import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
@@ -371,6 +372,12 @@ public class Coordinator {
             lostLatch.await();
         } catch (InterruptedException ignored) {}
     }
+
+    public Integer storeReadQuery(ReadQuery readQuery){
+        List<String> sources = readQuery.getSources();
+        return 0;
+    }
+
 
     private class LoadBalancerDaemon extends Thread {
         @Override

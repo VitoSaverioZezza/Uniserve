@@ -97,6 +97,43 @@ public class BrokerCurator {
             return null;
         }
     }
+
+    protected void writeResultTableID(int resultTableID){
+        try {
+            String path = "/resultTableID";
+            byte[] data = ByteBuffer.allocate(4).putInt(resultTableID).array();
+            if (cf.checkExists().forPath(path) != null) {
+                cf.setData().forPath(path, data);
+            } else {
+                cf.create().forPath(path, data);
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+        }
+    }
+    protected Integer getResultTableID(){
+        try {
+            String path = "/resultTableID";
+            if (cf.checkExists().forPath(path) != null) {
+                byte[] b = cf.getData().forPath(path);
+                int rtID = ByteBuffer.wrap(b).getInt();
+                int incrementedRTID = rtID+1;
+                writeResultTableID(incrementedRTID);
+                return incrementedRTID;
+            } else {
+                return null;
+            }
+        } catch (Exception e) {
+            logger.error("ZK Failure {}", e.getMessage());
+            assert(false);
+            return null;
+        }
+    }
+
+
+
+
     /**Writes the last committed version to ZooKeeper*/
     protected void writeLastCommittedVersion(long lcv){
         try {
@@ -173,6 +210,7 @@ public class BrokerCurator {
             logger.error("WriteLock Release Error: {}", e.getMessage());
         }
     }
+
 }
 
 

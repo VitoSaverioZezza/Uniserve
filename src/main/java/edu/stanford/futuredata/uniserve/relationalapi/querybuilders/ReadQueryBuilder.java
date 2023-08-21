@@ -246,7 +246,8 @@ public class ReadQueryBuilder {
                 .setAggregatesSubschema(systemAggregateSubschema)
                 .setGatherInputRowsSchema(systemGatherSchema)
                 .setFinalSchema(userFinalSchema);
-        return new ReadQuery().setResultSchema(userFinalSchema).setSimpleAggregateQuery(aggregateQuery);
+        ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setSimpleAggregateQuery(aggregateQuery);
+        return ret;
     }
 
     private ReadQuery buildSimpleQuery(){
@@ -359,12 +360,24 @@ public class ReadQueryBuilder {
                 .setTableNames(new ArrayList<>(tableNameToAlias.keySet()))
                 .setSubqueries(subqueriesAlias)
                 .setAliasToTableMap(aliasToTableName);
-        return new ReadQuery()
-                .setSimpleQuery(simpleQuery)
-                .setResultSchema(userFinalSchema);
+        if(distinct){
+            simpleQuery = simpleQuery.setDistinct();
+        }
+        ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setSimpleQuery(simpleQuery);
+
+        if(isStored){
+            boolean successfulStore = storeQuery(ret);
+        }
+
+        return ret;
     }
 
-    //TODO: having predicate
+    private boolean storeQuery(ReadQuery readQuery){
+        return broker.storeReadQuery(readQuery);
+    }
+
+
+
     private ReadQuery buildAggregateQuery(){
         String selectionPredicate = rawSelectionPredicate;
         String parsedHavingPredicate = rawHavingPredicate;
@@ -496,7 +509,8 @@ public class ReadQueryBuilder {
                 .setHavingPredicate(parsedHavingPredicate)
                 .setAggregatesAliases(aggregateAttributesNames)
                 .setFinalSchema(userFinalSchema);
-        return new ReadQuery().setResultSchema(userFinalSchema).setAggregateQuery(aggregateQuery);
+        ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setAggregateQuery(aggregateQuery);
+        return ret;
     }
 
 

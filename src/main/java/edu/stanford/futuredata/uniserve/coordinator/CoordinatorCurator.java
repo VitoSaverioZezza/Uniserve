@@ -82,6 +82,14 @@ class CoordinatorCurator {
             }else{
                 cf.create().forPath(lastCommittedVersionPath, new byte[0]);
             }
+            String resTableIDPath = "/resultTableID";
+            if(cf.checkExists().forPath(resTableIDPath) != null){
+                cf.setData().forPath(resTableIDPath, new byte[0]);
+            }else{
+                Integer resultTableID = 0;
+                byte[] rTableID = ByteBuffer.allocate(4).putInt(resultTableID).array();
+                cf.create().forPath(resTableIDPath, rTableID);
+            }
         } catch (Exception e) {
             logger.error("ZK Failure {}", e.getMessage());
             assert(false);

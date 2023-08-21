@@ -15,17 +15,27 @@ import java.util.*;
 public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, RelReadQueryResults> {
     private List<String> tableNames = new ArrayList<>();
     private Map<String, ReadQuery> subqueries = new HashMap<>();
-
+    /**Mapping from table aliases to table names, needed for predicate resolution*/
     private Map<String, String> aliasToTableMap = new HashMap<>();
 
+    /**Schema of the results*/
     private List<String> userFinalSchema = new ArrayList<>();
+    /**Names of the attributes that made up the results as they are defined in the sources*/
     private List<String> systemFinalSchema = new ArrayList<>();
+    /**Names of the attributes that made up the intermediate schema that includes the attributes needed for the final
+     * schema and also for predicate evaluation. The names of these attributes are specified as they are defined
+     * in the sources*/
     private List<String> systemCombineSchema = new ArrayList<>();
+    /**Cache of the schemas of the sources*/
     private Map<String, List<String>> cachedSourcesSchema = new HashMap<>();
+    /**Mapping from source names to names of the attributes that are needed in order to build the combine subschema*/
     private Map<String, List<String>> sourcesSubschemasForCombine = new HashMap<>();
+    /**List of names needed for the intermediate schema, already splitted between source part and attribute name*/
     private List<Pair<String, String>> splitSystemCombineSchema = new ArrayList<>();
 
     private String selectionPredicate = "";
+
+    private Boolean distinct = false;
 
     public ProdSelProjQuery setAliasToTableMap(Map<String, String> aliasToTableMap) {
         this.aliasToTableMap = aliasToTableMap;
@@ -73,6 +83,10 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         this.selectionPredicate = selectionPredicate;
         return this;
     }
+    public ProdSelProjQuery setDistinct(){
+        this.distinct = true;
+        return this;
+    }
 
     public RelReadQueryResults run(Broker broker){
         RelReadQueryResults res;
@@ -96,12 +110,10 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         List<RelRow> shardData = shard.getData();
         List<String> sourceSchema = cachedSourcesSchema.get(tableName);
         List<String> subschema = sourcesSubschemasForCombine.get(tableName);
-
-        if(subschema ==null){
+        if(subschema == null){
             System.out.println("No entry for " + tableName + " in sourcesSubschemasForCombine");
             return Utilities.objectToByteString(new Object[0]);
         }
-
         List<List<Object>> dataToCombine = new ArrayList<>();
         for(RelRow row: shardData){
             List<Object> projRow = new ArrayList<>();
@@ -120,6 +132,7 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         Object[] projRowArray = dataToCombine.toArray();
         return Utilities.objectToByteString(projRowArray);
     }
+
     @Override
     public RelReadQueryResults combine(Map<String, List<ByteString>> retrieveResults) {
         Map<String, List<List<Object>>> tableToProjDataMap = new HashMap<>();
@@ -143,14 +156,21 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         cartesianProduct(currentTableIndex, resultRows, sourcesList, currentPrototype, tableToProjDataMap);
         RelReadQueryResults res = new RelReadQueryResults();
         List<RelRow> dataRows = new ArrayList<>();
-
+        List<List<Object>> resRows = new ArrayList<>();
         for(List<Object> nonProjRow: resultRows) {
             List<Object> projRow = new ArrayList<>(systemFinalSchema.size());
             for(String finalAttribute: systemFinalSchema){
                 int index = systemFinalSchema.indexOf(finalAttribute);
                 projRow.add(index, nonProjRow.get(systemCombineSchema.indexOf(finalAttribute)));
             }
-            dataRows.add(new RelRow(projRow.toArray()));
+            if(distinct){
+                if (!resRows.contains(projRow)){
+                    resRows.add(projRow);
+                    dataRows.add(new RelRow(projRow.toArray()));
+                }
+            }else{
+                dataRows.add(new RelRow(projRow.toArray()));
+            }
         }
         res.addData(dataRows);
         return res;
@@ -176,7 +196,6 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
             }
         }
     }
-
     @Override
     public boolean writeSubqueryResults(RelShard shard, String tableName, List<Object> data){
         List<RelRow> data1 = new ArrayList<>();

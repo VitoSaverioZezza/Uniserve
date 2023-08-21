@@ -12,6 +12,9 @@ public class ReadQuery implements Serializable {
     private List<String> resultSchema = new ArrayList<>();
     private AggregateQuery aggregateQuery = null;
     private SimpleAggregateQuery simpleAggregateQuery = null;
+    private String resultTableID = null;
+    private List<String> getSources = new ArrayList<>();
+
 
     public RelReadQueryResults run(Broker broker){
         if(simpleQuery != null){
@@ -21,6 +24,17 @@ public class ReadQuery implements Serializable {
         }else{
             return aggregateQuery.run(broker);
         }
+    }
+
+    public List<String> getSources(){
+        return List.of();
+    }
+
+
+
+    public ReadQuery setResultTableID(String resultTableID){
+        this.resultTableID = resultTableID;
+        return this;
     }
 
     public ReadQuery setSimpleAggregateQuery(SimpleAggregateQuery simpleAggregateQuery){
@@ -38,8 +52,9 @@ public class ReadQuery implements Serializable {
         this.simpleQuery = simpleQuery;
         return this;
     }
-    public ProdSelProjQuery getSimpleQuery() {
-        return simpleQuery;
+
+    public String getResultTableID(){
+        return resultTableID;
     }
 
     public ReadQuery setResultSchema(List<String> resultSchema) {

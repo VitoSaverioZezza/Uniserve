@@ -83,13 +83,20 @@ public class LocalDataStoreCloud implements DataStoreCloud {
                     Path destination = Paths.get(destinationDirectoryLocation, source.toString().substring(sourceDirectoryLocation.length()));
                     try{
                         Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
-                    } catch (IOException e) {
+                    } catch (DirectoryNotEmptyException e){
+                        try {
+                            deleteDirectoryRecursion(destination);
+                            Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
+                        } catch (IOException ex) {
+                            throw new RuntimeException(ex);
+                        }
+                    }catch (IOException e){
                         e.printStackTrace();
                     }
                 });
     }
 
-    static void deleteDirectoryRecursion(Path path) throws IOException {
+    public static void deleteDirectoryRecursion(Path path) throws IOException {
         if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
             try (DirectoryStream<Path> entries = Files.newDirectoryStream(path)) {
                 for (Path entry : entries) {

@@ -1,7 +1,6 @@
 package edu.stanford.futuredata.uniserve.relationalapi;
 
 import edu.stanford.futuredata.uniserve.interfaces.SimpleWriteQueryPlan;
-import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
 
@@ -20,10 +19,6 @@ public class UpdateStoredResultsWrite implements SimpleWriteQueryPlan<RelRow, Re
 
     public void setKeyStructure(Boolean[] keyStructure) {
         this.keyStructure = keyStructure;
-    }
-
-    public void setQueriedTable(String queriedTable) {
-        this.queriedTable = queriedTable;
     }
 
     @Override

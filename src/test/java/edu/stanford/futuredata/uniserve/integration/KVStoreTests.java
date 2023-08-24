@@ -26,11 +26,15 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud.deleteDirectoryRecursion;
 import static org.junit.jupiter.api.Assertions.*;
 
 
@@ -68,61 +72,17 @@ public class KVStoreTests {
     }
 
     @BeforeAll
-    static void startUpCleanUp() {
+    static void startUpCleanUp() throws IOException {
+        a();
         cleanUp(zkHost, zkPort);
     }
 
     @AfterEach
-    private void unitTestCleanUp() {
+    private void unitTestCleanUp() throws IOException {
+        a();
         cleanUp(zkHost, zkPort);
     }
 
-    @Test
-    public void testSimpleMap(){
-        Coordinator coordinator = new Coordinator(
-                null,
-                new DefaultLoadBalancer(),
-                new DefaultAutoScaler(),
-                zkHost, zkPort,
-                "127.0.0.1", 7777);
-        coordinator.runLoadBalancerDaemon = false;
-        coordinator.startServing();
-
-        DataStore<KVRow,KVShard> dataStore = new DataStore<>(null,
-                new KVShardFactory(),
-                Path.of("/var/tmp/KVUniserve"),
-                zkHost, zkPort,
-                "127.0.0.1", 8000,
-                -1,
-                false
-                );
-        dataStore.startServing();
-
-        Broker broker = new Broker(zkHost, zkPort);
-
-        int numShards = 1;
-        assertTrue(broker.createTable("table1", numShards, new ArrayList<>(), null));
-
-        MapQueryPlan<KVRow> mapQueryPlan = new KVIncrementValueMap();
-
-        List<KVRow> data = new ArrayList<>();
-        data.add(new KVRow(1,1));
-        data.add(new KVRow(2,2));
-        data.add(new KVRow(3,3));
-        data.add(new KVRow(4,4));
-
-        data = broker.mapQuery(mapQueryPlan, data);
-
-        for(KVRow row: data){
-            if(row.getKey() == 1) assertEquals(2, row.getValue());
-            if(row.getKey() == 2) assertEquals(3, row.getValue());
-            if(row.getKey() == 3) assertEquals(4, row.getValue());
-            if(row.getKey() == 4) assertEquals(5, row.getValue());
-        }
-        dataStore.shutDown();
-        broker.shutdown();
-        coordinator.stopServing();
-    }
 
     @Test
     public void testSingleKey() {
@@ -768,8 +728,6 @@ public class KVStoreTests {
         coordinator.stopServing();
         broker.shutdown();
     }
-
-    //TODO: It generates an exception, see why
     @Test
     public void testShardUpload() {
         logger.info("testShardUpload");
@@ -1076,82 +1034,16 @@ public class KVStoreTests {
         }
     }
 
-    @Test
-    public void testQueryEngineFilterAverage() throws InterruptedException {
-        logger.info("testQueryEngine");
-        int numShards = 5;
-        Coordinator coordinator = new Coordinator(null, new DefaultLoadBalancer(), new DefaultAutoScaler(), zkHost, zkPort, "127.0.0.1", 7778);
-        coordinator.runLoadBalancerDaemon = false;
 
-        coordinator.startServing();
-        LocalDataStoreCloud ldsc1 = new LocalDataStoreCloud();
-        DataStore<KVRow, KVShard>  dataStoreOne = new DataStore<>(ldsc1,
-                new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 1)), zkHost, zkPort, "127.0.0.1", 8200, -1, false
-        );
-        dataStoreOne.runPingDaemon = false;
-        dataStoreOne.startServing();
-
-        KVQueryEngine queryEngine = new KVQueryEngine();
-        Broker broker = new Broker(zkHost, zkPort);
-        queryEngine.setBroker(broker);
-
-        LocalDataStoreCloud ldsc2 = new LocalDataStoreCloud();
-        DataStore<KVRow, KVShard>  dataStoreTwo = new DataStore<>(ldsc2,
-                new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 2)), zkHost, zkPort, "127.0.0.1", 8201, -1, false
-        );
-        dataStoreTwo.runPingDaemon = false;
-        assertTrue(dataStoreTwo.startServing());
-
-        broker.createTable("filterAndAverageRaw", numShards, new ArrayList<>(), null);
-        broker.createTable("intermediateFilter", numShards, new ArrayList<>(), null);
-
-        int expectedResult, result, sum=0;
-        List<KVRow> rawData = new ArrayList<>();
-        for (int i = 1; i < 20; i++) {
-            rawData.add(new KVRow(i, i));
-        }
-
-        for (int i = 1; i < 10; i++) {
-            sum = sum+i;
-        }
-        expectedResult = sum / 9;
-
-        /*nothing is written*/
-        queryEngine.setData(rawData);
-        result = queryEngine.filterAndAverage(true, true);
-        assertEquals(expectedResult, result);
-
-        /*raw data is written in the corresponding table, then read and the data is filtered and returned
-        * the returned results are then written in the corresponding table, then read and averaged.
-        * */
-        queryEngine.setData(rawData);
-        result = queryEngine.filterAndAverage(false, false);
-        assertEquals(expectedResult, result);
-
-        /*raw data is not written, it is filtered and returned
-        * the returned results are written in the corresponding table and then read and averaged
-        * */
-        queryEngine.setData(rawData);
-        result = queryEngine.filterAndAverage(true, false);
-        assertEquals(expectedResult, result);
-
-        /*The raw data are written in the corresponding table, then read and filtered. The
-        *returned results are averaged and returned
-        * */
-        queryEngine.setData(rawData);
-        result = queryEngine.filterAndAverage(false, true);
-        assertEquals(expectedResult, result);
-
-
-        dataStoreOne.shutDown();
-        dataStoreTwo.shutDown();
-        coordinator.stopServing();
-        broker.shutdown();
-        try {
-            ldsc1.clear();
-            ldsc2.clear();
-        } catch (IOException e) {
-            assert(false);
+    public static void a() throws IOException{
+        Path LDSC = Path.of("src/main/LocalCloud/");
+        if (Files.isDirectory(LDSC, LinkOption.NOFOLLOW_LINKS)) {
+            try (DirectoryStream<Path> entries = Files.newDirectoryStream(LDSC)) {
+                for (Path entry : entries) {
+                    deleteDirectoryRecursion(entry);
+                }
+            }
         }
     }
+
 }

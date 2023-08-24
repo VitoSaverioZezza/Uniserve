@@ -6,27 +6,21 @@ option java_outer_classname = "BrokerCoordinatorProto";
 
 package brokercoordinator;
 
-// Communication from datastores to the coordinator.
 service BrokerCoordinator {
     rpc QueryStatistics (QueryStatisticsMessage) returns (QueryStatisticsResponse) {}
     rpc TableInfo (TableInfoMessage) returns (TableInfoResponse) {}
     rpc CreateTable (CreateTableMessage) returns (CreateTableResponse) {}
-    rpc RegisterQuery (RegisterQueryMessage) returns (RegisterQueryResponse) {}
-    rpc StoreReadQuery (StoreReadQueryMessage) returns (StoreReadQueryResponse){}
+
+    rpc StoreQuery (StoreQueryMessage) returns (StoreQueryResponse) {}
 }
 
-message StoreReadQueryMessage{
-    bytes readQuery = 1;
+
+message StoreQueryMessage {
+    bytes query = 1;
 }
-message StoreReadQueryResponse{
+message StoreQueryResponse{
     int32 status = 1;
 }
-
-
-message RegisterQueryMessage{
-    bytes plan = 1;
-}
-message RegisterQueryResponse{}
 
 message QueryStatisticsMessage {
     bytes queryStatistics = 1;

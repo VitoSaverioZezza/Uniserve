@@ -78,6 +78,9 @@ public class Coordinator {
     public Map<Integer, Integer> cachedQPSLoad = null;
     public Map<String, List<Integer>> tablesToAllocatedShards = new HashMap<>();
 
+    public void registerQuery(ReadQuery query, String sourceTable){
+        tableInfoMap.get(sourceTable).registerQuery(query);
+    }
     public void addShardIDToTable(Integer shardID){
         tablesToAllocatedShards.computeIfAbsent(getTableIDFromShard(shardID), k->new ArrayList<>()).add(shardID);
     }
@@ -372,18 +375,6 @@ public class Coordinator {
             lostLatch.await();
         } catch (InterruptedException ignored) {}
     }
-
-    public Integer storeReadQuery(ReadQuery readQuery){
-        System.out.println("In coordinator's method that will store them in each source table");
-        List<String> sources = readQuery.getSourceTables();
-        for(String sourceTableName: sources){
-            System.out.println("For table: " + sourceTableName);
-            TableInfo tableInfo = tableInfoMap.get(sourceTableName);
-            boolean added = tableInfo.addTriggeredQuery(readQuery);
-        }
-        return 0;
-    }
-
 
     private class LoadBalancerDaemon extends Thread {
         @Override

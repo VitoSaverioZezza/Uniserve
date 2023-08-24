@@ -63,17 +63,6 @@ public class PersistentReadQuery implements Serializable {
         return twoPCWriteQuery;
     }
 
-    public PersistentReadQuery registerQuery(Broker broker){
-        if(!isRegistered) {
-            boolean canBeRegistered = broker.registerPersistentQuery(this);
-            if(!canBeRegistered){
-                return null;
-            }
-        }
-        this.isRegistered = true;
-        return this;
-    }
-
     public List<Row> run(Broker broker){
 
         //TODO: Now, this only executes once, I have to modify the whole shenanigan in the write operation. Good luck to me.

@@ -10,14 +10,13 @@ public class TableInfo {
     public final String name;
     public final Integer id;
     public final Integer numShards;
-    private List<PersistentReadQuery> queriesTriggeredByAWriteOnThisTable = new ArrayList<>();
-    private List<String> queryNames = new ArrayList<>();
 
     private ArrayList<Integer> tableShardsIDs = new ArrayList<>();
-    public List<ReadQuery> triggeredQueries = new ArrayList<>();
 
     private List<String> attributeNames = new ArrayList<>();
     private Boolean[] keyStructure;
+
+    private ArrayList<ReadQuery> registeredQueries = new ArrayList<>();
 
 
     public TableInfo(String name, Integer id, Integer numShards) {
@@ -26,18 +25,6 @@ public class TableInfo {
         this.numShards = numShards;
     }
 
-    public boolean addTriggeredQuery(ReadQuery rq){
-        System.out.println("In tableInfo");
-        for(ReadQuery readQuery: triggeredQueries){
-            if(readQuery.equals(rq)){
-                System.out.println("already registered");
-                return false;
-            }
-        }
-        System.out.println("Query not registered, added now");
-        this.triggeredQueries.add(rq);
-        return true;
-    }
     public ArrayList<Integer> getTableShardsIDs() {
         return tableShardsIDs;
     }
@@ -56,17 +43,16 @@ public class TableInfo {
     public Boolean[] getKeyStructure() {
         return keyStructure;
     }
-    public List<PersistentReadQuery> getQueriesTriggeredByAWriteOnThisTable(){
-        return queriesTriggeredByAWriteOnThisTable;
+
+    public void setRegisteredQueries(ArrayList<ReadQuery> registeredQueries) {
+        this.registeredQueries = registeredQueries;
     }
-    public void addTriggeredQuery(PersistentReadQuery query){
-        if(queryNames.contains(query.getQueryName())){
-            query.setRegistered(true);
-            return;
-        }
-        query.setRegistered(true);
-        this.queriesTriggeredByAWriteOnThisTable.add(query);
-        this.queryNames.add(query.getQueryName());
+
+    public ArrayList<ReadQuery> getRegisteredQueries() {
+        return registeredQueries;
+    }
+    public void registerQuery(ReadQuery query){
+        this.registeredQueries.add(query);
     }
 }
 

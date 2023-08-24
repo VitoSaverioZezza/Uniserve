@@ -14,6 +14,7 @@ service DataStoreCoordinator {
     rpc PotentialDSFailure (PotentialDSFailureMessage) returns (PotentialDSFailureResponse) {}
     // Look up information about a table.
     rpc TableInfo (DTableInfoMessage) returns (DTableInfoResponse) {}
+
     rpc RegisterNewShard (RegisterNewShardMessage) returns (RegisterNewShardResponse) {}
 }
 

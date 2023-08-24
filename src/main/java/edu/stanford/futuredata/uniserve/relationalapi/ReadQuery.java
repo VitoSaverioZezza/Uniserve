@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.relationalapi;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
+import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.ReadQueryBuilder;
 import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.WriteQueryBuilder;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import org.javatuples.Pair;
@@ -16,14 +17,14 @@ public class ReadQuery implements Serializable {
     private List<String> resultSchema = new ArrayList<>();
     private AggregateQuery aggregateQuery = null;
     private SimpleAggregateQuery simpleAggregateQuery = null;
-    private String resultTableID = null;
 
-    private Boolean stored = false;
-    private Boolean isAlreadyStored = false;
+    private boolean registered = false;
+    private String resultTableName = "";
+    private Boolean[] keyStructure;
 
 
-    public RelReadQueryResults run(Broker broker){
-        RelReadQueryResults results = null;
+    public RelReadQueryResults updateStoredResults(Broker broker){
+        RelReadQueryResults results;
         if(simpleQuery != null){
             results =  simpleQuery.run(broker);
         }else if(simpleAggregateQuery != null){
@@ -31,36 +32,72 @@ public class ReadQuery implements Serializable {
         }else{
             results = aggregateQuery.run(broker);
         }
-        Boolean[] keyStructure = new Boolean[resultSchema.size()];
-        if(aggregateQuery != null){
-            Arrays.fill(keyStructure, 0, aggregateQuery.getGroupAttributesSubschema().size(), true);
-            Arrays.fill(keyStructure, aggregateQuery.getGroupAttributesSubschema().size(), keyStructure.length, false);
+        assert (results != null);
+        broker.simpleWriteQuery(new UpdateStoredResultsWrite(keyStructure, resultTableName), results.getData());
+
+        return results;
+    }
+
+    public RelReadQueryResults run(Broker broker){
+        RelReadQueryResults results = null;
+        //check if there's a matching registered query
+        String registeredTableResults = queryMatch(broker);
+        if(!registeredTableResults.isEmpty()){
+            RelReadQueryResults readQueryResults = new ReadQueryBuilder(broker).select().from(registeredTableResults).build().run(broker);
+            return readQueryResults;
         }else{
-            Arrays.fill(keyStructure, true);
+            if(simpleQuery != null){
+                results =  simpleQuery.run(broker);
+            }else if(simpleAggregateQuery != null){
+                results =  simpleAggregateQuery.run(broker);
+            }else{
+                results = aggregateQuery.run(broker);
+            }
         }
-        if(stored && !isAlreadyStored){
-            //store the query in the TableInfo of all source tables, then set isAlreadyStored
-            List<String> sourceTables = getSourceTables();
-            broker.storeReadQuery(this);
-            broker.createTable(resultTableID, Broker.SHARDS_PER_TABLE, resultSchema, keyStructure);
-            isAlreadyStored = true;
-        }
-        if(stored){
-            boolean wqRes = broker.simpleWriteQuery(
-                    new UpdateStoredResultsWrite(keyStructure, resultTableID), results.getData()
-            );
+        //check if the query has to be registered
+        //register if and only if the query has no matching registered query
+        if(registered && registeredTableResults.isEmpty()){
+            keyStructure = new Boolean[resultSchema.size()];
+            if(aggregateQuery != null){
+                Arrays.fill(keyStructure, 0, aggregateQuery.getGroupAttributesSubschema().size(), true);
+                Arrays.fill(keyStructure, aggregateQuery.getGroupAttributesSubschema().size(), resultSchema.size(), false);
+            }else {
+                Arrays.fill(keyStructure, true);
+            }
+            broker.registerQuery(this);
+            updateStoredResults(broker);
         }
         return results;
     }
 
-    public ReadQuery setResultTableID(String resultTableID){
-        this.resultTableID = resultTableID;
-        return this;
-    }
-    public String getResultTableID(){
-        return resultTableID;
+    public Boolean[] getKeyStructure() {
+        return keyStructure;
     }
 
+    private String queryMatch(Broker broker){
+        TableInfo aSourceTableInfo = broker.getTableInfo(this.getSourceTables().get(0));
+        ArrayList<ReadQuery> alreadyRegisteredQueries = aSourceTableInfo.getRegisteredQueries();
+        for(ReadQuery registeredQuery: alreadyRegisteredQueries){
+            if(this.equals(registeredQuery)){
+                return registeredQuery.getResultTableName();
+            }
+        }
+        return "";
+    }
+
+
+    public String getResultTableName() {
+        return resultTableName;
+    }
+
+    public void setResultTableName(String resultTableName) {
+        this.resultTableName = resultTableName;
+    }
+
+    public ReadQuery setRegistered(){
+        this.registered = true;
+        return this;
+    }
     public ReadQuery setSimpleAggregateQuery(SimpleAggregateQuery simpleAggregateQuery){
         this.simpleAggregateQuery = simpleAggregateQuery;
         return this;
@@ -84,7 +121,6 @@ public class ReadQuery implements Serializable {
 
     @Override
     public boolean equals(Object obj){
-        System.out.println("My equals!");
         if(!(obj instanceof ReadQuery)){
             return false;
         }
@@ -133,12 +169,6 @@ public class ReadQuery implements Serializable {
     }
 
 
-    public void setIsAlreadyStored(){
-        isAlreadyStored = true;
-    }
-    public void setStored(){
-        stored = true;
-    }
     public List<String> getSourceTables(){
         if(simpleQuery != null){
             return simpleQuery.getTableNames();

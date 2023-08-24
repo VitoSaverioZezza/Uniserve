@@ -397,56 +397,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     }
 
     @Override
-    public StreamObserver<MapQueryMessage> mapQuery(StreamObserver<MapQueryResponse> responseObserver) {
-        return new StreamObserver<>() {
-            final List<R[]> rowSlicesToBeTransformed = new ArrayList<>();
-            MapQueryPlan<R> mapQueryPlan;
-
-            @Override
-            public void onNext(MapQueryMessage mapQueryMessage) {
-                mapQueryPlan = (MapQueryPlan<R>) Utilities.byteStringToObject(mapQueryMessage.getSerializedQuery());
-                R[] rowChunk = (R[]) Utilities.byteStringToObject(mapQueryMessage.getRowData());
-                rowSlicesToBeTransformed.add(rowChunk);
-            }
-
-            @Override
-            public void onError(Throwable throwable) {
-                responseObserver.onError(new Exception("gRPC error while communicating row chunks"));
-                responseObserver.onCompleted();
-            }
-
-            @Override
-            public void onCompleted() {
-                for (R[] rowArray : rowSlicesToBeTransformed) {
-                    List<R> subList = new ArrayList<>();
-                    for(R row: rowArray){
-                        subList.add(row);
-                    }
-
-                    boolean mapSuccess = mapQueryPlan.map(subList);
-
-                    if (mapSuccess) {
-                        R[] result = (R[]) new Row[subList.size()];
-                        for (int i = 0; i<result.length; i++){
-                            result[i] = subList.get(i);
-                        }
-                        ByteString resultData = Utilities.objectToByteString(result);
-                        MapQueryResponse m = MapQueryResponse.newBuilder()
-                                .setTransformedData(resultData)
-                                .setState(0)
-                                .build();
-                        responseObserver.onNext(m);
-                    } else {
-                        responseObserver.onError(new Exception("Map function error"));
-                        break;
-                    }
-                }
-                responseObserver.onCompleted();
-            }
-        };
-    }
-
-    @Override
     public void anchoredReadQuery(AnchoredReadQueryMessage request,  StreamObserver<AnchoredReadQueryResponse> responseObserver) {
         responseObserver.onNext(anchoredReadQueryHandler(request));
         responseObserver.onCompleted();
@@ -981,21 +931,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         long txID = message.getTransactionID();
         List<Row> volatileData = new ArrayList<>();
         int actorCount = message.getActorCount();
-        /*
-        List<R> serializedVolatileData = dataStore.getVolatileData(txID);
-        for(ByteString serializedRowChunk: serializedVolatileData){
-            Row[] rowChunk = (Row[]) Utilities.byteStringToObject(serializedRowChunk);
-            for(Row row: rowChunk){
-                volatileData.add(row);
-            }
-        }
-        List<Object> vData = new ArrayList<>();
-        for(Row row: volatileData){
-            vData.add(row);
-        }
-        Map<Integer, List<ByteString>> scatterResults = plan.scatter(vData, actorCount);
-
-        */
         List<Shard> volatileShards = dataStore.getVolatileData(txID);
         Map<Integer, List<ByteString>> scatterResults = new HashMap<>();
         for(Shard shard: volatileShards){

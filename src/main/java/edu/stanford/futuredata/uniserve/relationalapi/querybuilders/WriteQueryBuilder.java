@@ -13,8 +13,6 @@ import java.util.Collection;
 import java.util.List;
 
 public class WriteQueryBuilder {
-    //TODO: data defined as a result of a read query
-
     private final Broker broker;
     private String tableName;
     private List<RelRow> data = new ArrayList<>();
@@ -57,9 +55,9 @@ public class WriteQueryBuilder {
             throw new RuntimeException("Malformed write query: no queried table");
         }
         if(consistent){
-            writeQuery = new WriteQuery(tableName);
+            writeQuery = new WriteQuery(tableName, broker.getTableInfo(tableName).getKeyStructure());
         }else{
-            simpleWriteQuery = new SimpleWriteQuery(tableName);
+            simpleWriteQuery = new SimpleWriteQuery(tableName, broker.getTableInfo(tableName).getKeyStructure());
         }
         return this;
     }

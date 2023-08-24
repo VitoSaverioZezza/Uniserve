@@ -6,11 +6,7 @@ import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.integration.KVStoreTests;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
-import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
-import edu.stanford.futuredata.uniserve.rel.queryplans.SimpleReadAll;
-import edu.stanford.futuredata.uniserve.rel.queryplans.SubquerySimpleRead;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
@@ -33,9 +29,13 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.*;
 
+import static edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud.deleteDirectoryRecursion;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class RelTest {
@@ -70,28 +70,33 @@ public class RelTest {
         }
     }
 
+    public static void a() throws IOException{
+        Path LDSC = Path.of("src/main/LocalCloud/");
+        if (Files.isDirectory(LDSC, LinkOption.NOFOLLOW_LINKS)) {
+            try (DirectoryStream<Path> entries = Files.newDirectoryStream(LDSC)) {
+                for (Path entry : entries) {
+                    deleteDirectoryRecursion(entry);
+                }
+            }
+        }
+    }
+
+
     @BeforeAll
-    static void startUpCleanUp() {
+    static void startUpCleanUp() throws IOException {
+        a();
         cleanUp(zkHost, zkPort);
     }
 
     @AfterEach
-    private void unitTestCleanUp() {
+    private void unitTestCleanUp() throws IOException {
+        a();
         cleanUp(zkHost, zkPort);
     }
 
-    @Test
-    public void a(){
-        LocalDataStoreCloud localDataStoreCloud = new LocalDataStoreCloud();
-        try {
-            localDataStoreCloud.clear();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-    }
 
     @Test
-    public void simpleQueriesTests(){
+    public void simpleQueriesTests() {
         Coordinator coordinator = new Coordinator(
                 null,
                 new DefaultLoadBalancer(),
@@ -140,9 +145,9 @@ public class RelTest {
             while ((line = br.readLine()) != null) {
                 String[] parts = line.split(",");
                 if (parts.length == 3) {
-                    actorRows.add(new RelRow(count, parts[0], parts[1],Integer.valueOf(parts[2]), new Random().nextInt(filmCount)));
+                    actorRows.add(new RelRow(count, parts[0], parts[1], Integer.valueOf(parts[2]), new Random().nextInt(filmCount)));
                     count++;
-                }else{
+                } else {
                     System.out.println("No match for " + line);
                 }
             }
@@ -166,20 +171,22 @@ public class RelTest {
         List<RelRow> data = results.getData();
 
         List<RelRow> notMatching = new ArrayList<>();
-        for(int i = 0; i<actorRows.size(); i++){
+        for (int i = 0; i < actorRows.size(); i++) {
             RelRow originalRow = actorRows.get(i);
             boolean match = false;
-            for(int j = 0; j<data.size() && !match; j++){
+            for (int j = 0; j < data.size() && !match; j++) {
                 RelRow queryRow = data.get(j);
-                if(originalRow.getField(1).equals(queryRow.getField(0)) && originalRow.getField(3).equals(queryRow.getField(1))){
+                if (originalRow.getField(1).equals(queryRow.getField(0)) && originalRow.getField(3).equals(queryRow.getField(1))) {
                     match = true;
                 }
             }
-            if(!match){
+            if (!match) {
                 notMatching.add(originalRow);
             }
         }
+        printRowList(notMatching);
         assertTrue(notMatching.isEmpty());
+
 
         //join
         RelReadQueryResults joinResults = api.read()
@@ -193,31 +200,31 @@ public class RelTest {
         List<RelRow> joinResRows = joinResults.getData();
 
         List<List<Object>> joinTest = new ArrayList<>();
-        for(RelRow film: filmRows){
-            for(RelRow actor: actorRows){
-                if(film.getField(1).equals("Christopher Nolan") && film.getField(0).equals(actor.getField(4))){
+        for (RelRow film : filmRows) {
+            for (RelRow actor : actorRows) {
+                if (film.getField(1).equals("Christopher Nolan") && film.getField(0).equals(actor.getField(4))) {
                     joinTest.add(List.of(actor.getField(1), film.getField(1)));
                 }
             }
         }
-        for(int i = 0; i<joinTest.size(); i++){
+        for (int i = 0; i < joinTest.size(); i++) {
             boolean match = false;
             List<Object> testRow = joinTest.get(i);
-            for(int j = joinResRows.size()-1 ; j>=0 && !match; j--){
+            for (int j = joinResRows.size() - 1; j >= 0 && !match; j--) {
                 RelRow resRow = joinResRows.get(j);
-                if(resRow.getField(0).equals(testRow.get(0)) && resRow.getField(1).equals(resRow.getField(1))){
+                if (resRow.getField(0).equals(testRow.get(0)) && resRow.getField(1).equals(resRow.getField(1))) {
                     match = true;
                     joinResRows.remove(resRow);
                 }
             }
         }
-        if(!joinResRows.isEmpty()){
+        if (!joinResRows.isEmpty()) {
             printRowList(joinResRows);
         }
         System.out.println();
-        if(!joinResRows.isEmpty()){
+        if (!joinResRows.isEmpty()) {
             List<RelRow> rerere = new ArrayList<>();
-            for(List<Object> testRow: joinTest){
+            for (List<Object> testRow : joinTest) {
                 rerere.add(new RelRow(testRow.toArray()));
             }
             printRowList(rerere);
@@ -238,32 +245,32 @@ public class RelTest {
                         .from("Films")
                         .where("Films.Director == \"Christopher Nolan\"")
                         .build()
-                ).build().run();
+        ).build().run();
         RelReadQueryResults nolanEntries = api.read().select().from("NolanEntries").build().run(broker);
         printRowList(nolanEntries.getData());
-        coordinator.stopServing();
         dataStore.shutDown();
-        try{
+        coordinator.stopServing();
+        try {
             ldsc.clear();
-        }catch (Exception e){
+        } catch (Exception e) {
             ;
         }
     }
 
-    private void printRowList(List<RelRow> data){
-        for(RelRow row:data){
+    private void printRowList(List<RelRow> data) {
+        for (RelRow row : data) {
             StringBuilder rowBuilder = new StringBuilder();
             rowBuilder.append("Row #" + data.indexOf(row) + " ");
-            for (int j = 0; j<row.getSize()-1; j++){
+            for (int j = 0; j < row.getSize() - 1; j++) {
                 rowBuilder.append(row.getField(j) + ", ");
             }
-            rowBuilder.append(row.getField(row.getSize()-1));
+            rowBuilder.append(row.getField(row.getSize() - 1));
             System.out.println(rowBuilder.toString());
         }
     }
 
     @Test
-    public void aggregateTest(){
+    public void aggregateTest() {
         System.out.println("Starting aggregate test components");
         Coordinator coordinator = new Coordinator(
                 null,
@@ -315,7 +322,7 @@ public class RelTest {
                 String[] parts = line.split(",");
                 if (parts.length == 3) {
                     int random = rng.nextInt();
-                    if(random <0){
+                    if (random < 0) {
                         random *= -1;
                     }
                     actorRows.add(new RelRow(count, parts[0], parts[1], Integer.valueOf(parts[2]), random % filmCount));
@@ -364,27 +371,27 @@ public class RelTest {
         Map<String, Integer> sums = new HashMap<>();
         Map<String, Integer> counts = new HashMap<>();
 
-        for(int i = 0; i<filmRows.size(); i++){
+        for (int i = 0; i < filmRows.size(); i++) {
             RelRow filmRow = filmRows.get(i);
-            for(int j = 0; j<actorRows.size(); j++){
+            for (int j = 0; j < actorRows.size(); j++) {
                 RelRow actorRow = actorRows.get(j);
-                if(actorRow.getField(4).equals(filmRow.getField(0))){
-                    if(sums.containsKey((String) filmRow.getField(1))){
-                        sums.put((String) filmRow.getField(1), (sums.get((String) filmRow.getField(1))+(Integer)actorRow.getField(3)));
-                    }else{
+                if (actorRow.getField(4).equals(filmRow.getField(0))) {
+                    if (sums.containsKey((String) filmRow.getField(1))) {
+                        sums.put((String) filmRow.getField(1), (sums.get((String) filmRow.getField(1)) + (Integer) actorRow.getField(3)));
+                    } else {
                         sums.put((String) filmRow.getField(1), (Integer) actorRow.getField(3));
                     }
-                    if(counts.containsKey((String) filmRow.getField(1))){
-                        counts.put((String) filmRow.getField(1), (sums.get((String) filmRow.getField(1))+1));
-                    }else{
+                    if (counts.containsKey((String) filmRow.getField(1))) {
+                        counts.put((String) filmRow.getField(1), (sums.get((String) filmRow.getField(1)) + 1));
+                    } else {
                         counts.put((String) filmRow.getField(1), 1);
                     }
                 }
             }
         }
-        for(RelRow resRow: totalActorEarnings.getData()){
+        for (RelRow resRow : totalActorEarnings.getData()) {
             String directorName = (String) resRow.getField(0);
-            if(counts.containsKey(directorName) && counts.get(directorName)>1){
+            if (counts.containsKey(directorName) && counts.get(directorName) > 1) {
                 assertEquals(sums.get(directorName), (Integer) resRow.getField(1));
             }
         }
@@ -401,16 +408,16 @@ public class RelTest {
                 .group("Films.Director")
                 .build().run(broker);
         List<RelRow> groups = totalActorEarningsGroup.getData();
-        for(RelRow row: groups){
+        for (RelRow row : groups) {
             boolean contained = false;
-            for(RelRow row1: totalActorEarnings.getData()){
+            for (RelRow row1 : totalActorEarnings.getData()) {
                 boolean equal = true;
-                for(int i = 0; i<row.getSize() && equal; i++){
-                    if(!row.getField(i).equals(row1.getField(i))){
+                for (int i = 0; i < row.getSize() && equal; i++) {
+                    if (!row.getField(i).equals(row1.getField(i))) {
                         equal = false;
                     }
                 }
-                if(equal) {
+                if (equal) {
                     contained = true;
                     break;
                 }
@@ -419,17 +426,16 @@ public class RelTest {
         }
         coordinator.stopServing();
         dataStore.shutDown();
-        try{
+        try {
             ldsc.clear();
-        }catch (Exception e){
+        } catch (Exception e) {
             ;
         }
     }
 
 
     @Test
-    public void storedTest(){
-        System.out.println("Starting aggregate test components");
+    public void storedTest() {
         Coordinator coordinator = new Coordinator(
                 null,
                 new DefaultLoadBalancer(),
@@ -453,7 +459,6 @@ public class RelTest {
         List<RelRow> filmRows = new ArrayList<>();
         String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/ActorTestFile.txt";
         String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/FilmTestFile.txt";
-        int totFilmBudget = 0, avgFilmBudget = 0, minBudget = Integer.MAX_VALUE, maxBudget = Integer.MIN_VALUE;
         int filmCount = 0;
         int count = 0;
         try (BufferedReader br = new BufferedReader(new FileReader(filmFilePath))) {
@@ -464,12 +469,8 @@ public class RelTest {
                     int budget = Integer.parseInt(parts[1]);
                     filmRows.add(new RelRow(filmCount, parts[0], budget));
                     filmCount++;
-                    totFilmBudget += budget;
-                    minBudget = Integer.min(minBudget, budget);
-                    maxBudget = Integer.max(maxBudget, budget);
                 }
             }
-            avgFilmBudget = totFilmBudget / filmCount;
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -480,7 +481,7 @@ public class RelTest {
                 String[] parts = line.split(",");
                 if (parts.length == 3) {
                     int random = rng.nextInt();
-                    if(random <0){
+                    if (random < 0) {
                         random *= -1;
                     }
                     actorRows.add(new RelRow(count, parts[0], parts[1], Integer.valueOf(parts[2]), random % filmCount));
@@ -494,19 +495,53 @@ public class RelTest {
         }
         API api = new API();
         api.start(zkHost, zkPort);
-        System.out.println("Actors and Films table creation...");
+
         api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").keys("ID").build().run();
         api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").build().run();
+
+        System.out.println("Initializing table Actors");
         api.write().table(broker, "Actors").data(actorRows).build().run();
+        System.out.println("Initializing table Films");
         api.write().table(broker, "Films").data(filmRows).build().run();
-        RelReadQueryResults q1 = api.read()
-                .select("Films.ID").from("Films").store().build().run(broker);
-        ReadQueryResults q2 = api.read().select().from("Films").store().build().run(broker);
+
+        System.out.println("Defining query to be stored");
+        ReadQuery totalActorEarningsQuery = api.read()
+                .select("F.Director")
+                .alias("DirectorName")
+                .sum("A.Salary", "TotalActorsEarnings")
+                .count("A.Salary", "NumFilms")
+                .from("Actors", "A")
+                .from("Films", "F")
+                .where("A.FilmID == F.ID")
+                .having("NumFilms > 1")
+                .group("Films.Director")
+                .store()
+                .build();
+        System.out.println("Running query to be stored");
+        RelReadQueryResults totActorEarningsResults = totalActorEarningsQuery.run(broker);
+        assertTrue(broker.getTableInfo("Actors").getRegisteredQueries().get(0).equals(totalActorEarningsQuery));
+        System.out.println("Adding data to Actors table");
+        api.write().table(broker, "Actors").data(
+                new RelRow(500, "Clint Eastwood", "31/05/1930", 100000, 111),
+                new RelRow(501, "Clint Eastwood", "31/05/1930", 100000, 112)
+        ).build().run();
+        System.out.println("Adding data to Films table");
+        api.write().table(broker, "Films").data(
+                new RelRow(111, "Sergio Leone", 1000000),
+                new RelRow(112, "Sergio Leone", 1000000)
+        ).build().run();
+
+        RelReadQueryResults updTotActEarn = totalActorEarningsQuery.run(broker);
+        System.out.println(totActorEarningsResults.getData().size() + " " + updTotActEarn.getData().size() );
+
+        printRowList(updTotActEarn.getData());
+
+        broker.shutdown();
         coordinator.stopServing();
         dataStore.shutDown();
-        try{
+        try {
             ldsc.clear();
-        }catch (Exception e){
+        } catch (Exception e) {
             ;
         }
     }

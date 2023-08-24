@@ -33,9 +33,9 @@ public class ReadQueryBuilder {
     private boolean distinct = false;
     private boolean isStored = false;
 
-    private Map<String, String> tableNameToAlias = new HashMap<>(); //contains ALL tables, values for tableNames without aliases are set to null;
-    private Map<String, String> aliasToTableName = new HashMap<>(); //contains ONLY aliases of the tables
-    private Map<String, ReadQuery> subqueriesAlias = new HashMap<>(); //contains ALL subqueries mappings
+    private final Map<String, String> tableNameToAlias = new HashMap<>(); //contains ALL tables, values for tableNames without aliases are set to null;
+    private final Map<String, String> aliasToTableName = new HashMap<>(); //contains ONLY aliases of the tables
+    private final Map<String, ReadQuery> subqueriesAlias = new HashMap<>(); //contains ALL subqueries mappings
 
 
     //TODO: General cleanup
@@ -136,18 +136,22 @@ public class ReadQueryBuilder {
 
 
     public ReadQuery build(){
+        ReadQuery resultQuery = null;
         if(aggregates.isEmpty()){
-            return buildSimpleQuery();
+            resultQuery =  buildSimpleQuery();
         }else if(rawGroupAttributes.isEmpty() && rawSelectedFields.isEmpty()){
-            return buildSimpleAggregateQuery();
+            resultQuery =  buildSimpleAggregateQuery();
         }else{
-            return buildAggregateQuery();
+            resultQuery =  buildAggregateQuery();
         }
+        if(isStored){
+            resultQuery.setRegistered();
+        }
+        return resultQuery;
     }
 
     private ReadQuery buildSimpleAggregateQuery(){
         String selectionPredicate = rawSelectionPredicate;
-        String parsedHavingPredicate = rawHavingPredicate;
 
         List<String> userFinalSchema = new ArrayList<>();   //result schema of the whole query
         List<Pair<Integer, String>> systemAggregateSubschema = new ArrayList<>(); //aggregate part of the schema going as input of the final combine operation
@@ -239,11 +243,6 @@ public class ReadQueryBuilder {
                 .setGatherInputRowsSchema(systemGatherSchema)
                 .setFinalSchema(userFinalSchema);
         ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setSimpleAggregateQuery(aggregateQuery);
-
-        String registeredID = isQueryAlreadyRegistered(ret);
-        if(!registeredID.isEmpty()){
-            ret = new ReadQueryBuilder(broker).select().from(registeredID).build();
-        }
         return ret;
     }
     private ReadQuery buildSimpleQuery(){
@@ -360,10 +359,6 @@ public class ReadQueryBuilder {
             simpleQuery = simpleQuery.setDistinct();
         }
         ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setSimpleQuery(simpleQuery);
-        String registeredID = isQueryAlreadyRegistered(ret);
-        if(!registeredID.isEmpty()){
-            ret = new ReadQueryBuilder(broker).select().from(registeredID).build();
-        }
         return ret;
     }
     private ReadQuery buildAggregateQuery(){
@@ -487,7 +482,13 @@ public class ReadQueryBuilder {
                 .setSystemFinalSchema(systemIntermediateSchema)
                 .setAliasToTableMap(aliasToTableName)
                 .setUserFinalSchema(systemIntermediateSchema);
-        String intermediateQueryStringID = Integer.toString(new Random().nextInt());
+
+        int subqueryID = new Random().nextInt();
+        if(subqueryID>0){
+            subqueryID = subqueryID*(-1);
+        }
+        String intermediateQueryStringID = Integer.toString(subqueryID);
+
         ReadQuery intermediateQueryWrapper = new ReadQuery().setSimpleQuery(intermediateQuery).setResultSchema(systemIntermediateSchema);
         AggregateQuery aggregateQuery = new AggregateQuery()
                 .setIntermediateQuery(intermediateQueryStringID, intermediateQueryWrapper)
@@ -498,13 +499,6 @@ public class ReadQueryBuilder {
                 .setAggregatesAliases(aggregateAttributesNames)
                 .setFinalSchema(userFinalSchema);
         ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setAggregateQuery(aggregateQuery);
-        String registeredID = isQueryAlreadyRegistered(ret);
-        if(isStored){
-            ret.setStored();
-        }
-        if(!registeredID.isEmpty()){
-            ret = new ReadQueryBuilder(broker).select().from(registeredID).build();
-        }
         return ret;
     }
 
@@ -542,15 +536,4 @@ public class ReadQueryBuilder {
         return true;
     }
 
-    private String isQueryAlreadyRegistered(ReadQuery newQuery){
-        String aSource = newQuery.getSourceTables().get(0);
-        TableInfo aSourceInfo = broker.getTableInfo(aSource);
-        List<ReadQuery> registeredQueries = aSourceInfo.triggeredQueries;
-        for(ReadQuery registeredQuery: registeredQueries){
-            if(newQuery.equals(registeredQuery)){
-                return registeredQuery.getResultTableID();
-            }
-        }
-        return "";
-    }
 }

@@ -5,8 +5,6 @@ import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.api.PersistentReadQuery;
-import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
-import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
@@ -28,7 +26,6 @@ import java.util.stream.IntStream;
 
 
 /**
- * TODO: test for lastcommittedversion in zookeeper
  * TODO: replace the ExecutorService readQueryThreadPool with async calls.
  * TODO: Retry routine and error handling when the Broker cannot find the Coordinator.
  * TODO: Error handling in getTableInfo should be not be carried out via assert statements.
@@ -174,7 +171,6 @@ public class Broker {
                         .stream()
                         .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
         List<WriteQueryThread<R, S>> writeQueryThreads = new ArrayList<>();
-        //long txID = txIDs.getAndIncrement();
 
         long txID = zkCurator.getTxID();
 
@@ -206,12 +202,14 @@ public class Broker {
         zkCurator.writeLastCommittedVersion(txID);
         logger.info("Write completed. Rows: {}. Version: {} Time: {}ms", rows.size(), txID,
                 System.currentTimeMillis() - tStart);
+
+        List<ReadQuery> triggeredQueries = tableInfo.getRegisteredQueries();
+        for(ReadQuery triggeredQuery: triggeredQueries){
+            triggeredQuery.updateStoredResults(this);
+        }
         assert (queryStatus.get() != QUERY_RETRY);
         zkCurator.releaseWriteLock();
-
-        boolean triggeredQueriesStatus = runPersistentSubQueries(writeQueryPlan.getQueriedTable());
-
-        return queryStatus.get() == QUERY_SUCCESS && triggeredQueriesStatus;
+        return queryStatus.get() == QUERY_SUCCESS;
     }
     /**Executes an eventually consistent write query of the given rows, following the procedure specified in the given
      * query plan. It starts a simple write query thread for all shards involved in the query that will randomly select
@@ -265,14 +263,16 @@ public class Broker {
                 System.currentTimeMillis() - tStart);
         assert (queryStatus.get() != QUERY_RETRY);
 
-        boolean triggeredQueriesStatus = runPersistentSubQueries(writeQueryPlan.getQueriedTable());
+        List<ReadQuery> triggeredQueries = tableInfo.getRegisteredQueries();
+        for(ReadQuery triggeredQuery: triggeredQueries){
+            triggeredQuery.updateStoredResults(this);
+        }
 
-        return queryStatus.get() == QUERY_SUCCESS && triggeredQueriesStatus;
+        return queryStatus.get() == QUERY_SUCCESS;
     }
 
     /*VOLATILE OPERATIONS*/
     public<V> V volatileShuffleQuery(VolatileShuffleQueryPlan plan, List<Object> rows){
-        //long txID = txIDs.getAndIncrement();
         long txID = zkCurator.getTxID();
 
         // Map shardID to rows, this mapping will be used to determine which actor will store the volatile
@@ -413,55 +413,6 @@ public class Broker {
             logger.error("Broker: Unsuccessful cleanup of volatile data for successful transaction {}", txID);
         }
         return result;
-    }
-    public<R extends Row> List<R> mapQuery(MapQueryPlan<R> mapQueryPlan, List<R> rows){
-        long tStart = System.currentTimeMillis();
-
-        List<R> results = Collections.synchronizedList(new ArrayList<>());
-        Map<Integer, List<R>> shardRowListMap = new HashMap<>();
-        TableInfo tableInfo = getTableInfo(mapQueryPlan.getQueriedTable());
-        for (R row: rows) {
-            int partitionKey = row.getPartitionKey(tableInfo.getKeyStructure());
-            assert(partitionKey >= 0);
-            int shard = keyToShard(tableInfo.id, tableInfo.numShards, partitionKey);
-            shardRowListMap.computeIfAbsent(shard, (k -> new ArrayList<>())).add(row);
-        }
-
-        Map<Integer, R[]> shardRowArrayMap =
-                shardRowListMap
-                        .entrySet()
-                        .stream()
-                        .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
-
-        List<MapQueryThread<R>> mapQueryThreads = new ArrayList<>();
-        CountDownLatch queryLatch = new CountDownLatch(shardRowArrayMap.size());
-        AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
-
-        for (Integer shardNum: shardRowArrayMap.keySet()) {
-            R[] rowArray = shardRowArrayMap.get(shardNum);
-            MapQueryThread<R> t = new MapQueryThread<>(
-                    results,
-                    shardNum,
-                    mapQueryPlan,
-                    rowArray,
-                    queryLatch,
-                    queryStatus
-            );
-            t.start();
-            mapQueryThreads.add(t);
-        }
-
-        for (MapQueryThread<R> t: mapQueryThreads) {
-            try {
-                t.join();
-            } catch (InterruptedException e) {
-                logger.error("Map query interrupted: {}", e.getMessage());
-                assert(false);
-            }
-        }
-        logger.info("Map completed. Rows: {}. Time: {}ms", rows.size(), System.currentTimeMillis() - tStart);
-        assert (queryStatus.get() == QUERY_SUCCESS);
-        return results;
     }
 
     /*READ QUERIES*/
@@ -850,7 +801,9 @@ public class Broker {
                         .distinct().collect(Collectors.toList());
 
             }
-
+            if(shardNums == null){
+                logger.error("TableInfo does not store list of shards already allocated for table " + tableName);
+            }
             shardNums.remove(Integer.valueOf(-1));
             tablesToShardsMap.put(tableName, shardNums);
             CountDownLatch tableLatch = new CountDownLatch(tablesToShardsMap.get(tableName).size());
@@ -1169,95 +1122,6 @@ public class Broker {
             }
         }
     }
-    /**Scatters the raw data between servers*/
-    private class MapQueryThread<R extends Row> extends Thread{
-        List<R> results;
-        int shardID;
-        MapQueryPlan<R> mapQueryPlan;
-        R[] rowArray;
-        CountDownLatch queryLatch;
-        AtomicInteger queryStatus;
-
-        MapQueryThread(List<R> results, int shardID, MapQueryPlan<R> mapQueryPlan, R[] rowArray,CountDownLatch queryLatch, AtomicInteger queryStatus){
-            this.mapQueryPlan = mapQueryPlan;
-            this.results = results;
-            this.shardID = shardID;
-            this.rowArray = rowArray;
-            this.queryLatch = queryLatch;
-            this.queryStatus = queryStatus;
-        }
-
-        @Override
-        public void run(){
-            R[] originalData = rowArray.clone();
-            AtomicInteger mapStatus = new AtomicInteger(QUERY_RETRY);
-            while(mapStatus.get() == QUERY_RETRY){
-                final List<R[]> partialResults = new ArrayList<>();
-                CountDownLatch finishLatch = new CountDownLatch(1);
-                BrokerDataStoreGrpc.BrokerDataStoreBlockingStub blockingStub = getStubForShard(shardID);
-                BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(blockingStub.getChannel());
-
-                StreamObserver<MapQueryMessage> observer = stub.mapQuery(new StreamObserver<MapQueryResponse>() {
-                    @Override
-                    public void onNext(MapQueryResponse mapQueryResponse) {
-                        mapStatus.set(mapQueryResponse.getState());
-                        if(mapStatus.get() == DataStore.COLLECT){
-                            partialResults.add((R[]) Utilities.byteStringToObject(mapQueryResponse.getTransformedData()));
-                        }
-                    }
-
-                    @Override
-                    public void onError(Throwable throwable) {
-                        mapStatus.set(QUERY_FAILURE);
-                        finishLatch.countDown();
-                    }
-
-                    @Override
-                    public void onCompleted(){
-                        finishLatch.countDown();
-                    }
-                });
-                int STEPSIZE = 10000;
-                for (int i = 0; i < originalData.length; i += STEPSIZE) {
-                    ByteString serializedQuery = Utilities.objectToByteString(mapQueryPlan);
-                    R[] rowSlice = Arrays.copyOfRange(originalData, i, Math.min(originalData.length, i + STEPSIZE));
-                    ByteString rowData = Utilities.objectToByteString(rowSlice);
-                    MapQueryMessage rowMessage = MapQueryMessage.newBuilder()
-                            .setSerializedQuery(serializedQuery)
-                            .setRowData(rowData)
-                            .setState(DataStore.COLLECT)
-                            .build();
-                    observer.onNext(rowMessage);
-                }
-                observer.onCompleted();
-                try{
-                    finishLatch.await();
-                }catch (Exception e){
-                    logger.error("Map interrupted {}", e.getMessage());
-                }
-                if (mapStatus.get() == QUERY_RETRY) {
-                    try {
-                        originalData = rowArray.clone();
-                        Thread.sleep(shardMapDaemonSleepDurationMillis);
-                        continue;
-                    } catch (InterruptedException e) {
-                        logger.error("Map Interrupted: {}", e.getMessage());
-                        assert (false);
-                    }
-                }
-                if (mapStatus.get() == QUERY_FAILURE) {
-                    queryStatus.set(QUERY_FAILURE);
-                }
-                assert (mapStatus.get() == DataStore.COLLECT);
-                for(R[] rowArray: partialResults){
-                    for(R row: rowArray){
-                        results.add(row);
-                    }
-                }
-                return;
-            }
-        }
-    }
     /**Forwards raw data to servers*/
     private class StoreVolatileDataThread<R extends Row> extends Thread{
         private final Integer dsID;
@@ -1439,7 +1303,6 @@ public class Broker {
             }
         }
     }
-
     private class StoreSubqueryDataThread extends Thread{
         private final Integer dsID;
         private final long txID;
@@ -1538,84 +1401,13 @@ public class Broker {
 
 
     /*UTILITIES*/
-
-    /**Given the name of the table written executes the stored queries that are triggered by the write operation
-     * @param tableName the name of the written table
-     * @return true if and only if all triggered queries have been succesfully executed*/
-    private boolean runPersistentSubQueries(String tableName){
-        TableInfo sinkInfo = getTableInfo(tableName);
-        List<PersistentReadQuery> queries = sinkInfo.getQueriesTriggeredByAWriteOnThisTable();
-        boolean res = true;
-        for(PersistentReadQuery query: queries){
-            logger.info("Updating table {}.", query.getSinkTable());
-            res = (query.run(this) != null) && res;
-            if(!res){
-                return false;
-            }
-        }
-        return res;
-    }
-
-    /**Registers the given query to be executed each time one of the source tables' content is modified
-     * @param query the query to be registerd
-     * @return true if and only if the query has been successfully stored
-     */
-    public boolean registerPersistentQuery(PersistentReadQuery query){
-        Map<String, List<String>> adjacentTables = new HashMap<>();
-        adjacentTables.put(query.getSinkTable(), new ArrayList<>());
-        if(checkCycle(query)){
-            return false;
-        }
-        ByteString serializedPlan = Utilities.objectToByteString(query);
-        RegisterQueryMessage registerMessage = RegisterQueryMessage.newBuilder().setPlan(serializedPlan).build();
-        coordinatorBlockingStub.registerQuery(registerMessage);
-        return true;
-    }
-
-    /**Checks if the query to be stored causes a cycle of executions that prevents termination if one of the
-     * queries in the cycle is triggered.
-     * @param query the query to be registerd
-     * @return true if the query creates a cycle
-     */
-    private boolean checkCycle(PersistentReadQuery query){
-        TableInfo tableInfo = getTableInfo(query.getSinkTable());
-        List<PersistentReadQuery> queriesTriggered = tableInfo.getQueriesTriggeredByAWriteOnThisTable();
-        List<String> writtenTables = new ArrayList<>();
-        for(PersistentReadQuery triggeredQuery: queriesTriggered){
-            addSinks(writtenTables, triggeredQuery);
-        }
-        List<String> sources = query.getSourceTables();
-        for(String source: sources){
-            if(writtenTables.contains(source)){
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**Recursively populates the given list with all table names written as a cause of the given stored query execution.
-     * The method is guaranteed to return since all previously inserted queries do not generate a loop and the inserted
-     * query itself does not generate a loop since the query builder checks whether the sink table is also listed as a
-     * source and in such a case throws an exception at build time
-     * @param sinks all the encountered sink tables
-     * @param query the root of the query execution tree
-     */
-    private void addSinks(List<String> sinks, PersistentReadQuery query){
-        sinks.add(query.getSinkTable());
-        List<PersistentReadQuery> queriesTriggered = getTableInfo(query.getSinkTable()).getQueriesTriggeredByAWriteOnThisTable();
-        for(PersistentReadQuery triggeredQuery: queriesTriggered){
-            addSinks(sinks, triggeredQuery);
-        }
-    }
-
     /**Retrieves a TableInfo object associated with the given table name.
      * TODO: Error handling should be not be carried out via assert statements
      * @param tableName The name of the queried table
      * @return The table info object associated with the given name
      * */
     public TableInfo getTableInfo(String tableName) {
-        TableInfoResponse r = coordinatorBlockingStub.
-                tableInfo(TableInfoMessage.newBuilder().setTableName(tableName).build());
+        TableInfoResponse r = coordinatorBlockingStub.tableInfo(TableInfoMessage.newBuilder().setTableName(tableName).build());
         assert(r.getReturnCode() == QUERY_SUCCESS);
         TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards());
         Object[] attributeNamesArray = (Object[]) Utilities.byteStringToObject(r.getAttributeNames());
@@ -1625,10 +1417,7 @@ public class Broker {
         }
         t.setAttributeNames(attributeNames);
         t.setKeyStructure((Boolean[]) Utilities.byteStringToObject(r.getKeyStructure()));
-        Object[] triggeredQueries = (Object[]) Utilities.byteStringToObject(r.getTriggeredQueries());
-        for(Object query: triggeredQueries){
-            t.addTriggeredQuery((PersistentReadQuery) query);
-        }
+        t.setRegisteredQueries((ArrayList<ReadQuery>) Utilities.byteStringToObject(r.getTriggeredQueries()));
         t.setTableShardsIDs((ArrayList<Integer>) Utilities.byteStringToObject(r.getShardIDs()));
         return t;
     }
@@ -1766,15 +1555,16 @@ public class Broker {
         return outcome.get()==0;
     }
 
-
-    public boolean storeReadQuery(ReadQuery readQuery){
-        System.out.println("In Broker, preparing subq");
-        readQuery.setResultTableID(Integer.toString(zkCurator.getResultTableID()));
-        System.out.println("result table id from ZK = " + readQuery.getResultTableID());
-        StoreReadQueryResponse response = coordinatorBlockingStub.storeReadQuery(StoreReadQueryMessage.newBuilder().setReadQuery(Utilities.objectToByteString(readQuery)).build());
-        return response.getStatus() == 0;
-        //set the name of the table that will store the query results
-        //send the query object to the coordinator
+    public boolean registerQuery(ReadQuery query){
+        Integer resultTableID = zkCurator.getResultTableID();
+        query.setResultTableName(Integer.toString(resultTableID));
+        boolean isTableCreated = createTable(Integer.toString(resultTableID), SHARDS_PER_TABLE, query.getResultSchema(), query.getKeyStructure());
+        if(!isTableCreated){
+            throw new RuntimeException("Query cannot be registered");
+        }
+        StoreQueryResponse response = coordinatorBlockingStub.storeQuery(
+                StoreQueryMessage.newBuilder().setQuery(Utilities.objectToByteString(query)).build());
+        return response.getStatus()==Broker.QUERY_SUCCESS;
     }
 
 

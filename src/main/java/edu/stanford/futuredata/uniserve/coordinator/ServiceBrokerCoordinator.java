@@ -44,20 +44,17 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         String tableName = m.getTableName();
         if (coordinator.tableInfoMap.containsKey(tableName)) {
             TableInfo t = coordinator.tableInfoMap.get(tableName);
-            List<PersistentReadQuery> triggeredQueries = t.getQueriesTriggeredByAWriteOnThisTable();
-            ByteString serializedQueries = Utilities.objectToByteString(triggeredQueries.toArray());
-            //ArrayList<ReadQuery> readQueries = (ArrayList<ReadQuery>) t.triggeredQueries;
-            //ByteString serReadQueries = Utilities.objectToByteString(readQueries);
             ByteString serAttrNamesArray = Utilities.objectToByteString(t.getAttributeNames().toArray());
             ByteString serKeyStructure = Utilities.objectToByteString(t.getKeyStructure());
             ByteString serShardIDs = Utilities.objectToByteString((ArrayList<Integer>) coordinator.getShardIDsForTable(tableName));
+            ByteString storedQueries = Utilities.objectToByteString(t.getRegisteredQueries());
             return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
                     .setId(t.id)
-                    .setTriggeredQueries(serializedQueries)
                     .setNumShards(t.numShards)
                     .setAttributeNames(serAttrNamesArray)
                     .setKeyStructure(serKeyStructure)
                     .setShardIDs(serShardIDs)
+                    .setTriggeredQueries(storedQueries)
                     .build();
         } else {
             return TableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
@@ -89,26 +86,18 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         }
     }
 
-    public void registerQuery(RegisterQueryMessage request, StreamObserver<RegisterQueryResponse> responseObserver){
-        responseObserver.onNext(registerQueryHandler(request));
+    @Override
+    public void storeQuery(StoreQueryMessage request, StreamObserver<StoreQueryResponse> responseObserver){
+        responseObserver.onNext(storeQueryHandler(request));
         responseObserver.onCompleted();
     }
-    private RegisterQueryResponse registerQueryHandler(RegisterQueryMessage request){
-        PersistentReadQuery plan = (PersistentReadQuery) Utilities.byteStringToObject(request.getPlan());
-        for(String source: plan.getSourceTables()){
-            coordinator.tableInfoMap.get(source).addTriggeredQuery(plan);
+    private StoreQueryResponse storeQueryHandler(StoreQueryMessage request){
+        ReadQuery readQuery = (ReadQuery) Utilities.byteStringToObject(request.getQuery());
+        List<String> sourceTables = readQuery.getSourceTables();
+        for(String source: sourceTables){
+            coordinator.registerQuery(readQuery, source);
         }
-        return RegisterQueryResponse.newBuilder().build();
+        return StoreQueryResponse.newBuilder().setStatus(Broker.QUERY_SUCCESS).build();
     }
 
-    @Override
-    public void storeReadQuery(StoreReadQueryMessage request, StreamObserver<StoreReadQueryResponse> responseObserver){
-        responseObserver.onNext(storeReadQueryHandler(request));
-        responseObserver.onCompleted();
-    }
-    public StoreReadQueryResponse storeReadQueryHandler(StoreReadQueryMessage request){
-        System.out.println("Succesfully called coordinator's gRPC method");
-        ReadQuery readQuery = (ReadQuery) Utilities.byteStringToObject(request.getReadQuery());
-        return StoreReadQueryResponse.newBuilder().setStatus(coordinator.storeReadQuery(readQuery)).build();
-    }
 }

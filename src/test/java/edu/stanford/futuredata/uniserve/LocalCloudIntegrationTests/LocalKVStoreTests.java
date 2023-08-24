@@ -25,11 +25,15 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud.deleteDirectoryRecursion;
 import static org.junit.jupiter.api.Assertions.*;
 
 
@@ -67,61 +71,29 @@ public class LocalKVStoreTests {
     }
 
     @BeforeAll
-    static void startUpCleanUp() {
+    static void startUpCleanUp() throws IOException {
+        a();
         cleanUp(zkHost, zkPort);
     }
 
     @AfterEach
-    private void unitTestCleanUp() {
+    private void unitTestCleanUp() throws IOException {
+        a();
         cleanUp(zkHost, zkPort);
     }
 
-    @Test
-    public void testSimpleMap(){
-        Coordinator coordinator = new Coordinator(
-                null,
-                new DefaultLoadBalancer(),
-                new DefaultAutoScaler(),
-                zkHost, zkPort,
-                "127.0.0.1", 7777);
-        coordinator.runLoadBalancerDaemon = false;
-        coordinator.startServing();
 
-        DataStore<KVRow,KVShard> dataStore = new DataStore<>(null,
-                new KVShardFactory(),
-                Path.of("/var/tmp/KVUniserve"),
-                zkHost, zkPort,
-                "127.0.0.1", 8000,
-                -1,
-                false
-                );
-        dataStore.startServing();
-
-        Broker broker = new Broker(zkHost, zkPort);
-
-        int numShards = 1;
-        assertTrue(broker.createTable("table1", numShards, new ArrayList<>(), null));
-
-        MapQueryPlan<KVRow> mapQueryPlan = new KVIncrementValueMap();
-
-        List<KVRow> data = new ArrayList<>();
-        data.add(new KVRow(1,1));
-        data.add(new KVRow(2,2));
-        data.add(new KVRow(3,3));
-        data.add(new KVRow(4,4));
-
-        data = broker.mapQuery(mapQueryPlan, data);
-
-        for(KVRow row: data){
-            if(row.getKey() == 1) assertEquals(2, row.getValue());
-            if(row.getKey() == 2) assertEquals(3, row.getValue());
-            if(row.getKey() == 3) assertEquals(4, row.getValue());
-            if(row.getKey() == 4) assertEquals(5, row.getValue());
+    public static void a() throws IOException{
+        Path LDSC = Path.of("src/main/LocalCloud/");
+        if (Files.isDirectory(LDSC, LinkOption.NOFOLLOW_LINKS)) {
+            try (DirectoryStream<Path> entries = Files.newDirectoryStream(LDSC)) {
+                for (Path entry : entries) {
+                    deleteDirectoryRecursion(entry);
+                }
+            }
         }
-        dataStore.shutDown();
-        broker.shutdown();
-        coordinator.stopServing();
     }
+
 
     @Test
     public void testSingleKey() {
@@ -554,7 +526,7 @@ public class LocalKVStoreTests {
             sum += 4*i;
         }
         avg = sum/10;
-        assertEquals(avg, Optional.ofNullable(broker.volatileShuffleQuery(totalAverage, rows)));
+        assertEquals(avg, (int) broker.volatileShuffleQuery(totalAverage, rows));
         for(LocalDataStoreCloud dsCloud: dsClouds){
             try{
                 dsCloud.clear();
@@ -803,10 +775,6 @@ public class LocalKVStoreTests {
                         insertList.add(new KVRow(i, finalThreadNum));
                     }
                     WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-                    List<KVRow> mapList = broker.mapQuery(new KVIncrementValueMap("table"), insertList);
-                    for(int i = 0; i< numShards; i++){
-                        assertEquals(insertList.get(i).getValue() + 1, mapList.get(i).getValue());
-                    }
                     assertTrue(broker.writeQuery(writeQueryPlan, insertList));
                 }
             });

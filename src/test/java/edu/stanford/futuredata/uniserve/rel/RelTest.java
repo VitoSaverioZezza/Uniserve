@@ -134,8 +134,8 @@ public class RelTest {
         List<RelRow> actorRows = new ArrayList<>();
         List<RelRow> filmRows = new ArrayList<>();
 
-        String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/ActorTestFile.txt";
-        String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/FilmTestFile.txt";
+        String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/ActorTestFile.txt";
+        String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/FilmTestFile.txt";
 
         int filmCount = 0;
         try (BufferedReader br = new BufferedReader(new FileReader(filmFilePath))) {
@@ -554,7 +554,267 @@ public class RelTest {
     }
     @Test
     public void nestedQueriesTests(){
+        Coordinator coordinator = new Coordinator(
+                null,
+                new DefaultLoadBalancer(),
+                new DefaultAutoScaler(),
+                zkHost, zkPort,
+                "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
 
+        LocalDataStoreCloud ldsc = new LocalDataStoreCloud();
+
+        DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldsc,
+                new RelShardFactory(),
+                Path.of("/var/tmp/RelUniserve"),
+                zkHost, zkPort,
+                "127.0.0.1", 8000,
+                -1,
+                false
+        );
+        dataStore.startServing();
+
+        Broker broker = new Broker(zkHost, zkPort);
+
+        List<RelRow> coursesRows = new ArrayList<>();
+        List<RelRow> examsRows = new ArrayList<>();
+        List<RelRow> studentsRows = new ArrayList<>();
+        List<RelRow> professorsRows = new ArrayList<>();
+
+        String coursesFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/courses.txt";
+        String examsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/exams.txt";
+        String professorsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/professors.txt";
+        String studentsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/students.txt";
+
+
+        int coursesCount = 0, examsCount = 0, professorsCount = 0, studentsCount = 0;
+        try (BufferedReader br = new BufferedReader(new FileReader(coursesFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 6) {
+                    coursesRows.add(
+                            new RelRow(
+                                    parts[0],
+                                    parts[1],
+                                    parts[2],
+                                    Integer.valueOf(parts[3]),
+                                    Integer.valueOf(parts[4]),
+                                    Integer.valueOf(parts[5])
+                                    ));
+                    coursesCount++;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try (BufferedReader br = new BufferedReader(new FileReader(examsFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 3) {
+                    examsRows.add(new RelRow(
+                            parts[0],
+                            Integer.valueOf(parts[1]),
+                            Integer.valueOf(parts[2])
+                    ));
+                    examsCount++;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try (BufferedReader br = new BufferedReader(new FileReader(professorsFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 6) {
+                    professorsRows.add(new RelRow(
+                        Integer.valueOf(parts[0]),
+                        parts[1],
+                        parts[2],
+                        parts[3],
+                        parts[4],
+                        Integer.valueOf(parts[5])
+                    ));
+                    professorsCount++;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try (BufferedReader br = new BufferedReader(new FileReader(studentsFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 5) {
+                    studentsRows.add(new RelRow(
+                        Integer.valueOf(parts[0]),
+                        parts[1],
+                        parts[2],
+                        parts[3],
+                        parts[4]
+                    ));
+                    studentsCount++;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        API api = new API(broker);
+        List<String> studentsSchema = List.of("ID", "Name", "Surname", "Address", "City");
+        List<String> professorsSchema = List.of("ID", "Name", "Surname", "City", "PhoneNumber", "Salary");
+        List<String> coursesSchema = List.of("Code", "Name", "Faculty", "CFUs", "ProfessorID", "StudentsCount");
+        List<String> examsSchema = List.of("CourseCode", "StudentID", "Grade");
+
+        System.out.println("TEST   -----   Creating tables");
+        api.createTable("Students")
+                .attributes(studentsSchema.toArray(new String[0]))
+                .keys("ID")
+                .build().run();
+        api.createTable("Professors")
+                .attributes(professorsSchema.toArray(new String[0]))
+                .keys("ID")
+                .build().run();
+        api.createTable("Courses")
+                .attributes(coursesSchema.toArray(new String[0]))
+                .keys("Code")
+                .build().run();
+        api.createTable("Exams")
+                .attributes(examsSchema.toArray(new String[0]))
+                .keys("CourseCode", "StudentID")
+                .build().run();
+
+        System.out.println("TEST   -----   Writing tables");
+        System.out.println("\tTEST   -----   Writing students");
+        api.write().table("Students").data(studentsRows).build().run();
+        System.out.println("\tTEST   -----   Writing professors");
+        api.write().table("Professors").data(professorsRows).build().run();
+        System.out.println("\tTEST   -----   Writing courses");
+        api.write().table("Courses").data(coursesRows).build().run();
+        System.out.println("\tTEST   -----   Writing exams");
+        api.write().table("Exams").data(examsRows).build().run();
+
+        System.out.println("----- NESTED QUERIES TESTING -----");
+
+        System.out.println("\tTEST ----- max CFUs");
+        RelReadQueryResults maxCFUs = api.read()
+                .select("C.Code", "C.Name")
+                .from("Courses", "C")
+                .from(api.read()
+                        .select()
+                        .max("C1.CFUs", "maxCFU")
+                        .from("Courses", "C1")
+                        .build()
+                , "M")
+                .where("C.CFUs == M.maxCFU")
+                .build().run(broker);
+        int maxCFUvalue = Integer.MIN_VALUE;
+        List<RelRow> writtenMaxCFU = new ArrayList<>();
+        for(RelRow writtenRow: coursesRows){
+            maxCFUvalue = Integer.max(maxCFUvalue, (int) writtenRow.getField(3));
+        }
+        for(RelRow writtenRow: coursesRows){
+            if((int)writtenRow.getField(3) == maxCFUvalue){
+                writtenMaxCFU.add(writtenRow);
+            }
+        }
+        for(RelRow readRow: maxCFUs.getData()){
+            boolean contains = false;
+            for(RelRow writtenMax: writtenMaxCFU){
+                if(writtenMax.getField(0).equals(readRow.getField(0)) &&
+                        writtenMax.getField(1).equals(readRow.getField(1))
+                ){
+                    contains = true;
+                    assertEquals((int) writtenMax.getField(3), maxCFUvalue);
+                }
+            }
+            assertTrue(contains);;
+        }
+        assertEquals(maxCFUs.getFieldNames(), List.of("C.Code", "C.Name"));
+        assertEquals(writtenMaxCFU.size(), maxCFUs.getData().size());
+
+        System.out.println("\tTEST ----- not min CFUs");
+        RelReadQueryResults notMinCFUs = api.read()
+                .select("C.Code", "C.Name")
+                .from("Courses", "C")
+                .from(api.read()
+                                .select()
+                                .min("C1.CFUs", "minCFU")
+                                .from("Courses", "C1")
+                                .build()
+                        , "M")
+                .where("C.CFUs > M.minCFU")
+                .build().run(broker);
+        int minCFUs = Integer.MAX_VALUE;
+        List<RelRow> writtenNotMinCFUs = new ArrayList<>();
+        for(RelRow writtenRow: coursesRows){
+            minCFUs = Integer.min(minCFUs, (int) writtenRow.getField(3));
+        }
+        for(RelRow writtenRow: coursesRows){
+            if((int)writtenRow.getField(3) != minCFUs){
+                writtenNotMinCFUs.add(writtenRow);
+            }
+        }
+        for(RelRow writtenRow: writtenNotMinCFUs){
+            boolean present = false;
+            for(RelRow readRow: notMinCFUs.getData()){
+                if(readRow.getField(0).equals(writtenRow.getField(0)) && readRow.getField(1).equals(writtenRow.getField(1))){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+        assertEquals(writtenNotMinCFUs.size(), notMinCFUs.getData().size());
+        assertEquals(notMinCFUs.getFieldNames(), List.of("C.Code", "C.Name"));
+
+        System.out.println("\tTEST ----- Students who took at least 20");
+        RelReadQueryResults atLeast20 = api.read()
+                .select("E20.CourseCode", "S.ID", "S.Name", "S.Surname")
+                .alias("CourseCode", "StudentID", "Name","Surname")
+                .from(
+                        api.read()
+                                .select("E.CourseCode", "E.StudentID", "E.Grade")
+                                .alias("CourseCode", "StudentID", "Grade")
+                                .from("Exams", "E")
+                                .where("Exams.Grade >= 20").build()
+                        , "E20"
+                )
+                .from("Students", "S")
+                .where("S.ID == E20.StudentID")
+                .build().run(broker);
+
+        int matchesSize = 0;
+        for(RelRow writtenExamRow: examsRows){
+            if((int) writtenExamRow.getField(2) >= 20){
+                matchesSize++;
+                for(RelRow writtenStudent: studentsRows){
+                    if(writtenExamRow.getField(1).equals(writtenStudent.getField(0))){
+                        boolean present = false;
+                        for(RelRow readRow: atLeast20.getData()){
+                            if(readRow.getField(0).equals(writtenExamRow.getField(0)) &&
+                                    readRow.getField(1).equals(writtenStudent.getField(0)) &&
+                                    readRow.getField(3).equals(writtenStudent.getField(2)) &&
+                                    readRow.getField(2).equals(writtenStudent.getField(1))){
+                                present = true;
+                            }
+                        }
+                        assertTrue(present);
+                    }
+                }
+            }
+        }
+        assertEquals(atLeast20.getData().size(), matchesSize);
+
+        broker.shutdown();
+        dataStore.shutDown();
+        coordinator.stopServing();
+        try {
+            ldsc.clear();
+        }catch (Exception e){
+            ;
+        }
     }
 
 
@@ -595,8 +855,8 @@ public class RelTest {
         Broker broker = new Broker(zkHost, zkPort);
         List<RelRow> actorRows = new ArrayList<>();
         List<RelRow> filmRows = new ArrayList<>();
-        String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/ActorTestFile.txt";
-        String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/FilmTestFile.txt";
+        String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/ActorTestFile.txt";
+        String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/FilmTestFile.txt";
         int totFilmBudget = 0, avgFilmBudget = 0, minBudget = Integer.MAX_VALUE, maxBudget = Integer.MIN_VALUE;
         int filmCount = 0;
         int count = 0;

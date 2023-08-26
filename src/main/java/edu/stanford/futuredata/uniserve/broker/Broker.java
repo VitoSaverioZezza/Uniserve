@@ -771,6 +771,8 @@ public class Broker {
             retrievedData.put(tableName, new CopyOnWriteArrayList<>());
             List<Integer> keyList = tablesToKeysMap.get(tableName);
             TableInfo tableInfo = getTableInfo(tableName);
+            assert (tableInfo != null);
+            assert (tableInfo.name.equals(tableName));
             List<Integer> shardNums;
             if(keyList.contains(-1)){
                 shardNums = tableInfo.getTableShardsIDs();

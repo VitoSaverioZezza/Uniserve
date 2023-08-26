@@ -519,7 +519,7 @@ public class LocalKVStoreTests {
         final Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards, new ArrayList<>(), null);
         VolatileShuffleQueryPlan<Integer, Shard> totalAverage = new KVVolatileAverage();
-        List<Object> rows = new ArrayList<>();
+        List<Row> rows = new ArrayList<>();
         int sum = 0, avg = 0;
         for(int i = 1; i<11; i++){
             rows.add(new KVRow(i, 4*i));

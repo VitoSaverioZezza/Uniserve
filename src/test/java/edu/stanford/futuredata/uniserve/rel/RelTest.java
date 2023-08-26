@@ -36,6 +36,7 @@ import java.nio.file.Path;
 import java.util.*;
 
 import static edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud.deleteDirectoryRecursion;
+import static java.lang.Thread.sleep;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class RelTest {
@@ -93,6 +94,16 @@ public class RelTest {
         a();
         cleanUp(zkHost, zkPort);
     }
+    @Test
+    public void clean(){}
+
+
+    //TODO: test subqueries
+    //TODO: test aggregates
+    //TODO: test complex queries on aggregates
+    //TODO: test stored queries on all the previous cases
+    //TODO: test on multiple servers (should not be a problem)
+    //TODO: test on multiple JVMs (also not a problem, is only broker-side parsing of reliable queries)
 
 
     @Test
@@ -154,41 +165,286 @@ public class RelTest {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        API api = new API();
-        api.start(zkHost, zkPort);
-        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").shardNumber(10000).keys("ID").build().run();
-        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").shardNumber(10000).build().run();
-        api.write().table(broker, "Actors").data(actorRows).build().run();
-        api.write().table(broker, "Films").data(filmRows).build().run();
+        API api = new API(broker);
+        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").shardNumber(20).keys("ID").build().run();
+        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").shardNumber(20).build().run();
+        api.write().table("Actors").data(actorRows).build().run();
+        api.write().table("Films").data(filmRows).build().run();
 
-        //aliases tests
-        RelReadQueryResults results = api.read()
+        System.out.println("----- BASIC QUERIES TESTING -----");
+
+        System.out.println("\tTEST ----- Select All Actors, single table query");
+        RelReadQueryResults allActors = api.read()
+                .select()
+                .from("Actors")
+                .build().run(broker);
+        assertEquals(allActors.getData().size(), count);
+        assertEquals(allActors.getFieldNames(), new ArrayList<>(Arrays.asList("Actors.ID", "Actors.FullName", "Actors.DateOfBirth", "Actors.Salary", "Actors.FilmID")));
+        for(RelRow writtenRow: actorRows){
+            boolean present = false;
+            for(RelRow readRow: allActors.getData()){
+                boolean match = true;
+                for(int i = 0; i<readRow.getSize() && match; i++){
+                    match = readRow.getField(i).equals(writtenRow.getField(i));
+                }
+                if(match){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+
+        System.out.println("\tTEST ----- Select All Films, single table query");
+        RelReadQueryResults allFilms = api.read()
+                .select()
+                .from("Films")
+                .build().run(broker);
+        assertEquals(allFilms.getData().size(), filmCount);
+        assertEquals(allFilms.getFieldNames(), new ArrayList<>(Arrays.asList("Films.ID", "Films.Director", "Films.Budget")));
+        for(RelRow writtenRow: filmRows){
+            boolean present = false;
+            for(RelRow readRow: allFilms.getData()){
+                boolean match = true;
+                for(int i = 0; i<readRow.getSize() && match; i++){
+                    match = readRow.getField(i).equals(writtenRow.getField(i));
+                }
+                if(match){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+
+        System.out.println("\tTEST ----- Projection on single table");
+        RelReadQueryResults actorSimpleProj = api.read()
+                .select("Actors.FullName", "Actors.Salary")
+                .from("Actors")
+                .build()
+                .run(broker);
+        assertEquals(actorSimpleProj.getData().size(), count);
+        assertEquals(actorSimpleProj.getFieldNames(), new ArrayList<>(Arrays.asList("Actors.FullName", "Actors.Salary")));
+        for(RelRow row: actorSimpleProj.getData()){
+            assertEquals(row.getSize(), 2);
+        }
+        for(RelRow readRow: actorSimpleProj.getData()){
+            boolean present = false;
+            for(RelRow writtenRow: actorRows){
+                if(readRow.getField(0).equals(writtenRow.getField(1)) &&
+                        readRow.getField(1).equals(writtenRow.getField(3))){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+
+        System.out.println("\tTEST ----- Projection on single table with aliases on fields");
+        RelReadQueryResults actorSimpleProjAlias = api.read()
+                .select("Actors.FullName", "Actors.Salary")
+                .alias("FullName", "Salary")
+                .from("Actors")
+                .build()
+                .run(broker);
+        assertEquals(actorSimpleProjAlias.getData().size(), count);
+        assertEquals(actorSimpleProjAlias.getFieldNames(), new ArrayList<>(Arrays.asList("FullName", "Salary")));
+        for(RelRow row: actorSimpleProjAlias.getData()){
+            assertEquals(row.getSize(), 2);
+        }
+        for(RelRow readRow: actorSimpleProjAlias.getData()){
+            boolean present = false;
+            for(RelRow writtenRow: actorRows){
+                if(readRow.getField(0).equals(writtenRow.getField(1)) &&
+                        readRow.getField(1).equals(writtenRow.getField(3))){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+
+        System.out.println("\tTEST ----- Projection on single table with aliases on fields and table");
+        RelReadQueryResults actorSimpleProjAliasTable = api.read()
                 .select("Actors.FullName", "A.Salary")
-                .alias("Full Name", "Salary")
+                .alias("FullName", "Salary")
                 .from("Actors", "A")
                 .build()
                 .run(broker);
-        List<RelRow> data = results.getData();
-
-        List<RelRow> notMatching = new ArrayList<>();
-        for (int i = 0; i < actorRows.size(); i++) {
-            RelRow originalRow = actorRows.get(i);
-            boolean match = false;
-            for (int j = 0; j < data.size() && !match; j++) {
-                RelRow queryRow = data.get(j);
-                if (originalRow.getField(1).equals(queryRow.getField(0)) && originalRow.getField(3).equals(queryRow.getField(1))) {
-                    match = true;
+        assertEquals(actorSimpleProjAliasTable.getData().size(), count);
+        assertEquals(actorSimpleProjAliasTable.getFieldNames(), new ArrayList<>(Arrays.asList("FullName", "Salary")));
+        for(RelRow row: actorSimpleProjAliasTable.getData()){
+            assertEquals(row.getSize(), 2);
+        }
+        for(RelRow readRow: actorSimpleProjAliasTable.getData()){
+            boolean present = false;
+            for(RelRow writtenRow: actorRows){
+                if(readRow.getField(0).equals(writtenRow.getField(1)) &&
+                        readRow.getField(1).equals(writtenRow.getField(3))){
+                    present = true;
                 }
             }
-            if (!match) {
-                notMatching.add(originalRow);
+            assertTrue(present);
+        }
+
+        System.out.println("\tTEST ----- Cartesian product");
+        RelReadQueryResults cartesianProduct = api.read()
+                .select()
+                .from("Actors")
+                .from("Films")
+                .build()
+                .run(broker);
+        assertEquals(cartesianProduct.getData().size(), count*filmCount);
+        assertEquals(cartesianProduct.getFieldNames(), new ArrayList<>(
+                Arrays.asList("Films.ID", "Films.Director", "Films.Budget","Actors.ID", "Actors.FullName", "Actors.DateOfBirth", "Actors.Salary", "Actors.FilmID")));
+        for(RelRow row: cartesianProduct.getData()){
+            assertEquals(row.getSize(), 8);
+        }
+        for(RelRow readRow: cartesianProduct.getData()){
+            boolean presentActor = false;
+            for(RelRow writtenRow: actorRows){
+                if(readRow.getField(3).equals(writtenRow.getField(0)) &&
+                        readRow.getField(4).equals(writtenRow.getField(1)) &&
+                        readRow.getField(5).equals(writtenRow.getField(2)) &&
+                        readRow.getField(6).equals(writtenRow.getField(3)) &&
+                        readRow.getField(7).equals(writtenRow.getField(4))
+                ){
+                    presentActor = true;
+                }
+            }
+            assertTrue(presentActor);
+            boolean presentFilm = false;
+            for(RelRow writtenRow: filmRows){
+                if(readRow.getField(0).equals(writtenRow.getField(0)) &&
+                        readRow.getField(1).equals(writtenRow.getField(1)) &&
+                        readRow.getField(2).equals(writtenRow.getField(2))
+                ){
+                    presentFilm = true;
+                }
+            }
+            assertTrue(presentFilm);
+        }
+
+        System.out.println("----- PREDICATE TESTING -----");
+
+        System.out.println("\tTEST ----- Select on Single table, single field");
+        RelReadQueryResults selectActors = api.read()
+                .select()
+                .from("Actors")
+                .where("Actors.FullName == \"Johnny Depp\" || Actors.FullName == \"Brad Pitt\"")
+                .build().run(broker);
+        assertEquals(selectActors.getData().size(), 2);
+        assertEquals(selectActors.getFieldNames(), new ArrayList<>(Arrays.asList("Actors.ID", "Actors.FullName", "Actors.DateOfBirth", "Actors.Salary", "Actors.FilmID")));
+        for(RelRow readRow: selectActors.getData()){
+            boolean present = false;
+            for(RelRow writtenRow: actorRows){
+                boolean match = true;
+                for(int i = 0; i<readRow.getSize() && match; i++){
+                    match = readRow.getField(i).equals(writtenRow.getField(i));
+                }
+                if(match){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+
+        System.out.println("\tTEST ----- Select on Single Table, multiple fields");
+        RelReadQueryResults selectFilms = api.read()
+                .select()
+                .from("Films")
+                .where("Films.ID > 5 && Films.Budget > 50000000")
+                .build().run(broker);
+        int selectFilmsRowCount = 0;
+        for(RelRow writtenRow: filmRows){
+            if((int) writtenRow.getField(0) > 5 && (int) writtenRow.getField(2) > 50000000){
+                selectFilmsRowCount++;
+                boolean contain = false;
+                for(RelRow readRow: selectFilms.getData()){
+                    if(readRow.getField(0).equals(writtenRow.getField(0)) &&
+                        readRow.getField(1).equals(writtenRow.getField(1)) &&
+                            readRow.getField(2).equals(writtenRow.getField(2))
+                    ){
+                        contain = true;
+                    }
+                }
+                assertTrue(contain);
             }
         }
-        printRowList(notMatching);
-        assertTrue(notMatching.isEmpty());
+        assertEquals(selectFilms.getData().size(), selectFilmsRowCount);
+        assertEquals(selectFilms.getFieldNames(), new ArrayList<>(Arrays.asList("Films.ID", "Films.Director", "Films.Budget")));
 
 
-        //join
+        System.out.println("\tTEST ----- Selection and Projection on single table");
+        RelReadQueryResults actorSelProj = api.read()
+                .select("Actors.FullName", "Actors.Salary")
+                .from("Actors")
+                .where("Actors.FullName == \"Julia Roberts\"")
+                .build()
+                .run(broker);
+        assertEquals(actorSelProj.getData().size(), 1);
+        assertEquals(actorSelProj.getFieldNames(), new ArrayList<>(Arrays.asList("Actors.FullName", "Actors.Salary")));
+        for(RelRow row: actorSimpleProj.getData()){
+            assertEquals(row.getSize(), 2);
+        }
+        for(RelRow readRow: actorSelProj.getData()){
+            boolean present = false;
+            for(RelRow writtenRow: actorRows){
+                if(readRow.getField(0).equals(writtenRow.getField(1)) &&
+                        readRow.getField(1).equals(writtenRow.getField(3))){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+
+
+
+        System.out.println("\tTEST ----- Selection and Projection on single table with aliases on fields");
+        RelReadQueryResults actorSelectProjAlias = api.read()
+                .select("Actors.FullName", "Actors.Salary")
+                .alias("FullName", "Salary")
+                .from("Actors")
+                .where("Actors.FullName == \"Julia Roberts\" || FullName == \"Vin Diesel\"")
+                .build()
+                .run(broker);
+        assertEquals(actorSelectProjAlias.getData().size(), 2);
+        assertEquals(actorSelectProjAlias.getFieldNames(), new ArrayList<>(Arrays.asList("FullName", "Salary")));
+        for(RelRow row: actorSelectProjAlias.getData()){
+            assertEquals(row.getSize(), 2);
+        }
+        for(RelRow readRow: actorSelectProjAlias.getData()){
+            boolean present = false;
+            for(RelRow writtenRow: actorRows){
+                if(readRow.getField(0).equals(writtenRow.getField(1)) &&
+                        readRow.getField(1).equals(writtenRow.getField(3))){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+
+        System.out.println("\tTEST ----- Selection and Projection on single table with aliases on fields and table");
+        RelReadQueryResults actorSelectProjAliasTable = api.read()
+                .select("Actors.FullName", "A.Salary")
+                .alias("FullName", "Salary")
+                .from("Actors", "A")
+                .where("Actors.FullName == \"Julia Roberts\" || FullName == \"Vin Diesel\" || A.FullName == \"Keanu Reeves\"")
+                .build()
+                .run(broker);
+        assertEquals(actorSelectProjAliasTable.getData().size(), 3);
+        assertEquals(actorSelectProjAliasTable.getFieldNames(), new ArrayList<>(Arrays.asList("FullName", "Salary")));
+        for(RelRow row: actorSelectProjAliasTable.getData()){
+            assertEquals(row.getSize(), 2);
+        }
+        for(RelRow readRow: actorSelectProjAliasTable.getData()){
+            boolean present = false;
+            for(RelRow writtenRow: actorRows){
+                if(readRow.getField(0).equals(writtenRow.getField(1)) &&
+                        readRow.getField(1).equals(writtenRow.getField(3))){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+
+        System.out.println("\tTEST ----- Join");
         RelReadQueryResults joinResults = api.read()
                 .select("A.FullName", "F.Director", "F.ID")
                 .alias("ActorName", "DirectorName", "")
@@ -197,57 +453,97 @@ public class RelTest {
                 .where("A.FilmID == F.ID && DirectorName == \"Christopher Nolan\"")
                 .build()
                 .run(broker);
-        List<RelRow> joinResRows = joinResults.getData();
-
-        List<List<Object>> joinTest = new ArrayList<>();
-        for (RelRow film : filmRows) {
-            for (RelRow actor : actorRows) {
-                if (film.getField(1).equals("Christopher Nolan") && film.getField(0).equals(actor.getField(4))) {
-                    joinTest.add(List.of(actor.getField(1), film.getField(1)));
+        int joinSize = 0;
+        for(RelRow actorWrittenRow: actorRows){
+            for(RelRow filmWrittenRow: filmRows){
+                if(actorWrittenRow.getField(4).equals(filmWrittenRow.getField(0)) &&
+                        filmWrittenRow.getField(1).equals("Christopher Nolan")){
+                    joinSize++;
+                    boolean isContainedInResults = false;
+                    for(RelRow joinRow: joinResults.getData()){
+                        if(joinRow.getField(0).equals(actorWrittenRow.getField(1)) &&
+                                joinRow.getField(1).equals(filmWrittenRow.getField(1)) &&
+                                joinRow.getField(2).equals(filmWrittenRow.getField(0))
+                        ){
+                            isContainedInResults = true;
+                        }
+                    }
+                    assertTrue(isContainedInResults);
                 }
             }
         }
-        for (int i = 0; i < joinTest.size(); i++) {
-            boolean match = false;
-            List<Object> testRow = joinTest.get(i);
-            for (int j = joinResRows.size() - 1; j >= 0 && !match; j--) {
-                RelRow resRow = joinResRows.get(j);
-                if (resRow.getField(0).equals(testRow.get(0)) && resRow.getField(1).equals(resRow.getField(1))) {
-                    match = true;
-                    joinResRows.remove(resRow);
+        for(RelRow resRow: joinResults.getData()){
+            assertEquals(resRow.getSize(), 3);
+        }
+        assertEquals(joinSize, joinResults.getData().size());
+        assertEquals(joinResults.getFieldNames(), Arrays.asList("ActorName", "DirectorName", "F.ID"));
+
+        System.out.println("\tTEST ----- Distinct");
+        RelRow newRow = new RelRow(123, "Quentin Tarantino", 80000000);
+        filmRows.add(newRow);
+        api.write().data(newRow).table("Films").build().run();
+        RelReadQueryResults distinctResults = api.read().
+                select("F.Director", "F.Budget").
+                from("Films", "F").
+                distinct()
+                .build().run(broker);
+        for(RelRow readRow: distinctResults.getData()){
+            assertEquals(2, (int) readRow.getSize());
+            boolean present = false;
+            for(RelRow writtenRow: filmRows){
+                boolean match = true;
+                if(!(writtenRow.getField(1).equals(readRow.getField(0)) &&
+                        writtenRow.getField(2).equals(readRow.getField(1)))){
+                    match = false;
+                }
+                if(match){
+                    present = true;
                 }
             }
+            assertTrue(present);
         }
-        if (!joinResRows.isEmpty()) {
-            printRowList(joinResRows);
-        }
-        System.out.println();
-        if (!joinResRows.isEmpty()) {
-            List<RelRow> rerere = new ArrayList<>();
-            for (List<Object> testRow : joinTest) {
-                rerere.add(new RelRow(testRow.toArray()));
-            }
-            printRowList(rerere);
-        }
-        assertTrue(joinResRows.isEmpty());
-        //distinct
-        RelRow originalRow = filmRows.get(0);
-        RelRow newRow = new RelRow(123, originalRow.getField(1), originalRow.getField(2));
-        api.write().data(newRow).table(broker, "Films").build().run();
-        RelReadQueryResults duplic = api.read().select("F.Director", "F.Budget").from("Films", "F").distinct().build().run(broker);
-        assertEquals(filmRows.size(), duplic.getData().size());
+        assertEquals(distinctResults.getData().size(), filmRows.size()-1);
+        assertEquals(distinctResults.getFieldNames(), Arrays.asList("F.Director", "F.Budget"));
 
-        //write subquery results
+        System.out.println("\tTEST ----- Write Subqueries results");
         api.createTable("NolanEntries").attributes("ID", "Director", "Budget").keys("ID").build().run();
-        api.write().table(broker, "NolanEntries").data(
+        api.write().table("NolanEntries").data(
                 api.read()
                         .select()
                         .from("Films")
                         .where("Films.Director == \"Christopher Nolan\"")
                         .build()
         ).build().run();
-        RelReadQueryResults nolanEntries = api.read().select().from("NolanEntries").build().run(broker);
-        printRowList(nolanEntries.getData());
+        RelReadQueryResults writeSubqueryResults = api.read().select().from("NolanEntries").build().run(broker);
+        assertEquals(writeSubqueryResults.getFieldNames(), Arrays.asList("NolanEntries.ID", "NolanEntries.Director", "NolanEntries.Budget"));
+        assertEquals(writeSubqueryResults.getData().size(), 1);
+        for(RelRow readRow: writeSubqueryResults.getData()){
+            assertEquals(readRow.getField(1), "Christopher Nolan");
+        }
+        for(RelRow writtenRow: filmRows){
+            if(writtenRow.getField(1).equals("Christopher Nolan")){
+                boolean present = false;
+                for(RelRow readRow: writeSubqueryResults.getData()){
+                    assertEquals(readRow.getSize(), 3);
+                    boolean equal = true;
+                    if(!(readRow.getField(0).equals(writtenRow.getField(0)) && readRow.getField(1).equals(writtenRow.getField(1)) && readRow.getField(2).equals(writtenRow.getField(2)))){
+                        equal = false;
+                    }
+                    if(equal){
+                        present = true;
+                    }
+                }
+                assertTrue(present);
+            }
+        }
+
+        System.out.println("\tTEST ----- Overwrite");
+        RelRow updatedRow = new RelRow(3, "Martin Scorsese", 220000000);
+        api.write().data(updatedRow).table("Films").build().run();
+        RelReadQueryResults newValue = api.read().from("Films").where("Films.ID == 3").build().run(broker);
+        assertEquals(newValue.getData().size(), 1);
+        assertEquals(newValue.getData().get(0).getField(2), updatedRow.getField(2));
+
         dataStore.shutDown();
         coordinator.stopServing();
         try {
@@ -256,6 +552,12 @@ public class RelTest {
             ;
         }
     }
+    @Test
+    public void nestedQueriesTests(){
+
+    }
+
+
 
     private void printRowList(List<RelRow> data) {
         for (RelRow row : data) {
@@ -334,14 +636,13 @@ public class RelTest {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        API api = new API();
-        api.start(zkHost, zkPort);
+        API api = new API(broker);
         System.out.println("Actors and Films table creation...");
         api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").keys("ID").build().run();
         api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").build().run();
         System.out.println("Updating Actors and Films tables...");
-        api.write().table(broker, "Actors").data(actorRows).build().run();
-        api.write().table(broker, "Films").data(filmRows).build().run();
+        api.write().table("Actors").data(actorRows).build().run();
+        api.write().table("Films").data(filmRows).build().run();
         System.out.println("Aggregating on Films' Budgets");
         RelReadQueryResults totBudget = api.read()
                 .select()
@@ -433,6 +734,67 @@ public class RelTest {
         }
     }
 
+    public void multiServerTest(){
+        Coordinator coordinator = new Coordinator(
+                null,
+                new DefaultLoadBalancer(),
+                new DefaultAutoScaler(),
+                zkHost, zkPort,
+                "127.0.0.1", 7777);
+        coordinator.runLoadBalancerDaemon = false;
+        coordinator.startServing();
+        LocalDataStoreCloud ldsc = new LocalDataStoreCloud();
+        DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldsc,
+                new RelShardFactory(),
+                Path.of("/var/tmp/RelUniserve"),
+                zkHost, zkPort,
+                "127.0.0.1", 8000,
+                -1,
+                false
+        );
+        dataStore.startServing();
+        Broker broker = new Broker(zkHost, zkPort);
+        List<RelRow> actorRows = new ArrayList<>();
+        List<RelRow> filmRows = new ArrayList<>();
+        String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/ActorTestFile.txt";
+        String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/FilmTestFile.txt";
+        int filmCount = 0;
+        int count = 0;
+        try (BufferedReader br = new BufferedReader(new FileReader(filmFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 2) {
+                    int budget = Integer.parseInt(parts[1]);
+                    filmRows.add(new RelRow(filmCount, parts[0], budget));
+                    filmCount++;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        try (BufferedReader br = new BufferedReader(new FileReader(actorFilePath))) {
+            String line;
+            Random rng = new Random(Time.currentElapsedTime());
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 3) {
+                    int random = rng.nextInt();
+                    if (random < 0) {
+                        random *= -1;
+                    }
+                    actorRows.add(new RelRow(count, parts[0], parts[1], Integer.valueOf(parts[2]), random % filmCount));
+                    count++;
+                } else {
+                    System.out.println("No match for " + line);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        API api = new API(broker);
+
+    }
 
     @Test
     public void storedTest() {
@@ -493,16 +855,15 @@ public class RelTest {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        API api = new API();
-        api.start(zkHost, zkPort);
+        API api = new API(broker);
 
         api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").keys("ID").build().run();
         api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").build().run();
 
         System.out.println("Initializing table Actors");
-        api.write().table(broker, "Actors").data(actorRows).build().run();
+        api.write().table("Actors").data(actorRows).build().run();
         System.out.println("Initializing table Films");
-        api.write().table(broker, "Films").data(filmRows).build().run();
+        api.write().table("Films").data(filmRows).build().run();
 
         System.out.println("Defining query to be stored");
         ReadQuery totalActorEarningsQuery = api.read()
@@ -519,23 +880,41 @@ public class RelTest {
                 .build();
         System.out.println("Running query to be stored");
         RelReadQueryResults totActorEarningsResults = totalActorEarningsQuery.run(broker);
-        assertTrue(broker.getTableInfo("Actors").getRegisteredQueries().get(0).equals(totalActorEarningsQuery));
+        assertEquals(broker.getTableInfo("Actors").getRegisteredQueries().get(0), totalActorEarningsQuery);
         System.out.println("Adding data to Actors table");
-        api.write().table(broker, "Actors").data(
+        api.write().table("Actors").data(
                 new RelRow(500, "Clint Eastwood", "31/05/1930", 100000, 111),
                 new RelRow(501, "Clint Eastwood", "31/05/1930", 100000, 112)
         ).build().run();
         System.out.println("Adding data to Films table");
-        api.write().table(broker, "Films").data(
+        api.write().table("Films").data(
                 new RelRow(111, "Sergio Leone", 1000000),
                 new RelRow(112, "Sergio Leone", 1000000)
         ).build().run();
 
+        try {
+            sleep(5000);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+
         RelReadQueryResults updTotActEarn = totalActorEarningsQuery.run(broker);
-        System.out.println(totActorEarningsResults.getData().size() + " " + updTotActEarn.getData().size() );
+        assertTrue(totActorEarningsResults.getData().size() < updTotActEarn.getData().size());
+        boolean updated = false;
+        for(RelRow row: updTotActEarn.getData()){
+            updated = row.getField(0).equals("Sergio Leone") || updated;
+        }
+        assertTrue(updated);
 
-        printRowList(updTotActEarn.getData());
-
+        ReadQuery subqStored = api.read()
+                .select()
+                .from(totalActorEarningsQuery, "ActorsEarnings")
+                .where("ActorsEarnings.NumFilms > 2")
+                .store()
+                .build();
+        RelReadQueryResults atLeastTwoFilms = subqStored.run(broker);
+        assertEquals(broker.getTableInfo("Actors").getRegisteredQueries().get(1), subqStored);
+        assertEquals(broker.getTableInfo("Films").getRegisteredQueries().get(1), subqStored);
         broker.shutdown();
         coordinator.stopServing();
         dataStore.shutDown();

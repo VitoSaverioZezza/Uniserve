@@ -774,7 +774,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
     @Override
     public StreamObserver<StoreSubqueryDataMessage> storeSubqueryData(StreamObserver<StoreSubqueryDataResponse> responseObserver){
-        return new StreamObserver<StoreSubqueryDataMessage>() {
+        return new StreamObserver<>() {
             long txID;
             Map<String, List<ByteString>> serializedSubqueryData = new HashMap<>();
             RetrieveAndCombineQueryPlan<S, Object> rcPlan = null;
@@ -862,9 +862,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     @Override
     public StreamObserver<StoreVolatileDataMessage> storeVolatileData(StreamObserver<StoreVolatileDataResponse> responseObserver){
      return new StreamObserver<>() {
-         ArrayList<ByteString> volatileData = new ArrayList<>();
+         final ArrayList<ByteString> volatileData = new ArrayList<>();
          Long txID;
          final AtomicBoolean success = new AtomicBoolean(true);
+
          @Override
          public void onNext(StoreVolatileDataMessage message) {
              if (message.getState() == DataStore.COLLECT) {
@@ -874,15 +875,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                  List<Row> rows = new ArrayList<>();
                  for (ByteString rowChunk : volatileData) {
                      Row[] desRowArray = (Row[])Utilities.byteStringToObject(rowChunk);
-                     for(Row row: desRowArray){
-                         rows.add(row);
-                     }
+                     rows.addAll(Arrays.asList(desRowArray));
                  }
                  S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
-                 if(ephemeralShard == null){
-                     logger.error("Ephemeral shard creation failed");
-                 }
-                 VolatileShuffleQueryPlan<Object, Shard> plan = (VolatileShuffleQueryPlan<Object, Shard>) Utilities.byteStringToObject(message.getPlan());
+                 VolatileShuffleQueryPlan<Object, Shard> plan =
+                         (VolatileShuffleQueryPlan<Object, Shard>) Utilities.byteStringToObject(message.getPlan());
                  success.set(plan.write(ephemeralShard, rows));
                  if(success.get()){
                      success.set(dataStore.addVolatileData(txID, ephemeralShard) && success.get());

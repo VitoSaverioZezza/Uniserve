@@ -8,11 +8,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class CreateTableQuery {
-    private Broker broker;
+    private final Broker broker;
     private final List<String> attributeNames = new ArrayList<>();
     private final String tableName;
     private Boolean[] keyStructure;
     private int shardNumber = Broker.SHARDS_PER_TABLE;
+
     public CreateTableQuery(String tableName, Broker broker){
         if(Character.isDigit(tableName.charAt(0))){
             throw new RuntimeException("Invalid table name: table name starts with a number");
@@ -20,6 +21,7 @@ public class CreateTableQuery {
         this.tableName = tableName;
         this.broker = broker;
     }
+
     public CreateTableQuery attributes(String... attributeNames){
         Pattern aggregatePattern = Pattern.compile("^(min|max|avg|count)\\(\\s.*\\s\\)$");
         if(!this.attributeNames.isEmpty())
@@ -51,6 +53,11 @@ public class CreateTableQuery {
                 throw new RuntimeException("Attribute " + keyAttribute + " is not defined for table " + tableName + "\nAttributes names are: " + attrNamesBuilder.toString());
             }else{
                 keyStructure[index] = true;
+            }
+        }
+        for(int i = 0; i< keyStructure.length; i++){
+            if(keyStructure[i] == null){
+                keyStructure[i] = false;
             }
         }
         return this;

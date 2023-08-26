@@ -38,9 +38,6 @@ public class ReadQueryBuilder {
     private final Map<String, ReadQuery> subqueriesAlias = new HashMap<>(); //contains ALL subqueries mappings
 
 
-    //TODO: General cleanup
-    //TODO: Stored queries management
-
     public ReadQueryBuilder(Broker broker){
         this.broker = broker;
     }

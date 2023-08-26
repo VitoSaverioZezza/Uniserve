@@ -4,7 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.*;
-import edu.stanford.futuredata.uniserve.api.PersistentReadQuery;
+import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
@@ -41,7 +41,7 @@ public class Broker {
     /**Map servers to channels.*/
     private Map<Integer, ManagedChannel> dsIDToChannelMap = new ConcurrentHashMap<>();
     /**Blocking Stub for communication with the coordinator's services specified in the broker_coordinator.proto.*/
-    private BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
+    private final BrokerCoordinatorGrpc.BrokerCoordinatorBlockingStub coordinatorBlockingStub;
 
     /**Thread updating stored actors' state*/
     private final ShardMapUpdateDaemon shardMapUpdateDaemon;
@@ -99,7 +99,7 @@ public class Broker {
         queryStatisticsDaemon.start();
     }
 
-    /**Stops the ShardMapUpdate and QueryStatistic daemon threads, shuts down all channels with datastores and coordinator
+    /**Stops the ShardMapUpdate and QueryStatistic daemon threads, shuts down all channels with servers and coordinator
      * then closes the Curator client with ZooKeeper and shuts down the thread pool*/
     public void shutdown() {
         runShardMapUpdateDaemon = false;
@@ -148,7 +148,7 @@ public class Broker {
     }
 
     /*WRITE QUERIES*/
-    /**Executes the write query plan on the given rows in a 2PC fashion. It starts a write query thread for each shard contaning any of
+    /**Executes the write query plan on the given rows in a 2PC fashion. It starts a write query thread for each shard containing any of
      * the given rows. A primary datastore will be randomly selected between those hosting a replica of a shard involved
      * in the query.
      * @param rows the list of rows to be written
@@ -198,17 +198,18 @@ public class Broker {
                 assert(false);
             }
         }
-
         zkCurator.writeLastCommittedVersion(txID);
-        logger.info("Write completed. Rows: {}. Version: {} Time: {}ms", rows.size(), txID,
-                System.currentTimeMillis() - tStart);
-
+        zkCurator.releaseWriteLock();
+        /*After the lock has been released since all stored queries are performed via a write operation that uses its own lock*/
         List<ReadQuery> triggeredQueries = tableInfo.getRegisteredQueries();
         for(ReadQuery triggeredQuery: triggeredQueries){
             triggeredQuery.updateStoredResults(this);
         }
+
+        logger.info("Write completed. Rows: {}. Version: {} Time: {}ms", rows.size(), txID,
+                System.currentTimeMillis() - tStart);
         assert (queryStatus.get() != QUERY_RETRY);
-        zkCurator.releaseWriteLock();
+
         return queryStatus.get() == QUERY_SUCCESS;
     }
     /**Executes an eventually consistent write query of the given rows, following the procedure specified in the given
@@ -232,10 +233,8 @@ public class Broker {
         Map<Integer, R[]> shardRowArrayMap = shardRowListMap.entrySet().stream().
                 collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((R[]) new Row[0])));
         List<SimpleWriteQueryThread<R, S>> writeQueryThreads = new ArrayList<>();
-
         long txID = zkCurator.getTxID();
         AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
-        AtomicBoolean statusWritten = new AtomicBoolean(false);
         for (Integer shardNum: shardRowArrayMap.keySet()) {
             R[] rowArray = shardRowArrayMap.get(shardNum);
             SimpleWriteQueryThread<R, S> t = new SimpleWriteQueryThread<>(
@@ -243,8 +242,7 @@ public class Broker {
                     writeQueryPlan,
                     rowArray,
                     txID,
-                    queryStatus,
-                    statusWritten
+                    queryStatus
             );
             t.start();
             writeQueryThreads.add(t);
@@ -258,42 +256,31 @@ public class Broker {
             }
         }
         zkCurator.writeLastCommittedVersion(txID);
-        logger.info("SimpleWrite completed. Rows: {}. Table: {} Version: {} Time: {}ms.",
-                rows.size(), writeQueryPlan.getQueriedTable(), txID,
-                System.currentTimeMillis() - tStart);
-        assert (queryStatus.get() != QUERY_RETRY);
-
         List<ReadQuery> triggeredQueries = tableInfo.getRegisteredQueries();
         for(ReadQuery triggeredQuery: triggeredQueries){
             triggeredQuery.updateStoredResults(this);
         }
-
+        logger.info("SimpleWrite completed. Rows: {}. Table: {} Version: {} Time: {}ms.",
+                rows.size(), writeQueryPlan.getQueriedTable(), txID,
+                System.currentTimeMillis() - tStart);
+        assert (queryStatus.get() != QUERY_RETRY);
         return queryStatus.get() == QUERY_SUCCESS;
     }
 
     /*VOLATILE OPERATIONS*/
-    public<V> V volatileShuffleQuery(VolatileShuffleQueryPlan plan, List<Object> rows){
+    public<V> V volatileShuffleQuery(VolatileShuffleQueryPlan plan, List<Row> rows){
         long txID = zkCurator.getTxID();
-
-        // Map shardID to rows, this mapping will be used to determine which actor will store the volatile
-        // raw data to be later shuffled
-
-        Map<Integer, List<Row>> shardRowListMap = new HashMap<>();
-
-        //assign subqueries results to datastores, as of now, there's only one subquery
-        Map<Integer, List<Object>> dsToSubqueryData = new HashMap<>();
+        Map<Integer, List<Row>> dsToRowListMap = new HashMap<>();
         int dsCount = dsIDToChannelMap.size();
-        List<Object> subqueryResults = rows;
-        for(Object subqueryRow: subqueryResults){
-            int dsID = subqueryRow.hashCode() % dsCount;
-            dsToSubqueryData.computeIfAbsent(dsID, k->new ArrayList<>()).add(subqueryRow);
+        for(Row row: rows){
+            int dsID = row.hashCode() % dsCount;
+            dsToRowListMap.computeIfAbsent(dsID, k->new ArrayList<>()).add(row);
         }
-
-        Map<Integer, Row[]> shardRowArrayMap =
-                dsToSubqueryData
+        Map<Integer, Row[]> dsToRowArrayMap =
+                dsToRowListMap
                         .entrySet()
                         .stream()
-                        .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray((Row[]) new Row[0])));
+                        .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().toArray(new Row[0])));
 
         /* Send the raw data to the actors that will keep them in memory for later shuffling operation. The
          * ids of the actors storing the raw data are added to the dsIDsScatter list. Proceed once all data has
@@ -301,15 +288,15 @@ public class Broker {
          * associated to this transaction and return. The raw data will be stored by the receiving actor as a List
          * of serialized arrays of Rows, the same ones prepared in the thread (List<Serialized(R[])>)
          * */
-
-        List<StoreVolatileDataThread<Row>> storeVolatileDataThreads = new ArrayList<>();
+        List<StoreVolatileDataThread> storeVolatileDataThreads = new ArrayList<>();
         AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
         List<Integer> dsIDsScatter = new ArrayList<>();
-        for (Integer shardNum: shardRowArrayMap.keySet()) {
-            Row[] rowArray = shardRowArrayMap.get(shardNum);
-            Integer dsID = consistentHash.getRandomBucket(shardNum);
-            if(!dsIDsScatter.contains(dsID)){dsIDsScatter.add(dsID);}
-            StoreVolatileDataThread<Row> t = new StoreVolatileDataThread<>(
+        for (Integer dsID: dsToRowArrayMap.keySet()) {
+            Row[] rowArray = dsToRowArrayMap.get(dsID);
+            if(!dsIDsScatter.contains(dsID)){
+                dsIDsScatter.add(dsID);
+            }
+            StoreVolatileDataThread t = new StoreVolatileDataThread<>(
                     dsID,
                     txID,
                     rowArray,
@@ -319,7 +306,7 @@ public class Broker {
             t.start();
             storeVolatileDataThreads.add(t);
         }
-        for (StoreVolatileDataThread<Row> t: storeVolatileDataThreads) {
+        for (StoreVolatileDataThread t: storeVolatileDataThreads) {
             try {
                 t.join();
             } catch (InterruptedException e) {
@@ -344,14 +331,15 @@ public class Broker {
          * shuffled and raw data associated to this transaction is deleted from the memory of the actors.
          * */
 
-        List<ScatterVolatileDataThread<Row,V>> scatterVolatileDataThreads = new ArrayList<>();
+        List<ScatterVolatileDataThread<V>> scatterVolatileDataThreads = new ArrayList<>();
         List<Integer> gatherDSids = Collections.synchronizedList(new ArrayList<>());
+
         for(Integer dsID: dsIDsScatter){
-            ScatterVolatileDataThread<Row,V> t = new ScatterVolatileDataThread<Row,V>(dsID, txID, gatherDSids, queryStatus, plan);
+            ScatterVolatileDataThread<V> t = new ScatterVolatileDataThread<V>(dsID, txID, gatherDSids, queryStatus, plan);
             t.start();
             scatterVolatileDataThreads.add(t);
         }
-        for(ScatterVolatileDataThread<Row,V> t: scatterVolatileDataThreads){
+        for(ScatterVolatileDataThread<V> t: scatterVolatileDataThreads){
             try {
                 t.join();
             }catch (InterruptedException e ){
@@ -372,18 +360,19 @@ public class Broker {
         /*All scatter operations have been successfully carried out and the shuffled data is stored in memory
          * by the actors that will execute the gather operation. The ids of the actors storing this data are stored in
          * the gatherDSids list. The Broker now triggers the gather operations and retrieves all results from
-         * the actors. All actors must return before the eecution resumes.
+         * the actors. All actors must return before the execution resumes.
          * If one gather fails, all volatile data is deleted.
          * */
 
-        List<GatherVolatileDataThread<Row,V>> gatherVolatileDataThreads = new ArrayList<>();
+
+        List<GatherVolatileDataThread<V>> gatherVolatileDataThreads = new ArrayList<>();
         List<ByteString> gatherResults = Collections.synchronizedList(new ArrayList<>());
         for(Integer dsID: gatherDSids){
-            GatherVolatileDataThread<Row,V> t = new GatherVolatileDataThread<Row,V>(dsID, txID, gatherResults, queryStatus, plan);
+            GatherVolatileDataThread<V> t = new GatherVolatileDataThread<V>(dsID, txID, gatherResults, queryStatus, plan);
             t.start();
             gatherVolatileDataThreads.add(t);
         }
-        for(GatherVolatileDataThread<Row,V> t: gatherVolatileDataThreads){
+        for(GatherVolatileDataThread<V> t: gatherVolatileDataThreads){
             try {
                 t.join();
             }catch (InterruptedException e){
@@ -403,7 +392,6 @@ public class Broker {
         /* The values returned by the gather operations are given as parameter to the combine operator and the returned
          * value is given to the caller as the query result after all volatile data is deleted.
          */
-
         long aggStart = System.nanoTime();
         V result = (V) plan.combine(gatherResults);
         long aggEnd = System.nanoTime();
@@ -443,17 +431,15 @@ public class Broker {
             TableInfo tableInfo = getTableInfo(tableName);
             int tableID = tableInfo.id;
             int numShards = tableInfo.numShards;
-            List<Integer> shardNums;
+            List<Integer> shardNumbs;
             if (tablePartitionKeys.contains(-1)) {
                 // -1 is a wildcard--run on all shards.
-                shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards)
-                        .boxed().collect(Collectors.toList());
-                shardNums = tableInfo.getTableShardsIDs();
+                shardNumbs = tableInfo.getTableShardsIDs();
             } else {
-                shardNums = tablePartitionKeys.stream().map(i -> keyToShard(tableID, numShards, i))
+                shardNumbs = tablePartitionKeys.stream().map(i -> keyToShard(tableID, numShards, i))
                         .distinct().collect(Collectors.toList());
             }
-            targetShards.put(tableName, shardNums);
+            targetShards.put(tableName, shardNumbs);
         }
         /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
         * Recursively executes all sub queries, placing their results in a structure                                     *
@@ -554,10 +540,10 @@ public class Broker {
          *      a Map<Integer, Integer>, which is extracted and placed in a list called shardLocations.                *
          *      Each map present in this list (i.e. each result of each anchor-shard query) is iterated on, and        *
          *      each integer pair is placed into the combinedShardLocations mapping. In other words, all mappings are  *
-         *      merged. TODO: figure out what these pairs actually represent, they are returned by the remote call.    *
+         *      merged.                                                                                                *
          *      A Map<TableNames, Map<Integer, Integer>> containing only the entry related to the return table is      *
          *      built and has value equal to the combinedShardLocation mapping.                                        *
-         *      This single-value-map is casted to the type returned by the query.                                     *
+         *      This single-value-map is cast to the type returned by the query.                                     *
          * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
         if (plan.returnTableName().isEmpty()) {
@@ -590,7 +576,7 @@ public class Broker {
         for(Map.Entry<String, ReadQuery> entry: subqueries.entrySet()){
             subqueriesResults.put(entry.getKey(), entry.getValue().run(this));
         }
-        //assign subqueries results to servers where they will be temporarely stored
+        //assign subqueries results to servers where they will be temporarily stored
         Map<Integer, Map<String, List<Object>>> dsToSubqueryData = new HashMap<>();
         int dsCount = dsIDToChannelMap.size();
         for(Map.Entry<String, ReadQueryResults> entry : subqueriesResults.entrySet()){
@@ -603,11 +589,9 @@ public class Broker {
         }
         List<StoreSubqueryDataThread> storeSubqueryDataThreads = new ArrayList<>();
         //store the shard ids of the shards storing the results in each datastore
-        Map<Integer, Map<String, List<Integer>>> dsIDToAliasShards = new ConcurrentHashMap<>();
         AtomicBoolean forwardStatus = new AtomicBoolean(true);
         for(Map.Entry<Integer, Map<String, List<Object>>> entry: dsToSubqueryData.entrySet()){
             Map<String, List<Integer>> aliasToShardIDs = new ConcurrentHashMap<>();
-            dsIDToAliasShards.put(entry.getKey(), aliasToShardIDs);
             int dsID = entry.getKey();
             StoreSubqueryDataThread t = new StoreSubqueryDataThread(
                     dsID, txID, entry.getValue(), aliasToShardIDs, forwardStatus, plan);
@@ -680,8 +664,6 @@ public class Broker {
             * The result of all the scatter-gather are stored in the intermediate structure
             * */
             HashMap<String, List<Integer>> dsTargetShards = new HashMap<>(targetShards); //TODO: turns out this is indeed serializable, go clean up that array of object workaround
-            //Map<String, List<Integer>> dsSubqueryData = dsIDToAliasShards.get(dsID);
-            //dsTargetShards.putAll(dsSubqueryData);
             ByteString serializedTargetShards = Utilities.objectToByteString(dsTargetShards);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
@@ -791,10 +773,6 @@ public class Broker {
             TableInfo tableInfo = getTableInfo(tableName);
             List<Integer> shardNums;
             if(keyList.contains(-1)){
-                shardNums = IntStream.range(
-                        tableInfo.id * SHARDS_PER_TABLE, tableInfo.id * SHARDS_PER_TABLE + tableInfo.numShards
-                        )
-                        .boxed().collect(Collectors.toList());
                 shardNums = tableInfo.getTableShardsIDs();
             }else{
                 shardNums = keyList.stream().map(i -> keyToShard(tableInfo.id, tableInfo.numShards, i))
@@ -816,7 +794,7 @@ public class Broker {
                         .setTableName(tableName)
                         .setSubquery(false)
                         .build();
-                StreamObserver<RetrieveAndCombineQueryResponse> responseStreamObserver = new StreamObserver<RetrieveAndCombineQueryResponse>() {
+                StreamObserver<RetrieveAndCombineQueryResponse> responseStreamObserver = new StreamObserver<>() {
                     @Override
                     public void onNext(RetrieveAndCombineQueryResponse response) {
                         if(response.getState() == QUERY_SUCCESS){
@@ -859,7 +837,7 @@ public class Broker {
                             .setTxID(txID)
                             .setSubquery(true)
                             .build();
-                    StreamObserver<RetrieveAndCombineQueryResponse> responseStreamObserver = new StreamObserver<RetrieveAndCombineQueryResponse>() {
+                    StreamObserver<RetrieveAndCombineQueryResponse> responseStreamObserver = new StreamObserver<>() {
                         @Override
                         public void onNext(RetrieveAndCombineQueryResponse response) {
                             if(response.getState() == QUERY_SUCCESS){
@@ -884,6 +862,8 @@ public class Broker {
                 }
             }
         }
+        long aggStart = System.nanoTime();
+
         for(Map.Entry<String, List<ByteString>> e: retrievedData.entrySet()){
             if(e.getValue() == null){
                 retrievedData.remove(e.getKey());
@@ -891,7 +871,12 @@ public class Broker {
         }
         if(!subqueries.isEmpty())
             removeSubQueryData(txID);
-        return plan.combine(retrievedData);
+
+        V ret = plan.combine(retrievedData);
+
+        long aggEnd = System.nanoTime();
+        aggregationTimes.add((aggEnd - aggStart) / 1000L);
+        return ret;
     }
 
     /*DATA DISTRIBUTION THREADS*/
@@ -904,9 +889,9 @@ public class Broker {
         private final WriteQueryPlan<R, S> writeQueryPlan;
         private final R[] rowArray;
         private final long txID;
-        private CountDownLatch queryLatch;
-        private AtomicInteger queryStatus;
-        private AtomicBoolean statusWritten;
+        private final CountDownLatch queryLatch;
+        private final AtomicInteger queryStatus;
+        private final AtomicBoolean statusWritten;
 
         WriteQueryThread(int shardNum, WriteQueryPlan<R, S> writeQueryPlan, R[] rowArray, long txID,
                          CountDownLatch queryLatch, AtomicInteger queryStatus, AtomicBoolean statusWritten) {
@@ -1029,17 +1014,15 @@ public class Broker {
         private final SimpleWriteQueryPlan<R, S> writeQueryPlan;
         private final R[] rowArray;
         private final long txID;
-        private AtomicInteger queryStatus;
-        private AtomicBoolean statusWritten;
+        private final AtomicInteger queryStatus;
 
         SimpleWriteQueryThread(int shardNum, SimpleWriteQueryPlan<R, S> writeQueryPlan, R[] rowArray, long txID,
-                         AtomicInteger queryStatus, AtomicBoolean statusWritten) {
+                         AtomicInteger queryStatus) {
             this.shardNum = shardNum;
             this.writeQueryPlan = writeQueryPlan;
             this.rowArray = rowArray;
             this.txID = txID;
             this.queryStatus = queryStatus;
-            this.statusWritten = statusWritten;
         }
 
         @Override
@@ -1160,7 +1143,7 @@ public class Broker {
                 final CountDownLatch prepareLatch = new CountDownLatch(1);
 
                 StreamObserver<StoreVolatileDataMessage> observer =
-                        stub.storeVolatileData(new StreamObserver<StoreVolatileDataResponse>() {
+                        stub.storeVolatileData(new StreamObserver<>() {
                             @Override
                             public void onNext(StoreVolatileDataResponse storeVolatileDataResponse) {
                                 subQueryStatus.set(storeVolatileDataResponse.getState());
@@ -1212,7 +1195,7 @@ public class Broker {
 
     /**Triggers execution of the scatter operation between servers storing raw data assocciated with the transaction
      * identifier*/
-    private class ScatterVolatileDataThread<R extends Row, V> extends Thread{
+    private class ScatterVolatileDataThread<V> extends Thread{
         private final long txID;
         private final List<Integer> gatherDSlist;
         private final AtomicInteger queryStatus;
@@ -1261,7 +1244,7 @@ public class Broker {
         }
     }
     /**Triggers the execution of the gather operation in those servers that store scattered data*/
-    private class GatherVolatileDataThread<R extends Row, V> extends Thread{
+    private class GatherVolatileDataThread<V> extends Thread{
         private final Integer dsID;
         private final long txID;
         private final List<ByteString> gatherResults;
@@ -1286,7 +1269,6 @@ public class Broker {
         }
 
         private void gatherVolatileData(){
-            CountDownLatch gatherLatch = new CountDownLatch(1);
             ByteString serializedPlan = Utilities.objectToByteString(plan);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreBlockingStub stub = BrokerDataStoreGrpc.newBlockingStub(channel);
@@ -1310,7 +1292,7 @@ public class Broker {
         private final Map<String, List<Integer>> shardsIDs;
         private final AtomicBoolean status;
         private RetrieveAndCombineQueryPlan rcplan = null;
-        private ShuffleOnReadQueryPlan shufflePlan;
+        private ShuffleOnReadQueryPlan shufflePlan = null;
 
         StoreSubqueryDataThread(Integer dsID, long txID, Map<String, List<Object>> dataToForward,
                                 Map<String, List<Integer>> shardsIDs, AtomicBoolean status, RetrieveAndCombineQueryPlan plan){
@@ -1402,7 +1384,6 @@ public class Broker {
 
     /*UTILITIES*/
     /**Retrieves a TableInfo object associated with the given table name.
-     * TODO: Error handling should be not be carried out via assert statements
      * @param tableName The name of the queried table
      * @return The table info object associated with the given name
      * */
@@ -1459,7 +1440,7 @@ public class Broker {
             StreamObserver<RemoveVolatileDataResponse> observer = new StreamObserver<>() {
                 @Override
                 public void onNext(RemoveVolatileDataResponse removeVolatileDataResponse) {
-                    ;
+
                 }
 
                 @Override
@@ -1490,10 +1471,10 @@ public class Broker {
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             RemoveVolatileDataMessage message = RemoveVolatileDataMessage.newBuilder().setTransactionID(txID).build();
-            StreamObserver<RemoveVolatileDataResponse> observer = new StreamObserver<RemoveVolatileDataResponse>() {
+            StreamObserver<RemoveVolatileDataResponse> observer = new StreamObserver<>() {
                 @Override
                 public void onNext(RemoveVolatileDataResponse removeVolatileDataResponse) {
-                    ;
+
                 }
 
                 @Override
@@ -1518,7 +1499,7 @@ public class Broker {
         return outcome.get() == 0;
     }
 
-    private boolean removeSubQueryData(long txID){
+    private void removeSubQueryData(long txID){
         List<Integer> dsIDs = new ArrayList<>(dsIDToChannelMap.keySet());
         CountDownLatch latch = new CountDownLatch(dsIDs.size());
         AtomicInteger outcome = new AtomicInteger(0);
@@ -1529,7 +1510,7 @@ public class Broker {
             StreamObserver<RemoveVolatileDataResponse> observer = new StreamObserver<>() {
                 @Override
                 public void onNext(RemoveVolatileDataResponse removeVolatileDataResponse) {
-                    ;
+
                 }
 
                 @Override
@@ -1550,21 +1531,20 @@ public class Broker {
             latch.await();
         }catch (InterruptedException e){
             logger.error("Broker: removeSubQueryData Failed for transaction id {}", txID);
-            return false;
         }
-        return outcome.get()==0;
     }
 
-    public boolean registerQuery(ReadQuery query){
+    public void registerQuery(ReadQuery query){
         Integer resultTableID = zkCurator.getResultTableID();
         query.setResultTableName(Integer.toString(resultTableID));
         boolean isTableCreated = createTable(Integer.toString(resultTableID), SHARDS_PER_TABLE, query.getResultSchema(), query.getKeyStructure());
         if(!isTableCreated){
             throw new RuntimeException("Query cannot be registered");
         }
-        StoreQueryResponse response = coordinatorBlockingStub.storeQuery(
+        StoreQueryResponse queryResponse = coordinatorBlockingStub.storeQuery(
                 StoreQueryMessage.newBuilder().setQuery(Utilities.objectToByteString(query)).build());
-        return response.getStatus()==Broker.QUERY_SUCCESS;
+        logger.info("Query associated with table {} registered", resultTableID);
+        assert (queryResponse.getStatus() == 0);
     }
 
 

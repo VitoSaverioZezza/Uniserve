@@ -16,6 +16,9 @@ public class RelShard implements Shard {
     private Path shardPath;
 
     private List<RelRow> uncommittedRows = new ArrayList<>();
+    private List<RelRow> rowsToRemove = new ArrayList<>();
+
+
 
     public RelShard(Path shardPath, boolean shardExists) throws IOException, ClassNotFoundException {
         if (shardExists) {
@@ -61,7 +64,11 @@ public class RelShard implements Shard {
         return true;
     }
     public boolean committRows(){
+        for(RelRow row: rowsToRemove){
+            data.remove(row);
+        }
         data.addAll(uncommittedRows);
+        rowsToRemove.clear();
         uncommittedRows.clear();
         return true;
     }
@@ -70,8 +77,6 @@ public class RelShard implements Shard {
         return true;
     }
     public void removeRows(List<RelRow> rowsToRemove){
-        for(RelRow row: rowsToRemove){
-            data.remove(row);
-        }
+        this.rowsToRemove = rowsToRemove;
     }
 }

@@ -235,7 +235,7 @@ public class AggregateQuery implements VolatileShuffleQueryPlan<RelReadQueryResu
     public RelReadQueryResults run(Broker broker){
         RelReadQueryResults res;
         List<RelRow> subqueryData = new ArrayList<>(intermediateQuery.values()).get(0).run(broker).getData();
-        List<Object> data = new ArrayList<>(subqueryData);
+        List<Row> data = new ArrayList<>(subqueryData);
         res = broker.volatileShuffleQuery(this, data);
         res.setFieldNames(finalSchema);
         return res;

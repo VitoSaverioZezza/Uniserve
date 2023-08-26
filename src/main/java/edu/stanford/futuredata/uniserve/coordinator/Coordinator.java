@@ -78,23 +78,6 @@ public class Coordinator {
     public Map<Integer, Integer> cachedQPSLoad = null;
     public Map<String, List<Integer>> tablesToAllocatedShards = new HashMap<>();
 
-    public void registerQuery(ReadQuery query, String sourceTable){
-        tableInfoMap.get(sourceTable).registerQuery(query);
-    }
-    public void addShardIDToTable(Integer shardID){
-        tablesToAllocatedShards.computeIfAbsent(getTableIDFromShard(shardID), k->new ArrayList<>()).add(shardID);
-    }
-    private String getTableIDFromShard(Integer shardID){
-        Integer tableID = shardID / Broker.SHARDS_PER_TABLE;
-        for(Map.Entry<String, TableInfo> entry: tableInfoMap.entrySet()){
-            if(entry.getValue().id.equals(tableID))
-                return entry.getKey();
-        }
-        return null;
-    }
-    public List<Integer> getShardIDsForTable(String table){
-        return tablesToAllocatedShards.get(table);
-    }
 
     // Lock protects shardToPrimaryDataStoreMap, shardToReplicaDataStoreMap, and shardToReplicaRatioMap.
     // Each operation modifying these maps follows this process:  Lock, change the local copies, unlock, perform
@@ -201,7 +184,6 @@ public class Coordinator {
             logger.info("AddReplica failed for shard {} PRIMARY DataStore {}", shardNum, replicaID);
         }
     }
-
     public void removeShard(int shardNum, int targetID) {
         shardMapLock.lock();
         int primaryDataStore = consistentHash.getRandomBucket(shardNum);
@@ -411,5 +393,29 @@ public class Coordinator {
         }
 
     }
+
+
+    public void registerQuery(ReadQuery query, String sourceTable){
+        tableInfoMap.get(sourceTable).registerQuery(query);
+    }
+    public synchronized void addShardIDToTable(Integer shardID){
+        String tableName = getTableIDFromShard(shardID);
+        assert (tableName != null);
+        tablesToAllocatedShards.computeIfAbsent(tableName, k->new ArrayList<>()).add(shardID);
+
+    }
+    private String getTableIDFromShard(Integer shardID){
+        Integer tableID = shardID / Broker.SHARDS_PER_TABLE;
+        for(Map.Entry<String, TableInfo> entry: tableInfoMap.entrySet()){
+            if(entry.getValue().id.equals(tableID))
+                return entry.getKey();
+        }
+        return null;
+    }
+    public List<Integer> getShardIDsForTable(String table){
+        return tablesToAllocatedShards.get(table);
+    }
+
+
     // Assumes consistentHashLock is held.
 }

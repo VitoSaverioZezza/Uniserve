@@ -24,7 +24,7 @@ public class WriteQueryBuilder {
         this.broker = broker;
     }
 
-    public WriteQueryBuilder table(Broker broker, String tableName){
+    public WriteQueryBuilder table(String tableName){
         if(Character.isDigit(tableName.charAt(0))){
             throw new RuntimeException("Invalid table name");
         }

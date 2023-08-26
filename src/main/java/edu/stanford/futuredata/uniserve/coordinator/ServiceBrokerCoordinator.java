@@ -77,11 +77,12 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         TableInfo t = new TableInfo(tableName, tableID, numShards);
         t.setAttributeNames(attributeNames);
         t.setKeyStructure(keyStructure);
+        t.setTableShardsIDs(new ArrayList<>());
         if (coordinator.tableInfoMap.putIfAbsent(tableName, t) != null) {
             coordinator.assignShards();
             return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         } else {
-            logger.info("Creating Table. Name: {} ID: {} NumShards {}", tableName, tableID, numShards);
+            logger.info("Creating Table. Name: {} ID: {} NumShards {}. Shard IDs from {} to {}", tableName, tableID, numShards, tableID*Broker.SHARDS_PER_TABLE, (tableID+1)*Broker.SHARDS_PER_TABLE-1);
             return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).build();
         }
     }
@@ -93,7 +94,7 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
     }
     private StoreQueryResponse storeQueryHandler(StoreQueryMessage request){
         ReadQuery readQuery = (ReadQuery) Utilities.byteStringToObject(request.getQuery());
-        List<String> sourceTables = readQuery.getSourceTables();
+        List<String> sourceTables = new ArrayList<>(readQuery.getSourceTables());
         for(String source: sourceTables){
             coordinator.registerQuery(readQuery, source);
         }

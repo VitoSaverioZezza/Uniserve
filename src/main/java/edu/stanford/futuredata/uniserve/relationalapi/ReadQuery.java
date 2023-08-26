@@ -8,9 +8,7 @@ import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import org.javatuples.Pair;
 
 import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 public class ReadQuery implements Serializable {
     private ProdSelProjQuery simpleQuery = null;
@@ -22,7 +20,11 @@ public class ReadQuery implements Serializable {
     private String resultTableName = "";
     private Boolean[] keyStructure;
 
-
+    public RelReadQueryResults updateStoredResults(Broker broker, RelReadQueryResults results){
+        assert (results != null);
+        broker.simpleWriteQuery(new UpdateStoredResultsWrite(keyStructure, resultTableName), results.getData());
+        return results;
+    }
     public RelReadQueryResults updateStoredResults(Broker broker){
         RelReadQueryResults results;
         if(simpleQuery != null){
@@ -65,7 +67,7 @@ public class ReadQuery implements Serializable {
                 Arrays.fill(keyStructure, true);
             }
             broker.registerQuery(this);
-            updateStoredResults(broker);
+            updateStoredResults(broker, results);
         }
         return results;
     }
@@ -75,7 +77,7 @@ public class ReadQuery implements Serializable {
     }
 
     private String queryMatch(Broker broker){
-        TableInfo aSourceTableInfo = broker.getTableInfo(this.getSourceTables().get(0));
+        TableInfo aSourceTableInfo = broker.getTableInfo(new ArrayList<>(this.getSourceTables()).get(0));
         ArrayList<ReadQuery> alreadyRegisteredQueries = aSourceTableInfo.getRegisteredQueries();
         for(ReadQuery registeredQuery: alreadyRegisteredQueries){
             if(this.equals(registeredQuery)){
@@ -169,9 +171,14 @@ public class ReadQuery implements Serializable {
     }
 
 
-    public List<String> getSourceTables(){
+    public Set<String> getSourceTables(){
         if(simpleQuery != null){
-            return simpleQuery.getTableNames();
+            Set<String> sourceTables = new HashSet<>(simpleQuery.getTableNames());
+            Map<String, ReadQuery> subqueries = simpleQuery.getSubqueriesResults();
+            for(ReadQuery subquery: subqueries.values()){
+                sourceTables.addAll(subquery.getSourceTables());
+            }
+            return sourceTables;
         }else if(simpleAggregateQuery != null){
             ReadQuery subquery = simpleAggregateQuery.getSubqueriesResults().get(new ArrayList<>(simpleAggregateQuery.getSubqueriesResults().keySet()).get(0));
             return subquery.getSourceTables();

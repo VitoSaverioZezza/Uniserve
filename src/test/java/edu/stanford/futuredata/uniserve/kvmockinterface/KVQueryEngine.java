@@ -32,7 +32,7 @@ public class KVQueryEngine implements QueryEngine {
             filteredData = broker.anchoredReadQuery(filterStoredDataPlan);
         }else{
             VolatileShuffleQueryPlan<List<KVRow>, Shard> filterVolatileDataPlan = new KVFilterOnWrite();
-            List<Object> data1 = new ArrayList<>();
+            List<Row> data1 = new ArrayList<>();
             data1.addAll(data);
             filteredData = broker.volatileShuffleQuery(filterVolatileDataPlan, data1);
 
@@ -45,7 +45,7 @@ public class KVQueryEngine implements QueryEngine {
             return broker.anchoredReadQuery(averageOnReadPlan);
         }else{
             VolatileShuffleQueryPlan<Integer, Shard> averageOnWritePlan = new KVVolatileAverage();
-            List<Object> filteredData1 = new ArrayList<>();
+            List<Row> filteredData1 = new ArrayList<>();
             filteredData1.addAll(filteredData);
             return broker.volatileShuffleQuery(averageOnWritePlan, filteredData1);
         }

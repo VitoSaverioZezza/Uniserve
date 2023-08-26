@@ -199,13 +199,17 @@ public class DataStore<R extends Row, S extends Shard> {
         if(newShard.isEmpty()) {
             logger.error("Error in shard creation for shard ID: " + shardNum);
         }
-        RegisterNewShardMessage message = RegisterNewShardMessage.newBuilder().setShardID(shardNum).build();
-        RegisterNewShardResponse response = coordinatorStub.registerNewShard(message);
-        if (response.getStatus() == 0) {
+        if(shardNum < ephemeralShardNum.get()) {
+            RegisterNewShardMessage message = RegisterNewShardMessage.newBuilder().setShardID(shardNum).build();
+            RegisterNewShardResponse response = coordinatorStub.registerNewShard(message);
+            if (response.getStatus() == 0) {
+                return newShard;
+            } else {
+                logger.error("Error in shard registration");
+                return Optional.empty();
+            }
+        }else{
             return newShard;
-        } else {
-            logger.error("Error in shard registration");
-            return Optional.empty();
         }
     }
 

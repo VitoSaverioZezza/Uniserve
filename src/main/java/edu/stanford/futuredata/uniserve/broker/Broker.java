@@ -726,6 +726,7 @@ public class Broker {
         //run subqueries
         Map<String, ReadQuery> subqueries = plan.getSubqueriesResults();
         Map<String, ReadQueryResults> subqueriesResults = new HashMap<>();
+
         for(Map.Entry<String, ReadQuery> entry: subqueries.entrySet()){
             subqueriesResults.put(entry.getKey(), entry.getValue().run(this));
         }
@@ -820,48 +821,56 @@ public class Broker {
                 logger.error("Retrieve and combine query failed");
             }
         }
+
+        Map<String, List<Pair<Integer, Integer>>> aliasTodsIDsShard = new HashMap<>();
+        for(Map.Entry<Integer, Map<String, List<Integer>>> dsIDAliasShards: dsIDToAliasShards.entrySet()){
+            Integer dsID = dsIDAliasShards.getKey();
+            for(Map.Entry<String ,List<Integer>> aliasShards : dsIDAliasShards.getValue().entrySet()){
+                List<Pair<Integer, Integer>> dsIDsShard = new ArrayList<>();
+                for(Integer shardID: aliasShards.getValue()){
+                    dsIDsShard.add(new Pair<>(dsID, shardID));
+                }
+                aliasTodsIDsShard.computeIfAbsent(aliasShards.getKey(), k->new ArrayList<>()).addAll(dsIDsShard);
+            }
+        }
+
         for(String alias: subqueriesResults.keySet()){
             retrievedData.put(alias, new CopyOnWriteArrayList<>());
-            int totShardCount = 0;
-            for(Map.Entry<Integer, Map<String, List<Integer>>> entry: dsIDToAliasShards.entrySet()){
-                totShardCount = totShardCount + entry.getValue().get(alias).size();
+            List<Pair<Integer, Integer>> dsIDsShard = aliasTodsIDsShard.get(alias);
+            CountDownLatch tableLatch = new CountDownLatch(dsIDsShard.size());
+            for(Pair<Integer, Integer> dsIDShard: dsIDsShard){
+                Integer dsID = dsIDShard.getValue0();
+                Integer shardID = dsIDShard.getValue1();
+                ManagedChannel channel = dsIDToChannelMap.get(dsID);
+                BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+                RetrieveAndCombineQueryMessage message = RetrieveAndCombineQueryMessage.newBuilder()
+                        .setTableName(alias)
+                        .setShardID(shardID)
+                        .setSerializedQueryPlan(serializedQueryPlan)
+                        .setTxID(txID)
+                        .setSubquery(true)
+                        .build();
+                StreamObserver<RetrieveAndCombineQueryResponse> responseStreamObserver = new StreamObserver<>() {
+                    @Override
+                    public void onNext(RetrieveAndCombineQueryResponse response) {
+                        if(response.getState() == QUERY_SUCCESS){
+                            retrievedData.get(alias).add(response.getData());
+                        }
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {}
+                    @Override
+                    public void onCompleted() {
+                        tableLatch.countDown();
+                    }
+                };
+                stub.retrieveAndCombineQuery(message, responseStreamObserver);
             }
-            CountDownLatch tableLatch = new CountDownLatch(totShardCount);
-            for(Integer dsID: dsToSubqueryData.keySet()){
-                List<Integer> shardsIDs = dsIDToAliasShards.get(dsID).get(alias);
-                for(Integer shardID: shardsIDs){
-                    ManagedChannel channel = dsIDToChannelMap.get(dsID);
-                    BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
-                    RetrieveAndCombineQueryMessage message = RetrieveAndCombineQueryMessage.newBuilder()
-                            .setTableName(alias)
-                            .setShardID(shardID)
-                            .setSerializedQueryPlan(serializedQueryPlan)
-                            .setTxID(txID)
-                            .setSubquery(true)
-                            .build();
-                    StreamObserver<RetrieveAndCombineQueryResponse> responseStreamObserver = new StreamObserver<>() {
-                        @Override
-                        public void onNext(RetrieveAndCombineQueryResponse response) {
-                            if(response.getState() == QUERY_SUCCESS){
-                                retrievedData.get(alias).add(response.getData());
-                            }
-                        }
-
-                        @Override
-                        public void onError(Throwable throwable) {}
-
-                        @Override
-                        public void onCompleted() {
-                            tableLatch.countDown();
-                        }
-                    };
-                    stub.retrieveAndCombineQuery(message, responseStreamObserver);
-                }
-                try {
-                    tableLatch.await();
-                }catch (Exception e){
-                    logger.error("Retrieve and combine query failed");
-                }
+            try {
+                tableLatch.await();
+            }catch (Exception e){
+                logger.error("Retrieve and combine query failed");
             }
         }
         long aggStart = System.nanoTime();
@@ -1327,7 +1336,7 @@ public class Broker {
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             assert (channel != null);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
-            StreamObserver<StoreSubqueryDataMessage> observer = stub.storeSubqueryData(new StreamObserver<StoreSubqueryDataResponse>(){
+            StreamObserver<StoreSubqueryDataMessage> observer = stub.storeSubqueryData(new StreamObserver<>(){
                 @Override
                 public void onNext(StoreSubqueryDataResponse storeSubqueryDataResponse) {
                     if(storeSubqueryDataResponse.getServerStatus() == 0){

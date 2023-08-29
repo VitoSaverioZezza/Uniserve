@@ -440,6 +440,9 @@ public class DataStore<R extends Row, S extends Shard> {
     }
     public void removeSubQueryData(long transactionID){
         Map<String, Map<Integer, S>> subQdata = subqueryResults.get(transactionID);
+        if(subQdata == null){
+            return;
+        }
         for(Map.Entry<String, Map<Integer, S>> subquery: subQdata.entrySet()){
             for(Map.Entry<Integer, S> subqueryShard: subquery.getValue().entrySet()){
                 subqueryShard.getValue().destroy();

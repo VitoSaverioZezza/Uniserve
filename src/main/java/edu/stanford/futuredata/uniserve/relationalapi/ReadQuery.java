@@ -6,11 +6,15 @@ import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.ReadQueryBui
 import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.WriteQueryBuilder;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import org.javatuples.Pair;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.util.*;
 
 public class ReadQuery implements Serializable {
+    private static final Logger logger = LoggerFactory.getLogger(ReadQuery.class);
+
     private ProdSelProjQuery simpleQuery = null;
     private List<String> resultSchema = new ArrayList<>();
     private AggregateQuery aggregateQuery = null;
@@ -26,6 +30,7 @@ public class ReadQuery implements Serializable {
         return results;
     }
     public RelReadQueryResults updateStoredResults(Broker broker){
+        logger.info("Updating stored query results");
         RelReadQueryResults results;
         if(simpleQuery != null){
             results =  simpleQuery.run(broker);
@@ -45,6 +50,7 @@ public class ReadQuery implements Serializable {
         //check if there's a matching registered query
         String registeredTableResults = queryMatch(broker);
         if(!registeredTableResults.isEmpty()){
+            logger.info("Query matches a previously stored query");
             RelReadQueryResults readQueryResults = new ReadQueryBuilder(broker).select().from(registeredTableResults).build().run(broker);
             return readQueryResults;
         }else{

@@ -41,7 +41,6 @@ public class ReadQuery implements Serializable {
         }
         assert (results != null);
         broker.simpleWriteQuery(new UpdateStoredResultsWrite(keyStructure, resultTableName), results.getData());
-
         return results;
     }
 
@@ -52,6 +51,7 @@ public class ReadQuery implements Serializable {
         if(!registeredTableResults.isEmpty()){
             logger.info("Query matches a previously stored query");
             RelReadQueryResults readQueryResults = new ReadQueryBuilder(broker).select().from(registeredTableResults).build().run(broker);
+            readQueryResults.setFieldNames(resultSchema);
             return readQueryResults;
         }else{
             if(simpleQuery != null){
@@ -65,6 +65,7 @@ public class ReadQuery implements Serializable {
         //check if the query has to be registered
         //register if and only if the query has no matching registered query
         if(registered && registeredTableResults.isEmpty()){
+            logger.info("Storing query");
             keyStructure = new Boolean[resultSchema.size()];
             if(aggregateQuery != null){
                 Arrays.fill(keyStructure, 0, aggregateQuery.getGroupAttributesSubschema().size(), true);

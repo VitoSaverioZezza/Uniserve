@@ -9,7 +9,7 @@ import java.util.List;
 
 public class UpdateStoredResultsWrite implements SimpleWriteQueryPlan<RelRow, RelShard> {
     private String queriedTable;
-    private Boolean[] keyStructure = new Boolean[0];
+    private Boolean[] keyStructure;
 
 
     public UpdateStoredResultsWrite(Boolean[] keyStructure, String name){

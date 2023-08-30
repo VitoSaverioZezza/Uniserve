@@ -66,7 +66,7 @@ public class Broker {
     public static final int QUERY_RETRY = 2;
     public static final int READ_NON_EXISTING_SHARD = 7;
 
-    public static final int SHARDS_PER_TABLE = 1000000;
+    public static final int SHARDS_PER_TABLE = 10000;
 
     /**Statistics collected by the broker since last forward operation*/
     public ConcurrentHashMap<Set<Integer>, Integer> queryStatistics = new ConcurrentHashMap<>();

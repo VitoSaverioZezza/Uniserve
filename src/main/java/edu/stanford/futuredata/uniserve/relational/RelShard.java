@@ -74,7 +74,11 @@ public class RelShard implements Shard {
     }
     public boolean abortTransactions(){
         uncommittedRows.clear();
+        rowsToRemove.clear();
         return true;
+    }
+    public void clear(){
+        this.rowsToRemove = data;
     }
     public void removeRows(List<RelRow> rowsToRemove){
         this.rowsToRemove = rowsToRemove;

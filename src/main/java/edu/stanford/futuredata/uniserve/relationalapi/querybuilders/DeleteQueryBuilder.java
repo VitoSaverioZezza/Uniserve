@@ -7,6 +7,9 @@ import edu.stanford.futuredata.uniserve.relationalapi.DeleteQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 
 public class DeleteQueryBuilder {
@@ -29,8 +32,12 @@ public class DeleteQueryBuilder {
         this.table = table;
         return this;
     }
-    public DeleteQueryBuilder data(List<RelRow> data){
-        this.data = data;
+    public DeleteQueryBuilder data(RelRow... data){
+        this.data = Arrays.asList(data);
+        return this;
+    }
+    public DeleteQueryBuilder data(Collection<RelRow> data){
+        this.data = new ArrayList<>(data);
         return this;
     }
     public DeleteQueryBuilder data(ReadQuery query){

@@ -339,8 +339,7 @@ public class RelTest {
         System.out.println("\tTEST ----- Select on Single table, single field");
         RelReadQueryResults selectActors = api.read()
                 .select()
-                .from("Actors")
-                .where("Actors.FullName == \"Johnny Depp\" || Actors.FullName == \"Brad Pitt\"")
+                .fromFilter("Actors", "Actors.FullName == \"Johnny Depp\" || Actors.FullName == \"Brad Pitt\"")
                 .build().run(broker);
         assertEquals(selectActors.getData().size(), 2);
         assertEquals(selectActors.getFieldNames(), new ArrayList<>(Arrays.asList("Actors.ID", "Actors.FullName", "Actors.DateOfBirth", "Actors.Salary", "Actors.FilmID")));
@@ -722,6 +721,7 @@ public class RelTest {
 
         System.out.println("\tTEST ----- max CFUs");
         long tStart = System.currentTimeMillis();
+
         RelReadQueryResults maxCFUs = api.read()
                 .select("C.Code", "C.Name")
                 .from("Courses", "C")
@@ -732,6 +732,9 @@ public class RelTest {
                         .build(), "M")
                 .where("C.CFUs == M.maxCFU")
                 .build().run(broker);
+
+
+
         System.out.println("\t\tExecution time: " + (System.currentTimeMillis() - tStart)+"ms.");
         int maxCFUvalue = Integer.MIN_VALUE;
         List<RelRow> writtenMaxCFU = new ArrayList<>();
@@ -1188,7 +1191,9 @@ public class RelTest {
 
         System.out.println("TEST   -----   Writing tables");
         System.out.println("\tTEST   -----   Writing students");
+
         api.write().table("Students").data(studentsRows).build().run();
+
         System.out.println("\tTEST   -----   Writing professors");
         api.write().table("Professors").data(professorsRows).build().run();
         System.out.println("\tTEST   -----   Writing courses");

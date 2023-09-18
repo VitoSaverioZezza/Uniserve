@@ -33,10 +33,15 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
     /**List of names needed for the intermediate schema, already splitted between source part and attribute name*/
     private List<Pair<String, String>> splitSystemCombineSchema = new ArrayList<>();
 
+    private Map<String, String> filterPredicates;
     private String selectionPredicate = "";
 
     private Boolean distinct = false;
 
+    public ProdSelProjQuery setFilterPredicates(Map<String, String> filterPredicates){
+        this.filterPredicates = filterPredicates;
+        return this;
+    }
     public ProdSelProjQuery setAliasToTableMap(Map<String, String> aliasToTableMap) {
         this.aliasToTableMap = aliasToTableMap;
         return this;
@@ -106,6 +111,13 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         return returnedStructure;
     }
     @Override
+    public Map<String, ReadQuery> getSubqueriesResults(){
+        return subqueries;
+    }
+
+
+
+    @Override
     public ByteString retrieve(RelShard shard, String tableName) {
         List<RelRow> shardData = shard.getData();
         List<String> sourceSchema = cachedSourcesSchema.get(tableName);
@@ -116,16 +128,12 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         }
         List<List<Object>> dataToCombine = new ArrayList<>();
         for(RelRow row: shardData){
+            if(filterPredicates.containsKey(tableName) && !checkFilterPredicate(filterPredicates.get(tableName), row, tableName)){
+                continue;
+            }
             List<Object> projRow = new ArrayList<>();
             for(String projAttr: subschema){
                 projRow.add(row.getField(sourceSchema.indexOf(projAttr)));
-            }
-            /*If the resulting rows of the whole query are extracted from a single table/subquery it is possible to evaluate the predicate
-            * here since the row is fully built.
-            * Other small optimizations are possible by parsing the predicate at query building time
-            * */
-            if((tableNames.size()+subqueries.size()) == 1 && !checkPredicate(projRow)){
-                continue;
             }
             dataToCombine.add(projRow);
         }
@@ -147,13 +155,10 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
                 }
             }
         }
-
-        //product
         List<String> sourcesList = new ArrayList<>(cachedSourcesSchema.keySet());
         List<List<Object>> resultRows = new ArrayList<>();
         Object[] currentPrototype = new Object[systemCombineSchema.size()];
         int currentTableIndex = 0;
-        cartesianProduct(currentTableIndex, resultRows, sourcesList, currentPrototype, tableToProjDataMap);
         RelReadQueryResults res = new RelReadQueryResults();
         List<RelRow> dataRows = new ArrayList<>();
         List<List<Object>> resRows = new ArrayList<>();
@@ -175,27 +180,6 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         res.addData(dataRows);
         return res;
     }
-    private void cartesianProduct(int currentTableIndex, List<List<Object>> resultRows, List<String> sourcesList, Object[] currentPrototype, Map<String, List<List<Object>>> retrievedData){
-        String sourceName = sourcesList.get(currentTableIndex);
-        List<String> intermediateProjSchema = sourcesSubschemasForCombine.get(sourceName);
-        List<List<Object>> retrievedTableData = retrievedData.get(sourceName);
-        for(List<Object> row: retrievedTableData){
-            for(int i = 0; i<systemCombineSchema.size(); i++){
-                Pair<String, String> intermediateAttributeDescription = splitSystemCombineSchema.get(i);
-                if(intermediateAttributeDescription.getValue0().equals(sourceName)){
-                    currentPrototype[i] = row.get(intermediateProjSchema.indexOf(intermediateAttributeDescription.getValue1()));
-                }
-            }
-            if(currentTableIndex < sourcesList.size()-1){
-                cartesianProduct(++currentTableIndex, resultRows, sourcesList, currentPrototype, retrievedData);
-                currentTableIndex = currentTableIndex -1;
-            }else{
-                List<Object> r = new ArrayList<>(Arrays.asList(currentPrototype));
-                if(checkPredicate(r))
-                    resultRows.add(r);
-            }
-        }
-    }
     @Override
     public boolean writeSubqueryResults(RelShard shard, String tableName, List<Object> data){
         List<RelRow> data1 = new ArrayList<>();
@@ -204,44 +188,36 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         }
         return shard.insertRows(data1) && shard.committRows();
     }
-    private boolean checkPredicate(List<Object> row){
-        if(selectionPredicate == null || selectionPredicate.isEmpty()){
-            return true;
-        }
-        String predToTest = new String(selectionPredicate);
-        Map<String, Object> values = new HashMap<>();
 
-        //TODO: can be done better but it gave me enough trouble, I'll check it later.
-        for(Map.Entry<String, String> aliasTableName: aliasToTableMap.entrySet()){
-            List<String> sourceSchema = cachedSourcesSchema.get(aliasTableName.getValue());
-            for(String attribute: sourceSchema){
-                String systemName = aliasTableName.getValue() + "." + attribute;
-                String aliasName = aliasTableName.getKey() + "." + attribute;
-                if(predToTest.contains(aliasName)){
-                    values.put(aliasName, row.get(systemCombineSchema.indexOf(systemName)));
+    private boolean checkFilterPredicate(String filterPredicate, RelRow row, String tableName){
+        Map<String, Object> values = new HashMap<>();
+        String tableAlias = "";
+        List<String> tableSchema = cachedSourcesSchema.get(tableName);
+        for(Map.Entry<String, String> aliasTable: aliasToTableMap.entrySet()){
+            if(aliasTable.getValue().equals(tableName)){
+                tableAlias = aliasTable.getKey();
+                break;
+            }
+        }
+        for(String attributeName: tableSchema){
+            Object val = row.getField(tableSchema.indexOf(attributeName));
+            String systemName = tableName+"."+attributeName;
+            if(filterPredicate.contains(systemName)){
+                values.put(systemName, val);
+            }
+            if(!tableAlias.isEmpty() && filterPredicate.contains(tableAlias)){
+                String aliasAttr = tableAlias+"."+attributeName;
+                if(filterPredicate.contains(aliasAttr)){
+                    values.put(aliasAttr, val);
                 }
             }
-        }
-        for(String attrAlias: userFinalSchema){
-            if (predToTest.contains(attrAlias)){
-                values.put(attrAlias, row.get(systemCombineSchema.indexOf(systemFinalSchema.get(userFinalSchema.indexOf(attrAlias)))));
-            }
-        }
-
-        for(Pair<String, String> attributePair: splitSystemCombineSchema){
-            String attr = attributePair.getValue0()+"."+attributePair.getValue1();
-            if(predToTest.contains(attr)){
-                values.put(attr, row.get(splitSystemCombineSchema.indexOf(attributePair)));
-            }
-        }
-        for(String finalSchemaName: systemFinalSchema){
-            if(predToTest.contains(finalSchemaName)){
-                values.put(finalSchemaName, row.get(systemFinalSchema.indexOf(finalSchemaName)));
+            if(filterPredicate.contains(attributeName)){
+                values.put(attributeName, val);
             }
         }
 
         JexlEngine jexl = new JexlBuilder().create();
-        JexlExpression expression = jexl.createExpression(predToTest);
+        JexlExpression expression = jexl.createExpression(filterPredicate);
         JexlContext context = new MapContext(values);
         Object result = expression.evaluate(context);
         try{
@@ -255,12 +231,6 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
             return false;
         }
     }
-
-    @Override
-    public Map<String, ReadQuery> getSubqueriesResults(){
-        return subqueries;
-    }
-
     public List<String> getSystemFinalSchema(){return systemFinalSchema;}
     public String getSelectionPredicate(){return selectionPredicate;}
 }

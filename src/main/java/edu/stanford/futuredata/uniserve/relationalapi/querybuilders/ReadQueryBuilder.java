@@ -1,12 +1,10 @@
 package edu.stanford.futuredata.uniserve.relationalapi.querybuilders;
 
-import com.amazonaws.partitions.PartitionRegionImpl;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.relationalapi.AggregateQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.ProdSelProjQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.SimpleAggregateQuery;
-import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import org.javatuples.Pair;
 
 import java.util.*;
@@ -37,6 +35,8 @@ public class ReadQueryBuilder {
     private final Map<String, String> aliasToTableName = new HashMap<>(); //contains ONLY aliases of the tables
     private final Map<String, ReadQuery> subqueriesAlias = new HashMap<>(); //contains ALL subqueries mappings
 
+    private final Map<String, String > filterPredicates = new HashMap<>();
+    private final List<Pair<String,String>> joinPairs = new ArrayList<>();
 
     public ReadQueryBuilder(Broker broker){
         this.broker = broker;
@@ -108,9 +108,49 @@ public class ReadQueryBuilder {
     public ReadQueryBuilder from(ReadQueryBuilder subqueryToBuild, String alias){
         return from(subqueryToBuild.build(), alias);
     }
-
     public ReadQueryBuilder where(String selectionPredicate){
         this.rawSelectionPredicate = selectionPredicate;
+        return this;
+    }
+    public ReadQueryBuilder fromFilter(String tableName, String filterPredicate){
+        tableNameToAlias.put(tableName, null);
+        filterPredicates.put(tableName, filterPredicate);
+        return this;
+    }
+    public ReadQueryBuilder fromFilter(String tableName, String alias, String filterPredicate){
+        tableNameToAlias.put(tableName, alias);
+        aliasToTableName.put(alias, tableName);
+        filterPredicate = filterPredicate.replace(alias, tableName);
+        filterPredicates.put(tableName, filterPredicate);
+        return this;
+    }
+    public ReadQueryBuilder fromFilter(ReadQuery subquery, String alias, String filterPredicate){
+        if(alias == null){
+            throw new RuntimeException("Subquery has not alias");
+        }
+        filterPredicates.put(alias, filterPredicate);
+        subqueriesAlias.put(alias, subquery);
+        return this;
+    }
+    public ReadQueryBuilder fromFilter(ReadQueryBuilder subqueryToBuild, String alias, String filterPredicate){
+        return fromFilter(subqueryToBuild.build(), alias, filterPredicate);
+    }
+
+    public ReadQueryBuilder join(String sourceOne, String sourceTwo, String attributeOne, String attributeTwo){
+        if((!tableNameToAlias.containsKey(sourceOne) && !aliasToTableName.containsKey(sourceOne) && !subqueriesAlias.containsKey(sourceOne))
+                || (!tableNameToAlias.containsKey(sourceTwo) && !aliasToTableName.containsKey(sourceTwo) && !subqueriesAlias.containsKey(sourceTwo))
+        ){
+            throw new RuntimeException("Join source is not declared");
+        }
+        String systemSourceOne = sourceOne;
+        String systemSourceTwo = sourceTwo;
+        if(aliasToTableName.containsKey(sourceOne)){
+            systemSourceOne = aliasToTableName.get(sourceOne);
+        }
+        if(aliasToTableName.containsKey(sourceTwo)){
+            systemSourceTwo = aliasToTableName.get(sourceTwo);
+        }
+        joinPairs.add(new Pair<>(systemSourceOne+"."+attributeOne, systemSourceTwo+"."+attributeTwo));
         return this;
     }
 
@@ -131,7 +171,6 @@ public class ReadQueryBuilder {
         return this;
     }
 
-
     public ReadQuery build(){
         ReadQuery resultQuery = null;
         if(aggregates.isEmpty()){
@@ -147,101 +186,6 @@ public class ReadQueryBuilder {
         return resultQuery;
     }
 
-    private ReadQuery buildSimpleAggregateQuery(){
-        String selectionPredicate = rawSelectionPredicate;
-
-        List<String> userFinalSchema = new ArrayList<>();   //result schema of the whole query
-        List<Pair<Integer, String>> systemAggregateSubschema = new ArrayList<>(); //aggregate part of the schema going as input of the final combine operation
-        List<String> systemGatherSchema = new ArrayList<>(); //schema of the input of the gather operation, it includes the group attributes and attributes to be aggregated
-
-        List<String> systemIntermediateSchema = new ArrayList<>();  //result schema of the subquery that will be input of the main one, this includes group attributes
-        //and attributes that need to be aggregated
-        List<String> systemIntermediateCombineSchema = new ArrayList<>(); //schema that includes group attributes, attributes to be aggregated and attributes that
-        //are argument of the selection predicate
-        Map<String, List<String>> intermediateSourcesSchemas = new HashMap<>();
-        Map<String, List<String>> intermediateSourcesSubschemasForCombine = new HashMap<>();
-
-        for(Pair<Integer, String> aggregate: aggregates){
-            String rawAggregatedAttribute = aggregate.getValue1();
-            Pair<String, String> splitRaw = splitRawAttribute(rawAggregatedAttribute);
-            String systemAttributeName = splitRaw.getValue0() + "." + splitRaw.getValue1();
-
-            systemIntermediateSchema.add(systemAttributeName);
-            systemIntermediateCombineSchema.add(systemAttributeName);
-            intermediateSourcesSubschemasForCombine.computeIfAbsent(splitRaw.getValue0(), k->new ArrayList<>()).add(splitRaw.getValue1());
-            if(subqueriesAlias.containsKey(splitRaw.getValue0()) && !intermediateSourcesSchemas.containsKey(splitRaw.getValue0())){
-                intermediateSourcesSchemas.put(splitRaw.getValue0(), subqueriesAlias.get(splitRaw.getValue0()).getResultSchema());
-            }else {
-                intermediateSourcesSchemas.computeIfAbsent(splitRaw.getValue0(), k -> broker.getTableInfo(splitRaw.getValue0()).getAttributeNames());
-            }
-            systemGatherSchema.add(systemAttributeName);
-            systemAggregateSubschema.add(new Pair<>(aggregate.getValue0(), systemAttributeName));
-            userFinalSchema.add(aggregateAttributesNames.get(aggregates.indexOf(aggregate)));
-        }
-        if(!selectionPredicate.isEmpty()){
-            for (Map.Entry<String,String> tableNameAndAlias: tableNameToAlias.entrySet()){
-                String tableName = tableNameAndAlias.getKey();
-                if(!selectionPredicate.contains(tableName)){
-                    continue;
-                }
-                List<String> sourceSchema = broker.getTableInfo(tableName).getAttributeNames();
-                for(String attribute: sourceSchema){
-                    if(selectionPredicate.contains(tableName+"."+attribute)){
-                        intermediateSourcesSchemas.put(tableName, sourceSchema);
-                        intermediateSourcesSubschemasForCombine.computeIfAbsent(tableName, k->new ArrayList<>()).add(attribute);
-                        systemIntermediateCombineSchema.add(tableName+"."+attribute);
-                    }
-                }
-            }
-            for(Map.Entry<String,String> aliasAndTableName: aliasToTableName.entrySet()){
-                String alias = aliasAndTableName.getKey();
-                if(!selectionPredicate.contains(alias)){
-                    continue;
-                }
-                String tableName = aliasAndTableName.getValue();
-                List<String> sourceSchema = broker.getTableInfo(tableName).getAttributeNames();
-                for(String attribute: sourceSchema){
-                    if(selectionPredicate.contains(tableName+"."+attribute)){
-                        intermediateSourcesSchemas.put(tableName, sourceSchema);
-                        intermediateSourcesSubschemasForCombine.computeIfAbsent(tableName, k->new ArrayList<>()).add(attribute);
-                        systemIntermediateCombineSchema.add(tableName+"."+attribute);
-                    }
-                }
-            }
-            for (Map.Entry<String,ReadQuery> aliasAndReadQuery: subqueriesAlias.entrySet()){
-                String alias = aliasAndReadQuery.getKey();
-                if(!selectionPredicate.contains(alias)){
-                    continue;
-                }
-                List<String> sourceSchema = aliasAndReadQuery.getValue().getResultSchema();
-                for(String attribute: sourceSchema){
-                    if(selectionPredicate.contains(alias+"."+attribute)){
-                        intermediateSourcesSchemas.put(alias, sourceSchema);
-                        intermediateSourcesSubschemasForCombine.computeIfAbsent(alias, k->new ArrayList<>()).add(attribute);
-                        systemIntermediateCombineSchema.add(alias+"."+attribute);
-                    }
-                }
-            }
-        }
-        ProdSelProjQuery intermediateQuery = new ProdSelProjQuery()
-                .setCachedSourcesSchema(intermediateSourcesSchemas)
-                .setSelectionPredicate(selectionPredicate)
-                .setSubqueries(subqueriesAlias)
-                .setTableNames(new ArrayList<>(tableNameToAlias.keySet()))
-                .setSystemCombineSchema(systemIntermediateCombineSchema)
-                .setSourcesSubschemasForCombine(intermediateSourcesSubschemasForCombine)
-                .setSystemFinalSchema(systemIntermediateSchema)
-                .setUserFinalSchema(systemIntermediateSchema);
-        String intermediateQueryStringID = Integer.toString(new Random().nextInt());
-        ReadQuery intermediateQueryWrapper = new ReadQuery().setSimpleQuery(intermediateQuery).setResultSchema(systemIntermediateSchema);
-        SimpleAggregateQuery aggregateQuery = new SimpleAggregateQuery()
-                .setIntermediateQuery(intermediateQueryStringID, intermediateQueryWrapper)
-                .setAggregatesSubschema(systemAggregateSubschema)
-                .setGatherInputRowsSchema(systemGatherSchema)
-                .setFinalSchema(userFinalSchema);
-        ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setSimpleAggregateQuery(aggregateQuery);
-        return ret;
-    }
     private ReadQuery buildSimpleQuery(){
         String selectionPredicate = rawSelectionPredicate;
 
@@ -351,6 +295,7 @@ public class ReadQueryBuilder {
                 .setSelectionPredicate(selectionPredicate)
                 .setTableNames(new ArrayList<>(tableNameToAlias.keySet()))
                 .setSubqueries(subqueriesAlias)
+                .setFilterPredicates(filterPredicates)
                 .setAliasToTableMap(aliasToTableName);
         if(distinct){
             simpleQuery = simpleQuery.setDistinct();
@@ -358,6 +303,57 @@ public class ReadQueryBuilder {
         ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setSimpleQuery(simpleQuery);
         return ret;
     }
+
+
+    private ReadQuery buildSimpleAggregateQuery(){
+        List<String> userFinalSchema = new ArrayList<>();   //result schema of the whole query
+        List<Pair<Integer, String>> systemAggregateSubschema = new ArrayList<>(); //aggregate part of the schema going as input of the final combine operation
+        List<String> systemGatherSchema = new ArrayList<>(); //schema of the input of the gather operation, it includes the group attributes and attributes to be aggregated
+
+        List<String> systemIntermediateSchema = new ArrayList<>();  //result schema of the subquery that will be input of the main one, this includes group attributes
+        //and attributes that need to be aggregated
+        List<String> systemIntermediateCombineSchema = new ArrayList<>(); //schema that includes group attributes, attributes to be aggregated and attributes that
+        //are argument of the selection predicate
+        Map<String, List<String>> intermediateSourcesSchemas = new HashMap<>();
+        Map<String, List<String>> intermediateSourcesSubschemasForCombine = new HashMap<>();
+
+        for(Pair<Integer, String> aggregate: aggregates){
+            String rawAggregatedAttribute = aggregate.getValue1();
+            Pair<String, String> splitRaw = splitRawAttribute(rawAggregatedAttribute);
+            String systemAttributeName = splitRaw.getValue0() + "." + splitRaw.getValue1();
+
+            systemIntermediateSchema.add(systemAttributeName);
+            systemIntermediateCombineSchema.add(systemAttributeName);
+            intermediateSourcesSubschemasForCombine.computeIfAbsent(splitRaw.getValue0(), k->new ArrayList<>()).add(splitRaw.getValue1());
+            if(subqueriesAlias.containsKey(splitRaw.getValue0()) && !intermediateSourcesSchemas.containsKey(splitRaw.getValue0())){
+                intermediateSourcesSchemas.put(splitRaw.getValue0(), subqueriesAlias.get(splitRaw.getValue0()).getResultSchema());
+            }else {
+                intermediateSourcesSchemas.computeIfAbsent(splitRaw.getValue0(), k -> broker.getTableInfo(splitRaw.getValue0()).getAttributeNames());
+            }
+            systemGatherSchema.add(systemAttributeName);
+            systemAggregateSubschema.add(new Pair<>(aggregate.getValue0(), systemAttributeName));
+            userFinalSchema.add(aggregateAttributesNames.get(aggregates.indexOf(aggregate)));
+        }
+        ProdSelProjQuery intermediateQuery = new ProdSelProjQuery()
+                .setCachedSourcesSchema(intermediateSourcesSchemas)
+                .setSubqueries(subqueriesAlias)
+                .setTableNames(new ArrayList<>(tableNameToAlias.keySet()))
+                .setSystemCombineSchema(systemIntermediateCombineSchema)
+                .setSourcesSubschemasForCombine(intermediateSourcesSubschemasForCombine)
+                .setSystemFinalSchema(systemIntermediateSchema)
+                .setFilterPredicates(filterPredicates)
+                .setUserFinalSchema(systemIntermediateSchema);
+        String intermediateQueryStringID = Integer.toString(new Random().nextInt());
+        ReadQuery intermediateQueryWrapper = new ReadQuery().setSimpleQuery(intermediateQuery).setResultSchema(systemIntermediateSchema);
+        SimpleAggregateQuery aggregateQuery = new SimpleAggregateQuery()
+                .setIntermediateQuery(intermediateQueryStringID, intermediateQueryWrapper)
+                .setAggregatesSubschema(systemAggregateSubschema)
+                .setGatherInputRowsSchema(systemGatherSchema)
+                .setFinalSchema(userFinalSchema);
+        ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setSimpleAggregateQuery(aggregateQuery);
+        return ret;
+    }
+
     private ReadQuery buildAggregateQuery(){
         String selectionPredicate = rawSelectionPredicate;
         String parsedHavingPredicate = rawHavingPredicate;
@@ -477,6 +473,7 @@ public class ReadQueryBuilder {
                 .setSystemCombineSchema(systemIntermediateCombineSchema)
                 .setSourcesSubschemasForCombine(intermediateSourcesSubschemasForCombine)
                 .setSystemFinalSchema(systemIntermediateSchema)
+                .setFilterPredicates(filterPredicates)
                 .setAliasToTableMap(aliasToTableName)
                 .setUserFinalSchema(systemIntermediateSchema);
 

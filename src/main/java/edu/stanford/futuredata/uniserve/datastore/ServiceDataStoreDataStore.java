@@ -236,15 +236,15 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         * */
 
         long txID = m.getTxID();
-        int shardNum = m.getShardNum();
+        int nonAnchorShardNum = m.getNonAnchorShardNum();
         AnchoredReadQueryPlan<S, Object> plan = (AnchoredReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
-        Pair<Long, Integer> mapID = new Pair<>(txID, shardNum);
-        dataStore.createShardMetadata(shardNum);
-        dataStore.shardLockMap.get(shardNum).readerLockLock();
-        if (!dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)
-        && (!m.getTargetShardIntermediate() || !dataStore.shardVersionMap.containsKey(shardNum))) {
-            logger.warn("DS{} Got read request for unassigned shard {}", dataStore.dsID, shardNum);
-            dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+        Pair<Long, Integer> mapID = new Pair<>(txID, nonAnchorShardNum);
+        dataStore.createShardMetadata(nonAnchorShardNum);
+        dataStore.shardLockMap.get(nonAnchorShardNum).readerLockLock();
+        if (!dataStore.consistentHash.getBuckets(nonAnchorShardNum).contains(dataStore.dsID)
+        && (!m.getTargetShardIntermediate() || !dataStore.shardVersionMap.containsKey(nonAnchorShardNum))) {
+            logger.warn("DS{} Got read request for unassigned shard {}", dataStore.dsID, nonAnchorShardNum);
+            dataStore.shardLockMap.get(nonAnchorShardNum).readerLockUnlock();
             responseObserver.onNext(AnchoredShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());
             responseObserver.onCompleted();
             return;
@@ -278,7 +278,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         *
         * */
 
-        txPartitionKeys.computeIfAbsent(mapID, k -> new ConcurrentHashMap<>()).put(m.getRepartitionShardNum(), m.getPartitionKeysList());
+        txPartitionKeys.computeIfAbsent(mapID, k -> new ConcurrentHashMap<>()).put(m.getAnchorShardID(), m.getPartitionKeysList());
 
         /*A semaphore with 0 permits is created, then the txCounts local structure is checked for an entry related to
         * the current mapID. If such an entry does not exist, it is initialized equal to 0
@@ -303,28 +303,28 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         *   */
 
         Semaphore s = txSemaphores.computeIfAbsent(mapID, k -> new Semaphore(0));
-        if (txCounts.computeIfAbsent(mapID, k -> new AtomicInteger(0)).incrementAndGet() == m.getNumRepartitions()) {
-            dataStore.ensureShardCached(shardNum);
-            S shard;
+        if (txCounts.computeIfAbsent(mapID, k -> new AtomicInteger(0)).incrementAndGet() == m.getAnchorShardsCount()) {
+            dataStore.ensureShardCached(nonAnchorShardNum);
+            S localNonAnchorShard;
             if (dataStore.readWriteAtomicity) {
                 long lastCommittedVersion = m.getLastCommittedVersion();
-                if (dataStore.multiVersionShardMap.get(shardNum).containsKey(lastCommittedVersion)) {
-                    shard = dataStore.multiVersionShardMap.get(shardNum).get(lastCommittedVersion);
+                if (dataStore.multiVersionShardMap.get(nonAnchorShardNum).containsKey(lastCommittedVersion)) {
+                    localNonAnchorShard = dataStore.multiVersionShardMap.get(nonAnchorShardNum).get(lastCommittedVersion);
                 } else { // TODO: Retrieve the older version from somewhere else?
-                    logger.info("DS{} missing shard {} version {}", dataStore.dsID, shardNum, lastCommittedVersion);
+                    logger.info("DS{} missing shard {} version {}", dataStore.dsID, nonAnchorShardNum, lastCommittedVersion);
                     responseObserver.onNext(AnchoredShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build());
                     responseObserver.onCompleted();
                     return;
                 }
             } else {
-                shard = dataStore.shardMap.get(shardNum);
+                localNonAnchorShard = dataStore.shardMap.get(nonAnchorShardNum);
             }
-            assert (shard != null);
-            Map<Integer, List<ByteString>> scatterResult = plan.scatter(shard, txPartitionKeys.get(mapID));
+            assert (localNonAnchorShard != null);
+            Map<Integer, List<ByteString>> scatterResult = plan.scatter(localNonAnchorShard, txPartitionKeys.get(mapID));
             txShuffledData.put(mapID, scatterResult);
-            // long unixTime = Instant.now().getEpochSecond();
-            // dataStore.QPSMap.get(shardNum).merge(unixTime, 1, Integer::sum);
-            s.release(m.getNumRepartitions() - 1);
+            long unixTime = Instant.now().getEpochSecond();
+            dataStore.QPSMap.get(nonAnchorShardNum).merge(unixTime, 1, Integer::sum);
+            s.release(m.getAnchorShardsCount() - 1);
         } else {
             s.acquireUninterruptibly();
         }
@@ -338,13 +338,13 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         *
         * */
         Map<Integer, List<ByteString>> scatterResult = txShuffledData.get(mapID);
-        assert(scatterResult.containsKey(m.getRepartitionShardNum()));
-        List<ByteString> ephemeralData = scatterResult.get(m.getRepartitionShardNum());
-        scatterResult.remove(m.getRepartitionShardNum());  // TODO: Make reliable--what if map immutable?.
+        assert(scatterResult.containsKey(m.getAnchorShardID()));
+        List<ByteString> ephemeralData = scatterResult.get(m.getAnchorShardID());
+        scatterResult.remove(m.getAnchorShardID());  // TODO: Make reliable--what if map immutable?.
         if (scatterResult.isEmpty()) {
             txShuffledData.remove(mapID);
         }
-        dataStore.shardLockMap.get(shardNum).readerLockUnlock();
+        dataStore.shardLockMap.get(nonAnchorShardNum).readerLockUnlock();
         for (ByteString item: ephemeralData) {
             responseObserver.onNext(AnchoredShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setShuffleData(item).build());
         }

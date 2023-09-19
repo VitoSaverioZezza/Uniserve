@@ -73,11 +73,11 @@ message ReplicaRegisterMVResponse {
 }
 
 message AnchoredShuffleMessage {
-    int32 shardNum = 1;
+    int32 nonAnchorShardNum = 1;
     int64 txID = 2;
     repeated int32 partitionKeys = 3;
-    int32 repartitionShardNum = 4;
-    int32 numRepartitions = 5;
+    int32 anchorShardID = 4;
+    int32 anchorShardsCount = 5;
     bytes serializedQuery = 6;
     int64 lastCommittedVersion = 7;
     bool targetShardIntermediate = 8;

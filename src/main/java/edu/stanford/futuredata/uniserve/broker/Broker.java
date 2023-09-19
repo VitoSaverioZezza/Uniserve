@@ -418,14 +418,14 @@ public class Broker {
     public <S extends Shard, V> V anchoredReadQuery(AnchoredReadQueryPlan<S, V> plan) {
         long txID = zkCurator.getTxID();
 
-        Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
-        HashMap<String, List<Integer>> targetShards = new HashMap<>();
+        Map<String, List<Integer>> tableNameToPartitionKeys = plan.keysForQuery();
+        HashMap<String, List<Integer>> tableNameToShardIDs = new HashMap<>();
 
         /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
         * Build a Map<TableName, List<ShardsIDs to be queried relative to the table>>                                  *
         * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-        for(Map.Entry<String, List<Integer>> entry: partitionKeys.entrySet()) {
+        for(Map.Entry<String, List<Integer>> entry: tableNameToPartitionKeys.entrySet()) {
             String tableName = entry.getKey();
             List<Integer> tablePartitionKeys = entry.getValue();
             TableInfo tableInfo = getTableInfo(tableName);
@@ -439,7 +439,7 @@ public class Broker {
                 shardNumbs = tablePartitionKeys.stream().map(i -> keyToShard(tableID, numShards, i))
                         .distinct().collect(Collectors.toList());
             }
-            targetShards.put(tableName, shardNumbs);
+            tableNameToShardIDs.put(tableName, shardNumbs);
         }
         /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
         * Recursively executes all sub queries, placing their results in a structure                                     *
@@ -452,16 +452,16 @@ public class Broker {
         for(AnchoredReadQueryPlan<S, Map<String, Map<Integer, Integer>>> p: plan.getSubQueries()) {
             Map<String, Map<Integer, Integer>> subQueryShards = anchoredReadQuery(p);
             intermediateShards.putAll(subQueryShards);
-            subQueryShards.forEach((k, v) -> targetShards.put(k, new ArrayList<>(v.keySet())));
+            subQueryShards.forEach((k, v) -> tableNameToShardIDs.put(k, new ArrayList<>(v.keySet())));
         }
 
 
-        ByteString serializedTargetShards = Utilities.objectToByteString(targetShards);
+        ByteString serializedTableNameToShardIDs = Utilities.objectToByteString(tableNameToShardIDs);
         ByteString serializedIntermediateShards = Utilities.objectToByteString(intermediateShards);
         ByteString serializedQuery = Utilities.objectToByteString(plan);
         String anchorTable = plan.getAnchorTable();
-        List<Integer> anchorTableShards = targetShards.get(anchorTable);
-        int numRepartitions = anchorTableShards.size();
+        List<Integer> anchorTableShards = tableNameToShardIDs.get(anchorTable);
+        int numberOfAnchorShards = anchorTableShards.size();
         List<ByteString> intermediates = new CopyOnWriteArrayList<>();
 
         /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -473,19 +473,19 @@ public class Broker {
         * the anchor table.                                                                                            *
         * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-        CountDownLatch latch = new CountDownLatch(numRepartitions);
+        CountDownLatch latch = new CountDownLatch(numberOfAnchorShards);
         long lcv = zkCurator.getLastCommittedVersion();
         for (int anchorShardNum: anchorTableShards) {
             int dsID = consistentHash.getRandomBucket(anchorShardNum);
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             AnchoredReadQueryMessage m = AnchoredReadQueryMessage.newBuilder().
-                    setTargetShard(anchorShardNum).
+                    setAnchorShardNum(anchorShardNum).
                     setSerializedQuery(serializedQuery).
-                    setNumRepartitions(numRepartitions).
+                    setAnchorShardsCount(numberOfAnchorShards).
                     setTxID(txID).
                     setLastCommittedVersion(lcv).
-                    setTargetShards(serializedTargetShards).
+                    setTableNameToShardIDs(serializedTableNameToShardIDs).
                     setIntermediateShards(serializedIntermediateShards).
                     build();
             StreamObserver<AnchoredReadQueryResponse> responseObserver = new StreamObserver<>() {

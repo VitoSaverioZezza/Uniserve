@@ -452,7 +452,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         AnchoredReadQueryPlan<S, Object> plan =
                 (AnchoredReadQueryPlan<S, Object>) Utilities.byteStringToObject(m.getSerializedQuery());
         Map<String, List<Integer>> allTargetShards =
-                (Map<String, List<Integer>>) Utilities.byteStringToObject(m.getTargetShards());
+                (Map<String, List<Integer>>) Utilities.byteStringToObject(m.getTableNameToShardIDs());
         Map<String, Map<Integer, Integer>> intermediateShards =
                 (Map<String, Map<Integer, Integer>>) Utilities.byteStringToObject(m.getIntermediateShards());
         Map<String, List<ByteString>> ephemeralData = new HashMap<>();
@@ -460,29 +460,29 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
         /*The shard of the anchor table for which this method has been called is retrieved*/
 
-        int localShardNum = m.getTargetShard();
+        int anchorShardNum = m.getAnchorShardNum();
         String anchorTableName = plan.getAnchorTable();
-        dataStore.createShardMetadata(localShardNum);
-        dataStore.shardLockMap.get(localShardNum).readerLockLock();
-        if (!dataStore.consistentHash.getBuckets(localShardNum).contains(dataStore.dsID)) {
-            logger.warn("DS{} Got anchored read request for unassigned local shard {}", dataStore.dsID, localShardNum);
-            dataStore.shardLockMap.get(localShardNum).readerLockUnlock();
+        dataStore.createShardMetadata(anchorShardNum);
+        dataStore.shardLockMap.get(anchorShardNum).readerLockLock();
+        if (!dataStore.consistentHash.getBuckets(anchorShardNum).contains(dataStore.dsID)) {
+            logger.warn("DS{} Got anchored read request for unassigned local shard {}", dataStore.dsID, anchorShardNum);
+            dataStore.shardLockMap.get(anchorShardNum).readerLockUnlock();
             return AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build();
         }
-        dataStore.ensureShardCached(localShardNum);
-        S localShard;
+        dataStore.ensureShardCached(anchorShardNum);
+        S localAnchorShard;
         long lastCommittedVersion = m.getLastCommittedVersion();
         if (dataStore.readWriteAtomicity) {
-            if (dataStore.multiVersionShardMap.get(localShardNum).containsKey(lastCommittedVersion)) {
-                localShard = dataStore.multiVersionShardMap.get(localShardNum).get(lastCommittedVersion);
+            if (dataStore.multiVersionShardMap.get(anchorShardNum).containsKey(lastCommittedVersion)) {
+                localAnchorShard = dataStore.multiVersionShardMap.get(anchorShardNum).get(lastCommittedVersion);
             } else { // TODO: Retrieve the older version from somewhere else?
-                logger.info("DS{} missing shard {} version {}", dataStore.dsID, localShardNum, lastCommittedVersion);
+                logger.info("DS{} missing shard {} version {}", dataStore.dsID, anchorShardNum, lastCommittedVersion);
                 return AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
             }
         } else {
-            localShard = dataStore.shardMap.get(localShardNum);
+            localAnchorShard = dataStore.shardMap.get(anchorShardNum);
         }
-        assert(localShard != null);
+        assert(localAnchorShard != null);
 
         /*
          * If there's more than a single queried table in the plan, an ephemeral shard is created for each table and
@@ -507,26 +507,26 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
          *
          * */
 
-        List<Integer> partitionKeys = plan.getPartitionKeys(localShard);
+        List<Integer> partitionKeys = plan.getPartitionKeys(localAnchorShard);
         for (String tableName: plan.getQueriedTables()) {
             if (plan.getQueriedTables().size() > 1) {
-                S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
-                ephemeralShards.put(tableName, ephemeralShard);
+                S tableEphemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
+                ephemeralShards.put(tableName, tableEphemeralShard);
             }
             if (!tableName.equals(anchorTableName)) {
                 List<Integer> targetShards = allTargetShards.get(tableName);
                 List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();
                 CountDownLatch latch = new CountDownLatch(targetShards.size());
-                for (int targetShard : targetShards) {
+                for (int nonAnchorShardNum : targetShards) {
                     int targetDSID = intermediateShards.containsKey(tableName) ?
-                            intermediateShards.get(tableName).get(targetShard) :
-                            dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
+                            intermediateShards.get(tableName).get(nonAnchorShardNum) :
+                            dataStore.consistentHash.getRandomBucket(nonAnchorShardNum); // TODO:  If it's already here, use it.
                     ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                     DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                     AnchoredShuffleMessage g = AnchoredShuffleMessage.newBuilder()
-                            .setShardNum(targetShard)
-                            .setNumRepartitions(m.getNumRepartitions())
-                            .setRepartitionShardNum(localShardNum)
+                            .setNonAnchorShardNum(nonAnchorShardNum)
+                            .setAnchorShardsCount(m.getAnchorShardsCount())
+                            .setAnchorShardID(anchorShardNum)
                             .setSerializedQuery(m.getSerializedQuery())
                             .setLastCommittedVersion(lastCommittedVersion)
                             .setTxID(m.getTxID())
@@ -545,9 +545,9 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
                         @Override
                         public void onError(Throwable throwable) {
-                            logger.info("DS{}  Shuffle data error shard {}", dataStore.dsID, targetShard);
+                            logger.info("DS{}  Shuffle data error shard {}", dataStore.dsID, nonAnchorShardNum);
                             // TODO: First remove all ByteStrings added from this shard.
-                            int targetDSID = dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
+                            int targetDSID = dataStore.consistentHash.getRandomBucket(nonAnchorShardNum); // TODO:  If it's already here, use it.
                             ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                             DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                             stub.anchoredShuffle(g, this);
@@ -586,13 +586,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
         try {
             if (plan.returnTableName().isEmpty()) {
-                ByteString b = plan.gather(localShard, ephemeralData, ephemeralShards);
+                ByteString b = plan.gather(localAnchorShard, ephemeralData, ephemeralShards);
                 r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
             } else {
                 int intermediateShardNum = dataStore.ephemeralShardNum.decrementAndGet();
                 dataStore.createShardMetadata(intermediateShardNum);
                 S intermediateShard = dataStore.shardMap.get(intermediateShardNum);
-                plan.gather(localShard, ephemeralData, ephemeralShards, intermediateShard);
+                plan.gather(localAnchorShard, ephemeralData, ephemeralShards, intermediateShard);
                 HashMap<Integer, Integer> intermediateShardLocation =
                         new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));
                 ByteString b = Utilities.objectToByteString(intermediateShardLocation);
@@ -602,7 +602,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             logger.warn("Read Query Exception: {}", e.getMessage());
             r = AnchoredReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }
-        dataStore.shardLockMap.get(localShardNum).readerLockUnlock();
+        dataStore.shardLockMap.get(anchorShardNum).readerLockUnlock();
 
         /*
         * The ephemeral shards related to all tables are destroyed, the Query Per Shard value associated to the
@@ -612,7 +612,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
         ephemeralShards.values().forEach(S::destroy);
         long unixTime = Instant.now().getEpochSecond();
-        dataStore.QPSMap.get(localShardNum).merge(unixTime, 1, Integer::sum);
+        dataStore.QPSMap.get(anchorShardNum).merge(unixTime, 1, Integer::sum);
         return r;
     }
 

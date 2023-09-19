@@ -219,6 +219,9 @@ public class KVStoreTests {
         }
         Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", numShards, new ArrayList<>(), null);
+
+
+
         List<KVRow> rows = new ArrayList<>();
         for (int i = 1; i < 11; i++) {
             rows.add(new KVRow(i, i));
@@ -232,6 +235,7 @@ public class KVStoreTests {
         Map<String, Map<Integer, Integer>> queryResponse = broker.anchoredReadQuery(readQueryPlan);
         assertEquals(1, queryResponse.size());
         assertEquals(numShards, queryResponse.get("intermediate1").size());
+
 
         AnchoredReadQueryPlan<KVShard, Integer> p = new KVFilterSumGet(Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
         Integer ret = broker.anchoredReadQuery(p);

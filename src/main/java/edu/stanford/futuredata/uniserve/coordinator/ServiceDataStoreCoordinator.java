@@ -1,9 +1,11 @@
 package edu.stanford.futuredata.uniserve.coordinator;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
+import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.StatusRuntimeException;
@@ -109,9 +111,18 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         String tableName = m.getTableName();
         if (coordinator.tableInfoMap.containsKey(tableName)) {
             TableInfo t = coordinator.tableInfoMap.get(tableName);
+            ByteString serAttrNamesArray = Utilities.objectToByteString(t.getAttributeNames().toArray());
+            ByteString serKeyStructure = Utilities.objectToByteString(t.getKeyStructure());
+            ByteString serShardIDs = Utilities.objectToByteString((ArrayList<Integer>) coordinator.getShardIDsForTable(tableName));
+            ByteString storedQueries = Utilities.objectToByteString(t.getRegisteredQueries());
             return DTableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS)
                     .setId(t.id)
-                    .setNumShards(t.numShards).build();
+                    .setNumShards(t.numShards)
+                    .setAttributeNames(serAttrNamesArray)
+                    .setKeyStructure(serKeyStructure)
+                    .setShardIDs(serShardIDs)
+                    .setTriggeredQueries(storedQueries)
+                    .build();
         } else {
             return DTableInfoResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
         }

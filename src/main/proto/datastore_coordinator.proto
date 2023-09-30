@@ -50,4 +50,8 @@ message DTableInfoResponse {
     int32 returnCode = 1;
     int32 id = 2;
     int32 numShards = 3;
+    bytes triggeredQueries = 4;
+    bytes attributeNames = 5;
+    bytes keyStructure = 6;
+    bytes shardIDs = 7;
 }

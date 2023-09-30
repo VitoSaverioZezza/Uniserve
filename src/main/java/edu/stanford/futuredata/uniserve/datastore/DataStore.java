@@ -7,9 +7,8 @@ import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShardFactory;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
-import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
-import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
-import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
+import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
+import edu.stanford.futuredata.uniserve.utilities.*;
 import io.grpc.*;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
@@ -438,32 +437,20 @@ public class DataStore<R extends Row, S extends Shard> {
     public void removeVolatileScatterData(long transactionID){
         volatileScatterData.remove(transactionID);
     }
-    public void removeSubQueryData(long transactionID){
-        Map<String, Map<Integer, S>> subQdata = subqueryResults.get(transactionID);
-        if(subQdata == null){
-            return;
-        }
-        for(Map.Entry<String, Map<Integer, S>> subquery: subQdata.entrySet()){
-            for(Map.Entry<Integer, S> subqueryShard: subquery.getValue().entrySet()){
-                subqueryShard.getValue().destroy();
-                subquery.getValue().remove(subqueryShard.getKey());
-            }
-            subQdata.remove(subquery.getKey());
-        }
-        subqueryResults.remove(transactionID);
-    }
 
-    private final Map<Long, Map<String, Map<Integer, S>>> subqueryResults = new HashMap<>();
-
-    public boolean storeSubqueryResults(S ephemeralShard, String alias, Long txID, Integer shardID){
-        try {
-            subqueryResults.computeIfAbsent(txID, k -> new HashMap<>()).computeIfAbsent(alias, k -> new HashMap<>()).put(shardID, ephemeralShard);
-            return true;
-        }catch (Exception e){
-            return false;
+    public TableInfo getTableInfo(String tableName) {
+        DTableInfoResponse r = coordinatorStub.tableInfo(DTableInfoMessage.newBuilder().setTableName(tableName).build());
+        assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
+        TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards());
+        Object[] attributeNamesArray = (Object[]) Utilities.byteStringToObject(r.getAttributeNames());
+        List<String> attributeNames = new ArrayList<>();
+        for (Object o:attributeNamesArray){
+            attributeNames.add((String) o);
         }
-    }
-    public S getSubqueryShard(long txID, String alias, Integer shardID){
-        return subqueryResults.get(txID).get(alias).get(shardID);
+        t.setAttributeNames(attributeNames);
+        t.setKeyStructure((Boolean[]) Utilities.byteStringToObject(r.getKeyStructure()));
+        t.setRegisteredQueries((ArrayList<ReadQuery>) Utilities.byteStringToObject(r.getTriggeredQueries()));
+        t.setTableShardsIDs((ArrayList<Integer>) Utilities.byteStringToObject(r.getShardIDs()));
+        return t;
     }
 }

@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.relationalapi;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
@@ -55,6 +56,12 @@ public class SimpleAggregateQuery implements RetrieveAndCombineQueryPlan<RelShar
     public List<String> getTableNames() {
         return new ArrayList<>();
     }
+
+    @Override
+    public boolean isThisSubquery() {
+        return false;
+    }
+
     @Override
     public Map<String, List<Integer>> keysForQuery() {
         return new HashMap<>();
@@ -99,8 +106,14 @@ public class SimpleAggregateQuery implements RetrieveAndCombineQueryPlan<RelShar
 
 
     @Override
-    public ByteString retrieve(RelShard shard, String tableName) {
+    public ByteString retrieve(RelShard shard, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
         return Utilities.objectToByteString(computePartialResults(shard.getData()).toArray());
+    }
+    @Override
+    public void writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
+        List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
+        intermediateShard.insertRows(rows);
+        intermediateShard.committRows();
     }
 
     @Override
@@ -148,17 +161,9 @@ public class SimpleAggregateQuery implements RetrieveAndCombineQueryPlan<RelShar
         return readQueryResults;
     }
 
-    @Override
-    public boolean writeSubqueryResults(RelShard shard, String tableName, List<Object> data) {
-        List<RelRow> data1 = new ArrayList<>();
-        for(Object o: data){
-            data1.add((RelRow) o);
-        }
-        return shard.insertRows(data1) && shard.committRows();
-    }
 
     @Override
-    public Map<String, ReadQuery> getSubqueriesResults() {
+    public Map<String, ReadQuery> getVolatileSubqueries() {
         return subquery;
     }
 

@@ -1,9 +1,12 @@
 package edu.stanford.futuredata.uniserve.api;
 
 import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.api.lambdamethods.ExtractFromShardLambda;
+import edu.stanford.futuredata.uniserve.relational.RelRow;
+import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.io.Serializable;
@@ -27,16 +30,23 @@ public class SelectQuery<S extends Shard> implements RetrieveAndCombineQueryPlan
     }
 
     @Override
+    public boolean isThisSubquery() {
+        return false;
+    }
+
+    @Override
     public Map<String, List<Integer>> keysForQuery() {
         return keysForQuery;
     }
 
-    //Serialized Object[] with a single element in pos 0
-    //said element is an ArrayList of Object->Row->KVRow
     @Override
-    public ByteString retrieve(S s, String tableName) {
-        Object[] obj = new Object[]{extract(s)};
+    public ByteString retrieve(S shard, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
+        Object[] obj = new Object[]{extract(shard)};
         return Utilities.objectToByteString(obj);
+    }
+
+    @Override
+    public void writeIntermediateShard(S intermediateShard, ByteString gatherResults){
     }
 
     @Override

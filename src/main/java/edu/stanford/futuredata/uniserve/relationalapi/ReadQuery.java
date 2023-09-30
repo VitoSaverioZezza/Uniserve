@@ -2,8 +2,7 @@ package edu.stanford.futuredata.uniserve.relationalapi;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
-import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.ReadQueryBuilder;
-import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.WriteQueryBuilder;
+import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.ANewReadQueryBuilder;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
@@ -15,121 +14,123 @@ import java.util.*;
 public class ReadQuery implements Serializable {
     private static final Logger logger = LoggerFactory.getLogger(ReadQuery.class);
 
-    private ProdSelProjQuery simpleQuery = null;
-    private List<String> resultSchema = new ArrayList<>();
-    private AggregateQuery aggregateQuery = null;
-    private SimpleAggregateQuery simpleAggregateQuery = null;
+    private FilterAndProjectionQuery filterAndProjectionQuery = null;
+    private AnotherSimpleAggregateQuery anotherSimpleAggregateQuery = null;
+    private JoinQuery joinQuery = null;
+    private AnotherAggregateQuery anotherAggregateQuery = null;
 
-    private boolean registered = false;
+    private List<String> resultSchema = new ArrayList<>();
+
+    private boolean stored = false;
     private String resultTableName = "";
     private Boolean[] keyStructure;
 
-    public RelReadQueryResults updateStoredResults(Broker broker, RelReadQueryResults results){
-        assert (results != null);
-        broker.simpleWriteQuery(new UpdateStoredResultsWrite(keyStructure, resultTableName), results.getData());
-        return results;
+
+    public ReadQuery setFilterAndProjectionQuery(FilterAndProjectionQuery filterAndProjectionQuery) {
+        this.filterAndProjectionQuery = filterAndProjectionQuery;
+        return this;
     }
-    public RelReadQueryResults updateStoredResults(Broker broker){
-        logger.info("Updating stored query results");
-        RelReadQueryResults results;
-        if(simpleQuery != null){
-            results =  simpleQuery.run(broker);
-        }else if(simpleAggregateQuery != null){
-            results =  simpleAggregateQuery.run(broker);
-        }else{
-            results = aggregateQuery.run(broker);
-        }
-        assert (results != null);
-        broker.simpleWriteQuery(new UpdateStoredResultsWrite(keyStructure, resultTableName), results.getData());
-        return results;
+    public ReadQuery setAnotherAggregateQuery(AnotherAggregateQuery aggregateQuery) {
+        this.anotherAggregateQuery = aggregateQuery;
+        return this;
+    }
+    public ReadQuery setJoinQuery(JoinQuery query){
+        this.joinQuery = query;
+        return this;
+    }
+    public ReadQuery setAnotherSimpleAggregateQuery(AnotherSimpleAggregateQuery anotherSimpleAggregateQuery) {
+        this.anotherSimpleAggregateQuery = anotherSimpleAggregateQuery;
+        return this;
     }
 
-    public RelReadQueryResults run(Broker broker){
-        RelReadQueryResults results = null;
-        //check if there's a matching registered query
-        String registeredTableResults = queryMatch(broker);
-        if(!registeredTableResults.isEmpty()){
-            logger.info("Query matches a previously stored query");
-            RelReadQueryResults readQueryResults = new ReadQueryBuilder(broker).select().from(registeredTableResults).build().run(broker);
-            readQueryResults.setFieldNames(resultSchema);
-            return readQueryResults;
-        }else{
-            if(simpleQuery != null){
-                results =  simpleQuery.run(broker);
-            }else if(simpleAggregateQuery != null){
-                results =  simpleAggregateQuery.run(broker);
-            }else{
-                results = aggregateQuery.run(broker);
-            }
-        }
-        //check if the query has to be registered
-        //register if and only if the query has no matching registered query
-        if(registered && registeredTableResults.isEmpty()){
-            logger.info("Storing query");
-            keyStructure = new Boolean[resultSchema.size()];
-            if(aggregateQuery != null){
-                Arrays.fill(keyStructure, 0, aggregateQuery.getGroupAttributesSubschema().size(), true);
-                Arrays.fill(keyStructure, aggregateQuery.getGroupAttributesSubschema().size(), resultSchema.size(), false);
-            }else {
-                Arrays.fill(keyStructure, true);
-            }
-            broker.registerQuery(this);
-            updateStoredResults(broker, results);
-        }
-        return results;
+    public ReadQuery setStored(){
+        this.stored = true;
+        return this;
     }
-
-    public Boolean[] getKeyStructure() {
-        return keyStructure;
-    }
-
-    private String queryMatch(Broker broker){
-        TableInfo aSourceTableInfo = broker.getTableInfo(new ArrayList<>(this.getSourceTables()).get(0));
-        ArrayList<ReadQuery> alreadyRegisteredQueries = aSourceTableInfo.getRegisteredQueries();
-        for(ReadQuery registeredQuery: alreadyRegisteredQueries){
-            if(this.equals(registeredQuery)){
-                return registeredQuery.getResultTableName();
-            }
-        }
-        return "";
-    }
-
-
-    public String getResultTableName() {
-        return resultTableName;
-    }
-
-    public void setResultTableName(String resultTableName) {
+    public ReadQuery setResultTableName(String resultTableName) {
         this.resultTableName = resultTableName;
-    }
-
-    public ReadQuery setRegistered(){
-        this.registered = true;
-        return this;
-    }
-    public ReadQuery setSimpleAggregateQuery(SimpleAggregateQuery simpleAggregateQuery){
-        this.simpleAggregateQuery = simpleAggregateQuery;
-        return this;
-    }
-    public ReadQuery setAggregateQuery(AggregateQuery aggregateQuery){
-        this.aggregateQuery = aggregateQuery;
-        return this;
-    }
-    public ReadQuery setSimpleQuery(ProdSelProjQuery simpleQuery) {
-        this.simpleQuery = simpleQuery;
         return this;
     }
 
+    public ReadQuery setIsThisSubquery(boolean isThisSubquery){
+        if(filterAndProjectionQuery != null){
+            filterAndProjectionQuery.setIsThisSubquery(isThisSubquery);
+        } else if (anotherSimpleAggregateQuery != null) {
+            anotherSimpleAggregateQuery.setIsThisSubquery(isThisSubquery);
+        } else if (anotherAggregateQuery != null) {
+            anotherAggregateQuery.setIsThisSubquery(isThisSubquery);
+        } else if (joinQuery != null){
+            joinQuery.setIsThisSubquery(isThisSubquery);
+        } else {
+            throw new RuntimeException("No valid query is defined");
+        }
+        return this;
+    }
     public ReadQuery setResultSchema(List<String> resultSchema) {
         this.resultSchema = resultSchema;
         return this;
     }
+
     public List<String> getResultSchema() {
         return resultSchema;
+    }
+    public String getResultTableName() {
+        return resultTableName;
+    }
+    public Boolean[] getKeyStructure() {
+        return keyStructure;
+    }
+
+    public RelReadQueryResults run(Broker broker){
+        if(filterAndProjectionQuery == null && joinQuery == null && anotherAggregateQuery == null && anotherSimpleAggregateQuery == null){
+            throw new RuntimeException("No valid query is defined");
+        }
+        RelReadQueryResults results = new RelReadQueryResults();
+        String registeredTableResults = queryMatch(broker);
+        if(!registeredTableResults.isEmpty()){
+            logger.info("query matches an already registered query");
+            ReadQuery rq = new ANewReadQueryBuilder(broker).select().from(registeredTableResults).build();
+            if(filterAndProjectionQuery != null && filterAndProjectionQuery.isThisSubquery()){
+                rq.setIsThisSubquery(true);
+            } else if (anotherSimpleAggregateQuery != null && anotherSimpleAggregateQuery.isThisSubquery()) {
+                rq.setIsThisSubquery(true);
+            } else if (anotherAggregateQuery != null && anotherAggregateQuery.isThisSubquery()) {
+                rq.setIsThisSubquery(true);
+            } else if (joinQuery.isThisSubquery()) {
+                rq.setIsThisSubquery(true);
+            }
+            results = rq.run(broker);
+        }else {
+
+            if(stored){
+                logger.info("Query needs to be registered");
+                keyStructure = new Boolean[resultSchema.size()];
+                Arrays.fill(keyStructure, true);
+                //What does this method do? Creates the table and registers the query to all sources
+                this.resultTableName = broker.registerQuery(this);
+            }
+
+            if (filterAndProjectionQuery != null) {
+                results = broker.retrieveAndCombineReadQuery(filterAndProjectionQuery);
+            } else if (anotherSimpleAggregateQuery != null) {
+                results = broker.shuffleReadQuery(anotherSimpleAggregateQuery);
+            } else if (anotherAggregateQuery != null) {
+                results = broker.shuffleReadQuery(anotherAggregateQuery);
+            } else {
+                results = broker.shuffleReadQuery(joinQuery);
+            }
+        }
+        results.setFieldNames(resultSchema);
+        return results;
+    }
+    public RelReadQueryResults updateStoredResults(Broker broker){
+
+        return null;
     }
 
     @Override
     public boolean equals(Object obj){
+        System.out.println("RQ.equals ----- this should not be called, like, never");
         if(!(obj instanceof ReadQuery)){
             return false;
         }
@@ -139,15 +140,32 @@ public class ReadQuery implements Serializable {
                 return false;
             }
         }
-        List<ReadQuery> subqueriesInput = readQuery.getSubqueries();
-        List<ReadQuery> subqueriesThis = this.getSubqueries();
-        if(subqueriesInput.size() != subqueriesThis.size())
+        List<ReadQuery> concreteSubqueriesInput = new ArrayList<>(readQuery.getConcreteSubqueries().values());
+        List<ReadQuery> concreteSubqueriesThis = new ArrayList<>(this.getConcreteSubqueries().values());
+        if(concreteSubqueriesInput.size() != concreteSubqueriesThis.size())
             return false;
-        for(int i = 0; i<subqueriesInput.size(); i++){
-            ReadQuery subqInput = subqueriesInput.get(i);
+        for(int i = 0; i<concreteSubqueriesInput.size(); i++){
+            ReadQuery subqInput = concreteSubqueriesInput.get(i);
             boolean match = false;
-            for(int j = 0; j<subqueriesThis.size() && !match; j++){
-                ReadQuery subqThis = subqueriesThis.get(j);
+            for(int j = 0; j<concreteSubqueriesThis.size() && !match; j++){
+                ReadQuery subqThis = concreteSubqueriesThis.get(j);
+                if(subqThis.equals(subqInput)){
+                    match = true;
+                }
+            }
+            if(!match){
+                return false;
+            }
+        }
+        List<ReadQuery> volatileSubqueriesInput = new ArrayList<>(readQuery.getVolatileSubqueries().values());
+        List<ReadQuery> volatileSubqueriesThis = new ArrayList<>(this.getVolatileSubqueries().values());
+        if(volatileSubqueriesInput.size() != concreteSubqueriesThis.size())
+            return false;
+        for(int i = 0; i<volatileSubqueriesInput.size(); i++){
+            ReadQuery subqInput = volatileSubqueriesInput.get(i);
+            boolean match = false;
+            for(int j = 0; j<volatileSubqueriesThis.size() && !match; j++){
+                ReadQuery subqThis = volatileSubqueriesThis.get(j);
                 if(subqThis.equals(subqInput)){
                     match = true;
                 }
@@ -171,63 +189,147 @@ public class ReadQuery implements Serializable {
         if(!systemResultSchemaThis.equals(systemResultSchemaInput)){
             return false;
         }
-        if(!this.getPredicate().equals(readQuery.getPredicate())){
+        List<String> thisPredicates = this.getPredicate();
+        List<String> inputPredicates = readQuery.getPredicate();
+        if(thisPredicates.size() != inputPredicates.size()){
             return false;
+        }
+        for(int i = 0; i<thisPredicates.size(); i++){
+            if(!thisPredicates.get(i).equals(inputPredicates.get(i))){
+                return false;
+            }
         }
         return true;
     }
-
+    private String queryMatch(Broker broker){
+        TableInfo aSourceTableInfo = broker.getTableInfo(new ArrayList<>(this.getSourceTables()).get(0));
+        ArrayList<ReadQuery> alreadyRegisteredQueries = aSourceTableInfo.getRegisteredQueries();
+        for(ReadQuery registeredQuery: alreadyRegisteredQueries){
+            if(this.equals(registeredQuery)){
+                return registeredQuery.getResultTableName();
+            }
+        }
+        return "";
+    }
 
     public Set<String> getSourceTables(){
-        if(simpleQuery != null){
-            Set<String> sourceTables = new HashSet<>(simpleQuery.getTableNames());
-            Map<String, ReadQuery> subqueries = simpleQuery.getSubqueriesResults();
-            for(ReadQuery subquery: subqueries.values()){
+        if(filterAndProjectionQuery != null){
+            Set<String> sourceTables = new HashSet<>(filterAndProjectionQuery.getTableNames());
+            Map<String, ReadQuery> volatileSubqueries = filterAndProjectionQuery.getVolatileSubqueries();
+            Map<String, ReadQuery> concreteSubqueries = filterAndProjectionQuery.getConcreteSubqueries();
+
+            for(ReadQuery subquery: volatileSubqueries.values()){
+                sourceTables.addAll(subquery.getSourceTables());
+            }
+            for(ReadQuery subquery: concreteSubqueries.values()){
                 sourceTables.addAll(subquery.getSourceTables());
             }
             return sourceTables;
-        }else if(simpleAggregateQuery != null){
-            ReadQuery subquery = simpleAggregateQuery.getSubqueriesResults().get(new ArrayList<>(simpleAggregateQuery.getSubqueriesResults().keySet()).get(0));
-            return subquery.getSourceTables();
-        }else{
-            return aggregateQuery.getIntermediateQuery().getSourceTables();
+        }else if(anotherSimpleAggregateQuery != null) {
+            Set<String> sourceTables = new HashSet<>(anotherSimpleAggregateQuery.getQueriedTables());
+            Map<String, ReadQuery> volatileSubqueries = anotherSimpleAggregateQuery.getVolatileSubqueries();
+            Map<String, ReadQuery> concreteSubqueries = anotherSimpleAggregateQuery.getConcreteSubqueries();
+
+            for(ReadQuery subquery: volatileSubqueries.values()){
+                sourceTables.addAll(subquery.getSourceTables());
+            }
+            for(ReadQuery subquery: concreteSubqueries.values()){
+                sourceTables.addAll(subquery.getSourceTables());
+            }
+            return sourceTables;
+        } else if (joinQuery != null) {
+            Set<String> sourceTables = new HashSet<>(joinQuery.getQueriedTables());
+            Map<String, ReadQuery> volatileSubqueries = joinQuery.getVolatileSubqueries();
+            Map<String, ReadQuery> concreteSubqueries = joinQuery.getConcreteSubqueries();
+
+            for(ReadQuery subquery: volatileSubqueries.values()){
+                sourceTables.addAll(subquery.getSourceTables());
+            }
+            for(ReadQuery subquery: concreteSubqueries.values()){
+                sourceTables.addAll(subquery.getSourceTables());
+            }
+            return sourceTables;
+        } else {
+            Set<String> sourceTables = new HashSet<>(anotherAggregateQuery.getQueriedTables());
+            Map<String, ReadQuery> volatileSubqueries = anotherAggregateQuery.getVolatileSubqueries();
+            Map<String, ReadQuery> concreteSubqueries = anotherAggregateQuery.getConcreteSubqueries();
+
+            for(ReadQuery subquery: volatileSubqueries.values()){
+                sourceTables.addAll(subquery.getSourceTables());
+            }
+            for(ReadQuery subquery: concreteSubqueries.values()){
+                sourceTables.addAll(subquery.getSourceTables());
+            }
+            return sourceTables;
         }
     }
-    public List<ReadQuery> getSubqueries(){
-        if(simpleQuery != null){
-            return new ArrayList<>(simpleQuery.getSubqueriesResults().values());
-        }else if(simpleAggregateQuery != null){
-            ReadQuery subquery = simpleAggregateQuery.getSubqueriesResults().get(new ArrayList<>(simpleAggregateQuery.getSubqueriesResults().keySet()).get(0));
-            return new ArrayList<>(subquery.getSubqueries());
+    public Map<String, ReadQuery> getVolatileSubqueries(){
+        Map<String, ReadQuery> subqueries = new HashMap<>();
+        if(filterAndProjectionQuery != null){
+            subqueries.putAll(filterAndProjectionQuery.getVolatileSubqueries());
+        }else if(anotherSimpleAggregateQuery != null){
+            subqueries.putAll(anotherSimpleAggregateQuery.getVolatileSubqueries());
+        }else if(anotherAggregateQuery != null){
+            subqueries.putAll(anotherAggregateQuery.getVolatileSubqueries());
         }else{
-            return aggregateQuery.getIntermediateQuery().getSubqueries();
+            subqueries.putAll(joinQuery.getVolatileSubqueries());
         }
+        return subqueries;
+    }
+    public Map<String, ReadQuery> getConcreteSubqueries(){
+        Map<String, ReadQuery> subqueries = new HashMap<>();
+        if(filterAndProjectionQuery != null){
+            subqueries.putAll(filterAndProjectionQuery.getConcreteSubqueries());
+        }else if(anotherSimpleAggregateQuery != null){
+            subqueries.putAll(anotherSimpleAggregateQuery.getConcreteSubqueries());
+        }else if(anotherAggregateQuery != null){
+            subqueries.putAll(anotherAggregateQuery.getConcreteSubqueries());
+        }else{
+            subqueries.putAll(joinQuery.getConcreteSubqueries());
+        }
+        return subqueries;
     }
     public List<Pair<Integer, String>> getAggregates(){
-        if(simpleQuery != null){
+        if(filterAndProjectionQuery != null || joinQuery != null){
             return new ArrayList<>();
-        }else if(simpleAggregateQuery != null){
-            return simpleAggregateQuery.getAggregatesSubschema();
+        }else if(anotherSimpleAggregateQuery != null){
+            return anotherSimpleAggregateQuery.getAggregatesSpecification();
         }else{
-            return aggregateQuery.getAggregatesSubschema();
+            return anotherAggregateQuery.getAggregatesSpecification();
         }
     }
     public List<String> getSystemFinalSchema(){
-        if(simpleQuery != null){
-            return simpleQuery.getSystemFinalSchema();
-        } else if (simpleAggregateQuery!=null) {
+        if(filterAndProjectionQuery != null){
+            return filterAndProjectionQuery.getSystemResultSchema();
+        } else if (anotherSimpleAggregateQuery!=null) {
             return new ArrayList<>();
         }else{
-            return aggregateQuery.getGroupAttributesSubschema();
+            return anotherAggregateQuery.getSystemSelectedFields();
         }
     }
-    public String getPredicate(){
-        if(simpleQuery != null){
-            return simpleQuery.getSelectionPredicate();
-        } else if (simpleAggregateQuery!=null) {
-            return "";
+    public List<String> getPredicate(){
+        if(filterAndProjectionQuery != null){
+            return filterAndProjectionQuery.getPredicates();
+        } else if (anotherSimpleAggregateQuery!=null) {
+            return anotherSimpleAggregateQuery.getPredicates();
+        }else if(anotherAggregateQuery != null){
+            return anotherAggregateQuery.getPredicates();
         }else{
-            return aggregateQuery.getHavingPredicate();
+            return joinQuery.getPredicates();
         }
+    }
+
+
+    public ReadQuery setSimpleQuery(ProdSelProjQuery simpleQuery) {
+
+        return this;
+    }
+    public ReadQuery setAggregateQuery(AggregateQuery aggregateQuery) {
+
+        return this;
+    }
+    public ReadQuery setSimpleAggregateQuery(SimpleAggregateQuery simpleAggregateQuery) {
+
+        return this;
     }
 }

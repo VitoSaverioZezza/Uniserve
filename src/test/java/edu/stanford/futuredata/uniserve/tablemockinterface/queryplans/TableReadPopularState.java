@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.tablemockinterface.queryplans;
 
 import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
@@ -36,7 +37,7 @@ public class TableReadPopularState implements ShuffleOnReadQueryPlan<TableShard,
     }
 
     @Override
-    public Map<Integer, List<ByteString>> scatter(TableShard shard, int numRepartitions, String tableName) {
+    public Map<Integer, List<ByteString>> scatter(TableShard shard, int numRepartitions, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
         Map<Integer, ArrayList<Map<String, Integer>>> partitionedTables = new HashMap<>();
         for (Map<String, Integer> row: shard.table) {
             int partitionKey = ConsistentHash.hashFunction(row.get("city")) % numRepartitions;

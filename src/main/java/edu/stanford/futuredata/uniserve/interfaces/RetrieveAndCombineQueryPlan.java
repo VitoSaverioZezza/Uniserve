@@ -1,10 +1,10 @@
 package edu.stanford.futuredata.uniserve.interfaces;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,15 +14,18 @@ public interface RetrieveAndCombineQueryPlan<S extends Shard, T> extends Seriali
 
     /**@return A list containing the names of all tables to be queried*/
     List<String> getTableNames();
-
+    boolean isThisSubquery();
 
     /**@return a mapping between tableNames of the queried tables and a list of the partition keys to be queried on each
      * table
      */
     Map<String, List<Integer>> keysForQuery();
-    ByteString retrieve(S shard, String tableName);
+    ByteString retrieve(S shard, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults);
     T combine(Map<String,List<ByteString>> retrieveResults);
+    default void writeIntermediateShard(S intermediateShard, ByteString retrievedResults){}
 
-    default boolean writeSubqueryResults(S shard, String tableName, List<Object> data){return true;}
-    default Map<String, ReadQuery> getSubqueriesResults(){return new HashMap<>();}
+    default Map<String, ReadQuery> getVolatileSubqueries(){return new HashMap<>();}
+    default Map<String, ReadQuery> getConcreteSubqueries(){return new HashMap<>();}
+    default boolean isStored(){return false;}
+    default String getResultTableName(){return "";}
 }

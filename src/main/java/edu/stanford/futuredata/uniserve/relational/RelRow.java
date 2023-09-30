@@ -16,6 +16,10 @@ public class RelRow implements Row {
 
     @Override
     public int getPartitionKey(Boolean[] keyStructure) {
+        if(keyStructure == null){
+            keyStructure = new Boolean[data.size()];
+            Arrays.fill(keyStructure, true);
+        }
         int hashCodeKey = 0;
         for(int i = 0; i<keyStructure.length; i++){
             if(keyStructure[i] != null && keyStructure[i]){

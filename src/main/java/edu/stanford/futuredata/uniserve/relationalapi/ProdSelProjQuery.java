@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.relationalapi;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.broker.Broker;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
@@ -103,6 +104,12 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
     public List<String> getTableNames() {
         return tableNames;
     }
+
+    @Override
+    public boolean isThisSubquery() {
+        return false;
+    }
+
     @Override
     public Map<String, List<Integer>> keysForQuery() {
         Map<String, List<Integer>> returnedStructure = new HashMap<>();
@@ -111,14 +118,14 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         return returnedStructure;
     }
     @Override
-    public Map<String, ReadQuery> getSubqueriesResults(){
+    public Map<String, ReadQuery> getVolatileSubqueries(){
         return subqueries;
     }
 
 
 
     @Override
-    public ByteString retrieve(RelShard shard, String tableName) {
+    public ByteString retrieve(RelShard shard, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
         List<RelRow> shardData = shard.getData();
         List<String> sourceSchema = cachedSourcesSchema.get(tableName);
         List<String> subschema = sourcesSubschemasForCombine.get(tableName);
@@ -139,6 +146,13 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         }
         Object[] projRowArray = dataToCombine.toArray();
         return Utilities.objectToByteString(projRowArray);
+    }
+
+    @Override
+    public void writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
+        List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
+        intermediateShard.insertRows(rows);
+        intermediateShard.committRows();
     }
 
     @Override
@@ -179,14 +193,6 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
         }
         res.addData(dataRows);
         return res;
-    }
-    @Override
-    public boolean writeSubqueryResults(RelShard shard, String tableName, List<Object> data){
-        List<RelRow> data1 = new ArrayList<>();
-        for(Object o: data){
-            data1.add((RelRow) o);
-        }
-        return shard.insertRows(data1) && shard.committRows();
     }
 
     private boolean checkFilterPredicate(String filterPredicate, RelRow row, String tableName){

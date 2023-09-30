@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.rel.queryplans;
 
 import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
@@ -18,6 +19,11 @@ public class SimpleReadAll implements RetrieveAndCombineQueryPlan<RelShard, Obje
     }
 
     @Override
+    public boolean isThisSubquery() {
+        return false;
+    }
+
+    @Override
     public Map<String, List<Integer>> keysForQuery() {
         Map<String, List<Integer>> kfq = new HashMap<>();
         for(String tn:tableNames){
@@ -27,11 +33,12 @@ public class SimpleReadAll implements RetrieveAndCombineQueryPlan<RelShard, Obje
     }
 
     @Override
-    public ByteString retrieve(RelShard shard, String tableName) {
+    public ByteString retrieve(RelShard shard, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
         List<RelRow> data = shard.getData();
         RelRow[] dataArray = data.toArray(new RelRow[0]);
         return Utilities.objectToByteString(dataArray);
     }
+
 
     @Override
     public Object combine(Map<String, List<ByteString>> retrieveResults) {

@@ -8,12 +8,15 @@ import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.api.lambdamethods.CombineLambdaRetAndComb;
 import edu.stanford.futuredata.uniserve.api.lambdamethods.RetrieveLambda;
 import edu.stanford.futuredata.uniserve.api.querybuilders.RetrieveAndCombineQueryBuilder;
+import edu.stanford.futuredata.uniserve.relational.RelRow;
+import edu.stanford.futuredata.uniserve.relational.RelShard;
+import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.io.Serializable;
 import java.util.*;
 
-public class RetrieveAndCombineQuery implements RetrieveAndCombineQueryPlan{
+public class RetrieveAndCombineQuery implements RetrieveAndCombineQueryPlan<Shard, Object>{
     private List<String> tableNames;
     private Map<String, List<Integer>> keysForQuery;
     private Serializable combineLambda;
@@ -33,9 +36,12 @@ public class RetrieveAndCombineQuery implements RetrieveAndCombineQueryPlan{
     public List<String> getTableNames() {
         return tableNames;
     }
-
     @Override
-    public Map<String, ReadQueryResults> getSubqueriesResults() {
+    public boolean isThisSubquery() {
+        return false;
+    }
+    @Override
+    public Map<String, ReadQuery> getVolatileSubqueries() {
         return null;
     }
 
@@ -44,18 +50,12 @@ public class RetrieveAndCombineQuery implements RetrieveAndCombineQueryPlan{
         return keysForQuery;
     }
     @Override
-    public ByteString retrieve(Shard shard, String tableName) {
+    public ByteString retrieve(Shard shard, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
         Collection retrievedData = retrieveData(shard, tableName);
         List<Object> retrDataList = new ArrayList<>(retrievedData);
         Object[] retrDataArray = retrDataList.toArray();
         return Utilities.objectToByteString(retrDataArray);
     }
-
-    @Override
-    public boolean writeSubqueryResults(Shard shard, String tableName, List data) {
-        return false;
-    }
-
     @Override
     public Object combine(Map map) {
         Map<String, List<ByteString>> serRetrievedData = (Map<String, List<ByteString>>) map;
@@ -70,16 +70,12 @@ public class RetrieveAndCombineQuery implements RetrieveAndCombineQueryPlan{
         return combineData(retrievedData);
     }
 
-
-
     private Collection retrieveData(Shard shard, String tableName){
         return ((RetrieveLambda & Serializable)  ((Map<String, RetrieveLambda>)retrieveLambdas).get(tableName)).retrieve(shard, tableName);
     }
     private Object combineData(Map<String, List<Object>> retrievedData){
         return ((CombineLambdaRetAndComb & Serializable) combineLambda).combine(retrievedData);
     }
-
-
     public Object run(Broker broker){
         return broker.retrieveAndCombineReadQuery(this);
     }

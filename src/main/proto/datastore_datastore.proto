@@ -31,7 +31,6 @@ message StoreVolatileShuffleDataResponse{
     int32 state = 1;
 }
 
-
 message ReplicaWriteMessage {
     int32 shard = 1;
     bytes serializedQuery = 2;
@@ -40,38 +39,30 @@ message ReplicaWriteMessage {
     int32 writeState = 5;
     int64 txID = 6;
 }
-
 message ReplicaWriteResponse {
     int32 returnCode = 1;
 }
-
 message BootstrapReplicaMessage {
     int32 shard = 1;
     int32 versionNumber = 2;
     int32 dsID = 3;
 }
-
 message BootstrapReplicaResponse {
     int32 returnCode = 1;
     int32 versionNumber = 2;
     bytes writeQueries = 3;
     bytes writeData = 4;
 }
-
 message DataStorePingMessage {}
-
 message DataStorePingResponse {}
-
 message ReplicaRegisterMVMessage {
     int32 shard = 1;
     bytes serializedQuery = 2;
     string name = 3;
 }
-
 message ReplicaRegisterMVResponse {
     int32 returnCode = 1;
 }
-
 message AnchoredShuffleMessage {
     int32 nonAnchorShardNum = 1;
     int64 txID = 2;
@@ -95,6 +86,8 @@ message ShuffleMessage {
     int32 numRepartition = 4;
     bytes serializedQuery = 5;
     string tableName = 6;
+    bool targetShardIntermediate = 7;
+    bytes concreteSubqueriesResults = 8;
 }
 
 message ShuffleResponse {

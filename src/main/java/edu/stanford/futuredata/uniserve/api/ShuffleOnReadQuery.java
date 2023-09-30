@@ -1,13 +1,16 @@
 package edu.stanford.futuredata.uniserve.api;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.interfaces.Shard;
-import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
 import edu.stanford.futuredata.uniserve.api.lambdamethods.CombineLambdaShuffle;
 import edu.stanford.futuredata.uniserve.api.lambdamethods.GatherLambda;
 import edu.stanford.futuredata.uniserve.api.lambdamethods.ScatterLambda;
 import edu.stanford.futuredata.uniserve.api.querybuilders.ShuffleReadQueryBuilder;
+import edu.stanford.futuredata.uniserve.broker.Broker;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
+import edu.stanford.futuredata.uniserve.interfaces.Shard;
+import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
+import edu.stanford.futuredata.uniserve.relational.RelRow;
+import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
 import java.io.Serializable;
@@ -16,7 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ShuffleOnReadQuery implements ShuffleOnReadQueryPlan {
+public class ShuffleOnReadQuery implements ShuffleOnReadQueryPlan<Shard, Object> {
     private List<String> queriedTables;
     private Map<String, List<Integer>> keysForQuery;
     private Map<String, Serializable> scatterLogics;
@@ -41,7 +44,7 @@ public class ShuffleOnReadQuery implements ShuffleOnReadQueryPlan {
         return keysForQuery;
     }
     @Override
-    public Map<Integer, List<ByteString>> scatter(Shard shard, int numRepartitions, String tableName) {
+    public Map<Integer, List<ByteString>> scatter(Shard shard, int numRepartitions, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
         Map<Integer, List<Object>> scatterRes = runScatter(shard, tableName, numRepartitions);
         Map<Integer, List<ByteString>> serScatterRes = new HashMap<>();
         for(Map.Entry<Integer, List<Object>> entry: scatterRes.entrySet()){
@@ -53,10 +56,8 @@ public class ShuffleOnReadQuery implements ShuffleOnReadQueryPlan {
         }
         return serScatterRes;
     }
-
     @Override
-    public boolean writeSubqueryResults(Shard shard, String tableName, List data) {
-        return false;
+    public void writeIntermediateShard(Shard intermediateShard, ByteString gatherResults){
     }
 
     @Override

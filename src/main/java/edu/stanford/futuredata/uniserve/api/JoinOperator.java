@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.api;
 
 import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
 import edu.stanford.futuredata.uniserve.api.lambdamethods.ExtractFromShardKey;
@@ -33,7 +34,7 @@ public class JoinOperator<S extends Shard> implements ShuffleOnReadQueryPlan<S, 
     }
 
     @Override
-    public Map<Integer, List<ByteString>> scatter(S shard, int numServer, String tableName) {
+    public Map<Integer, List<ByteString>> scatter(S shard, int numServer, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
         Map<Integer, List<ByteString>> returned = new HashMap<>();
         Collection keysTableOne;
         Collection keysTableTwo;

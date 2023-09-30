@@ -241,8 +241,10 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         Pair<Long, Integer> mapID = new Pair<>(txID, nonAnchorShardNum);
         dataStore.createShardMetadata(nonAnchorShardNum);
         dataStore.shardLockMap.get(nonAnchorShardNum).readerLockLock();
-        if (!dataStore.consistentHash.getBuckets(nonAnchorShardNum).contains(dataStore.dsID)
-        && (!m.getTargetShardIntermediate() || !dataStore.shardVersionMap.containsKey(nonAnchorShardNum))) {
+        if (
+                !dataStore.consistentHash.getBuckets(nonAnchorShardNum).contains(dataStore.dsID)
+                && (!m.getTargetShardIntermediate() || !dataStore.shardVersionMap.containsKey(nonAnchorShardNum)))
+        {
             logger.warn("DS{} Got read request for unassigned shard {}", dataStore.dsID, nonAnchorShardNum);
             dataStore.shardLockMap.get(nonAnchorShardNum).readerLockUnlock();
             responseObserver.onNext(AnchoredShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());
@@ -373,7 +375,9 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
         Pair<Long, Integer> mapID = new Pair<>(txID, shardNum);
         dataStore.createShardMetadata(shardNum);
         dataStore.shardLockMap.get(shardNum).readerLockLock();
-        if (!dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)) {
+        if (!dataStore.consistentHash.getBuckets(shardNum).contains(dataStore.dsID)
+                && (!m.getTargetShardIntermediate() || !dataStore.shardVersionMap.containsKey(shardNum))
+        ) {
             logger.warn("DS{} Got read request for unassigned shard {}", dataStore.dsID, shardNum);
             dataStore.shardLockMap.get(shardNum).readerLockUnlock();
             responseObserver.onNext(ShuffleResponse.newBuilder().setReturnCode(Broker.QUERY_RETRY).build());
@@ -397,7 +401,8 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             dataStore.ensureShardCached(shardNum);
             S shard = dataStore.shardMap.get(shardNum);
             assert (shard != null);
-            Map<Integer, List<ByteString>> scatterResult = plan.scatter(shard, m.getNumRepartition(), m.getTableName());
+            Map<String, ReadQueryResults> concreteSubqueriesResults = (Map<String, ReadQueryResults>) Utilities.byteStringToObject(m.getConcreteSubqueriesResults());
+            Map<Integer, List<ByteString>> scatterResult = plan.scatter(shard, m.getNumRepartition(), m.getTableName(), concreteSubqueriesResults);
             if(scatterResult != null) {
                 txShuffledData.put(mapID, scatterResult);
             }

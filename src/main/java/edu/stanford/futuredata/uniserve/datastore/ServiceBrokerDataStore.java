@@ -4,6 +4,8 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.*;
+import edu.stanford.futuredata.uniserve.relational.RelRow;
+import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.ManagedChannel;
@@ -518,9 +520,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();
                 CountDownLatch latch = new CountDownLatch(targetShards.size());
                 for (int nonAnchorShardNum : targetShards) {
+
                     int targetDSID = intermediateShards.containsKey(tableName) ?
                             intermediateShards.get(tableName).get(nonAnchorShardNum) :
                             dataStore.consistentHash.getRandomBucket(nonAnchorShardNum); // TODO:  If it's already here, use it.
+
                     ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                     DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                     AnchoredShuffleMessage g = AnchoredShuffleMessage.newBuilder()
@@ -635,6 +639,9 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         Map<String, List<Integer>> allTargetShards = (Map<String, List<Integer>>) Utilities.byteStringToObject(m.getTargetShards());
         Map<String, List<ByteString>> ephemeralData = new HashMap<>();
         Map<String, S> ephemeralShards = new HashMap<>();
+        Map<String, List<Pair<Integer, Integer>>> subqueriesResults = (Map<String, List<Pair<Integer, Integer>>>) Utilities.byteStringToObject(m.getSubqueriesResults());
+
+        //TODO: I think that this can be done more elegantly
         for (String tableName: plan.getQueriedTables()) {
             /*An ephemeral shard is created for each table being queried and these structures are
             * stored in the ephemeralShards mapping.
@@ -660,7 +667,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 * for each datastore. The current datastore only receives the results associated with its identifier.
                 *
                 * The results are stored per table*/
-                int targetDSID = dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
+                //TODO: the datastoreID needs to be takendifferently if the table is a subquery and not a simple query, see Anchored
+                int targetDSID;
+                targetDSID = dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
+
                 ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
                 DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
                 ShuffleMessage g = ShuffleMessage.newBuilder()
@@ -670,6 +680,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                         .setSerializedQuery(m.getSerializedQuery())
                         .setTxID(m.getTxID())
                         .setTableName(tableName)
+                        .setConcreteSubqueriesResults(m.getConcreteSubqueriesResults())
                         .build();
                 StreamObserver<ShuffleResponse> responseObserver = new StreamObserver<>() {
                     @Override
@@ -706,21 +717,87 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
             ephemeralData.put(tableName, tableEphemeralData);
         }
+        for (String subqueryID: subqueriesResults.keySet()) {
+            List<Pair<Integer, Integer>> shardToDSPairs = subqueriesResults.get(subqueryID);
+            S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
+            ephemeralShards.put(subqueryID, ephemeralShard);
+            List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();
+            CountDownLatch latch = new CountDownLatch(shardToDSPairs.size());
+            for (Pair<Integer, Integer> shardToDS: shardToDSPairs) {
+                int targetShard = shardToDS.getValue0();
+                int targetDSID = shardToDS.getValue1();
+                ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
+                DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
+                ShuffleMessage g = ShuffleMessage.newBuilder()
+                        .setShardNum(targetShard)
+                        .setNumRepartition(m.getNumRepartitions())
+                        .setRepartitionNum(m.getRepartitionNum())
+                        .setSerializedQuery(m.getSerializedQuery())
+                        .setTxID(m.getTxID())
+                        .setTableName(subqueryID)
+                        .setTargetShardIntermediate(true)
+                        .setConcreteSubqueriesResults(m.getConcreteSubqueriesResults())
+                        .build();
+                StreamObserver<ShuffleResponse> responseObserver = new StreamObserver<>() {
+                    @Override
+                    public void onNext(ShuffleResponse r) {
+                        if (r.getReturnCode() == Broker.QUERY_RETRY) {
+                            onError(new Throwable());
+                        } else {
+                            if(r.getReturnCode() != Broker.READ_NON_EXISTING_SHARD) {
+                                tableEphemeralData.add(r.getShuffleData());
+                            }
+                        }
+                    }
 
-        /*Once all the shards have been queried, all the scatter's results associated with this identifier are stored
-         * in the ephemeral data mapping
-         * This map object is passed as argument to the user-defined gather operation, along with the mapping between
-         * table identifiers and ephemeral shard objects created before
-         *
-         * Map<tableName, List<Scatter results associated with shards of the current table-ds pair>>
-         * Map<tableName, ephemeral Shard associated to the table in this datastore>
-         *
-         * The gather returns a single bytestring object, which is forwarded to the client (broker)
-         * */
+                    @Override
+                    public void onError(Throwable throwable) {
+                        logger.info("DS{}  Shuffle data error shard {}", dataStore.dsID, targetShard);
+                        // TODO: First remove all ByteStrings added from this shard.
+                        int targetDSID = dataStore.consistentHash.getRandomBucket(targetShard); // TODO:  If it's already here, use it.
+                        ManagedChannel channel = dataStore.getChannelForDSID(targetDSID);
+                        DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
+                        stub.shuffle(g, this);
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        latch.countDown();
+                    }
+                };
+                stub.shuffle(g, responseObserver);
+            }
+            try {
+                latch.await();
+            } catch (InterruptedException ignored) {
+            }
+            ephemeralData.put(subqueryID, tableEphemeralData);
+        }
 
         ByteString b = plan.gather(ephemeralData, ephemeralShards);
-        ephemeralShards.values().forEach(S::destroy);
-        return ShuffleReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+
+
+        if(plan.isStored()){
+
+
+
+        }
+
+
+        if(plan.isThisSubquery()){
+            //create the shard and
+            //store the results in the shard, then return the location rather than the data.
+            int intermediateShardNum = dataStore.ephemeralShardNum.decrementAndGet();
+            dataStore.createShardMetadata(intermediateShardNum);
+            S intermediateShard = dataStore.shardMap.get(intermediateShardNum);
+            plan.writeIntermediateShard(intermediateShard, b);
+            HashMap<Integer, Integer> shardLocation = new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));
+            b = Utilities.objectToByteString(shardLocation);
+            ephemeralShards.values().forEach(S::destroy);
+            return ShuffleReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+        }else{
+            return ShuffleReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+        }
     }
 
     @Override
@@ -728,31 +805,20 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         responseObserver.onNext(retrieveAndCombineQueryHandler(request));
         responseObserver.onCompleted();
     }
-    //TODO: Manage reader locks
     private RetrieveAndCombineQueryResponse retrieveAndCombineQueryHandler(RetrieveAndCombineQueryMessage request){
-        if(request.getSubquery()){
-            long txID = request.getTxID();
-            Integer shardID = request.getShardID();
-            S ephemeralShard = dataStore.getSubqueryShard(txID, request.getTableName(), shardID);
-            RetrieveAndCombineQueryPlan<S, Object> plan = (RetrieveAndCombineQueryPlan<S, Object>) Utilities.byteStringToObject(request.getSerializedQueryPlan());
-            if(ephemeralShard == null){
-                logger.warn("DS{} Got r&c read request for unassigned local shard {}", dataStore.dsID, shardID);
-                dataStore.shardLockMap.get(shardID).readerLockUnlock();
-                return RetrieveAndCombineQueryResponse.newBuilder().setState(Broker.QUERY_FAILURE).build();
-            }
-            ByteString retrievedData = plan.retrieve(ephemeralShard, request.getTableName());
-            return RetrieveAndCombineQueryResponse.newBuilder().setData(retrievedData).setState(Broker.QUERY_SUCCESS).build();
-        }
         int shardID = request.getShardID();
+        dataStore.shardLockMap.get(shardID).readerLockLock();
         ByteString serializedPlan = request.getSerializedQueryPlan();
         RetrieveAndCombineQueryPlan<S, Object> plan = (RetrieveAndCombineQueryPlan<S, Object>) Utilities.byteStringToObject(serializedPlan);
-        if (!dataStore.consistentHash.getBuckets(shardID).contains(dataStore.dsID)) {
+        if (!dataStore.consistentHash.getBuckets(shardID).contains(dataStore.dsID)
+                && (!request.getSubquery() || !dataStore.shardVersionMap.containsKey(shardID))){
             logger.warn("DS{} Got r&c read request for unassigned local shard {}", dataStore.dsID, shardID);
             dataStore.shardLockMap.get(shardID).readerLockUnlock();
             return RetrieveAndCombineQueryResponse.newBuilder().setState(Broker.QUERY_FAILURE).build();
         }
         boolean shardCached = dataStore.ensureShardCached(shardID);
         if(!shardCached){
+            dataStore.shardLockMap.get(shardID).readerLockUnlock();
             return RetrieveAndCombineQueryResponse.newBuilder().setState(Broker.READ_NON_EXISTING_SHARD).build();
         }
         S localShard;
@@ -762,102 +828,31 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 localShard = dataStore.multiVersionShardMap.get(shardID).get(lastCommittedVersion);
             } else { // TODO: Retrieve the older version from somewhere else?
                 logger.info("DS{} missing shard {} version {}", dataStore.dsID, shardID, lastCommittedVersion);
+                dataStore.shardLockMap.get(shardID).readerLockUnlock();
                 return RetrieveAndCombineQueryResponse.newBuilder().setState(Broker.QUERY_FAILURE).build();
             }
         } else {
             localShard = dataStore.shardMap.get(shardID);
         }
-        ByteString retrievedData = plan.retrieve(localShard, request.getTableName());
-        return RetrieveAndCombineQueryResponse.newBuilder().setData(retrievedData).setState(Broker.QUERY_SUCCESS).build();
+        /*Intermediate shard for subqueries*/
+        Map<String, ReadQueryResults> concreteSubqueriesResults = (Map<String, ReadQueryResults>) Utilities.byteStringToObject(request.getConcreteSubqueriesResults());
+        ByteString b = plan.retrieve(localShard, request.getTableName(), concreteSubqueriesResults);
+        if(plan.isThisSubquery()){
+            //create the shard and
+            //store the results in the shard, then return the location rather than the data.
+            int intermediateShardNum = dataStore.ephemeralShardNum.decrementAndGet();
+            dataStore.createShardMetadata(intermediateShardNum);
+            S intermediateShard = dataStore.shardMap.get(intermediateShardNum);
+            plan.writeIntermediateShard(intermediateShard, b);
+            HashMap<Integer, Integer> shardLocation = new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));
+            b = Utilities.objectToByteString(shardLocation);
+        }
+        dataStore.shardLockMap.get(shardID).readerLockUnlock();
+
+        long unixTime = Instant.now().getEpochSecond();
+        dataStore.QPSMap.get(shardID).merge(unixTime, 1, Integer::sum);
+        return RetrieveAndCombineQueryResponse.newBuilder().setData(b).setState(Broker.QUERY_SUCCESS).build();
     }
-
-
-    @Override
-    public StreamObserver<StoreSubqueryDataMessage> storeSubqueryData(StreamObserver<StoreSubqueryDataResponse> responseObserver){
-        return new StreamObserver<>() {
-            long txID;
-            Map<String, List<ByteString>> serializedSubqueryData = new HashMap<>();
-            RetrieveAndCombineQueryPlan<S, Object> rcPlan = null;
-            ShuffleOnReadQueryPlan<S, Object> shufflePlan = null;
-            @Override
-            public void onNext(StoreSubqueryDataMessage message) {
-                if(message.getClientStatus() == 0){
-                    txID = message.getTransactionID();
-                    Object plan = Utilities.byteStringToObject(message.getPlan());
-                    if(plan instanceof RetrieveAndCombineQueryPlan){
-                        rcPlan = (RetrieveAndCombineQueryPlan<S, Object>) plan;
-                    }else{
-                        shufflePlan = (ShuffleOnReadQueryPlan<S, Object>) plan;
-                    }
-                    serializedSubqueryData.computeIfAbsent(message.getAlias(), k->new ArrayList<>()).add(message.getData());
-                }else{
-                    storeData();
-                }
-            }
-
-            @Override
-            public void onError(Throwable throwable) {
-                responseObserver.onError(new Throwable());
-            }
-
-            @Override
-            public void onCompleted() {
-                responseObserver.onCompleted();
-            }
-
-            private void storeData(){
-                Map<String,List<Integer>> ephemeralShardsIDs = new HashMap<>();
-                boolean res = true;
-                for(Map.Entry<String, List<ByteString>> entry: serializedSubqueryData.entrySet()){
-                    String alias = entry.getKey();
-                    for (ByteString serializedChunk: entry.getValue()){
-                        List<Object> chunkList = new ArrayList<>(Arrays.asList((Object[])Utilities.byteStringToObject(serializedChunk)));
-                        Integer ephemeralShardID = dataStore.ephemeralShardNum.decrementAndGet();
-                        S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
-                        ephemeralShardsIDs.computeIfAbsent(alias,k->new ArrayList<>()).add(ephemeralShardID);
-                        if(rcPlan == null){
-                            shufflePlan.writeSubqueryResults(ephemeralShard, alias, chunkList);
-                        }else{
-                            rcPlan.writeSubqueryResults(ephemeralShard, alias, chunkList);
-                        }
-                        res = res && dataStore.storeSubqueryResults(ephemeralShard, alias, txID, ephemeralShardID);
-                    }
-                }
-                if(!res){
-                    responseObserver.onError(new Throwable("Subquery result storing error"));
-                }
-                for(Map.Entry<String, List<Integer>> entry : ephemeralShardsIDs.entrySet()) {
-                    String alias = entry.getKey();
-                    Integer[] ephemeralShardArray = entry.getValue().toArray(new Integer[0]);
-                    int STEPSIZE = 1000;
-                    for (int i = 0; i < ephemeralShardArray.length; i += STEPSIZE) {
-                        Integer[] chunk = Arrays.copyOfRange(ephemeralShardArray, i, Math.min(ephemeralShardArray.length, i + STEPSIZE));
-                        ByteString serializedDataChunk = Utilities.objectToByteString(chunk);
-                        StoreSubqueryDataResponse response = StoreSubqueryDataResponse.newBuilder()
-                                .setShardId(serializedDataChunk)
-                                .setServerStatus(0)
-                                .setAlias(alias)
-                                .build();
-                        responseObserver.onNext(response);
-                    }
-                }
-                StoreSubqueryDataResponse response = StoreSubqueryDataResponse.newBuilder().setServerStatus(1).build();
-                responseObserver.onNext(response);
-                responseObserver.onCompleted();
-            }
-        };
-    }
-
-    @Override
-    public void removeSubQueryData(RemoveVolatileDataMessage request, StreamObserver<RemoveVolatileDataResponse> responseObserver){
-        responseObserver.onNext(removeSubQueryDataHandler(request));
-        responseObserver.onCompleted();
-    }
-    private RemoveVolatileDataResponse removeSubQueryDataHandler(RemoveVolatileDataMessage m){
-        dataStore.removeSubQueryData(m.getTransactionID());
-        return RemoveVolatileDataResponse.newBuilder().build();
-    }
-
 
     @Override
     public StreamObserver<StoreVolatileDataMessage> storeVolatileData(StreamObserver<StoreVolatileDataResponse> responseObserver){
@@ -1017,6 +1012,19 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             response = GatherVolatileDataResponse.newBuilder().setGatherResult(gatherResult).setState(Broker.QUERY_SUCCESS).build();
         }
         return response;
+    }
+
+    @Override
+    public void removeIntermediateShards(RemoveIntermediateShardMessage m, StreamObserver<RemoveIntermediateShardResponse> responseStreamObserver){
+        Integer shardID = m.getShardID();
+        S shard = dataStore.shardMap.get(shardID);
+        if(shard != null){
+            shard.destroy();
+        }
+        dataStore.shardMap.remove(shardID);
+        responseStreamObserver.onNext(RemoveIntermediateShardResponse.newBuilder().build());
+        responseStreamObserver.onCompleted();
+        return;
     }
 
     private class ForwardScatterResultsThread extends Thread{

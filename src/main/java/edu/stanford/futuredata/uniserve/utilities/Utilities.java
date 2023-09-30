@@ -2,6 +2,8 @@ package edu.stanford.futuredata.uniserve.utilities;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.SimpleWriteQueryPlan;
+import edu.stanford.futuredata.uniserve.relational.RelRow;
+import edu.stanford.futuredata.uniserve.relational.RelShard;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,8 +15,10 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.util.Enumeration;
+import java.util.List;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
+import java.util.stream.Collectors;
 
 public class Utilities {
     public static String null_name = "__null__unready__";

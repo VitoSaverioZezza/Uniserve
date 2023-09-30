@@ -27,12 +27,17 @@ public class SubquerySimpleRead implements RetrieveAndCombineQueryPlan<RelShard,
     }
 
     @Override
+    public boolean isThisSubquery() {
+        return false;
+    }
+
+    @Override
     public Map<String, List<Integer>> keysForQuery() {
         return new HashMap<>();
     }
 
     @Override
-    public ByteString retrieve(RelShard shard, String tableName) {
+    public ByteString retrieve(RelShard shard, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
         List<RelRow> data = shard.getData();
         List<Integer> firstField = new ArrayList<>();
         for(RelRow r: data){
@@ -60,18 +65,18 @@ public class SubquerySimpleRead implements RetrieveAndCombineQueryPlan<RelShard,
     }
 
     @Override
-    public boolean writeSubqueryResults(RelShard shard, String tableName, List<Object> data) {
+    public void writeIntermediateShard(RelShard shard,ByteString retrievedData) {
+        List<Object> data = (List<Object>) Utilities.byteStringToObject(retrievedData);
         List<RelRow> rows = new ArrayList<>();
         for(Object o: data){
             rows.add((RelRow) o);
         }
         shard.insertRows(rows);
         shard.committRows();
-        return true;
     }
 
     @Override
-    public Map<String, ReadQuery> getSubqueriesResults() {
+    public Map<String, ReadQuery> getVolatileSubqueries() {
         return rqr;
     }
 }

@@ -33,6 +33,8 @@ import java.util.stream.IntStream;
  * TODO: Generic error handling across the whole Broker specification, this should NOT be done via assert statements.
  * */
 public class Broker {
+    public static final TableInfo NIL_TABLE_INFO = new TableInfo("", -1, 0);
+
     /**Curator Framework interface */
     private final BrokerCurator zkCurator;
     private static final Logger logger = LoggerFactory.getLogger(Broker.class);
@@ -455,7 +457,6 @@ public class Broker {
             subQueryShards.forEach((k, v) -> tableNameToShardIDs.put(k, new ArrayList<>(v.keySet())));
         }
 
-
         ByteString serializedTableNameToShardIDs = Utilities.objectToByteString(tableNameToShardIDs);
         ByteString serializedIntermediateShards = Utilities.objectToByteString(intermediateShards);
         ByteString serializedQuery = Utilities.objectToByteString(plan);
@@ -571,48 +572,21 @@ public class Broker {
     public <S extends Shard, V> V shuffleReadQuery(ShuffleOnReadQueryPlan<S, V> plan) {
         long txID = zkCurator.getTxID();
         //run subqueries
-        Map<String, ReadQuery> subqueries = plan.getSubqueriesResults();
-        Map<String, ReadQueryResults> subqueriesResults = new HashMap<>();
-        for(Map.Entry<String, ReadQuery> entry: subqueries.entrySet()){
-            subqueriesResults.put(entry.getKey(), entry.getValue().run(this));
+        Map<String, ReadQuery> volatileSubqueries = plan.getVolatileSubqueries();
+        Map<String, List<Pair<Integer, Integer>>> volatileSubqueriesResults = new HashMap<>();
+        for(Map.Entry<String, ReadQuery> entry: volatileSubqueries.entrySet()){
+            volatileSubqueriesResults.put(entry.getKey(), entry.getValue().run(this).getIntermediateLocations());
         }
-        //assign subqueries results to servers where they will be temporarily stored
-        Map<Integer, Map<String, List<Object>>> dsToSubqueryData = new HashMap<>();
-        int dsCount = dsIDToChannelMap.size();
-        for(Map.Entry<String, ReadQueryResults> entry : subqueriesResults.entrySet()){
-            String subqueryAlias = entry.getKey();
-            List<Object> subqueryResults = entry.getValue().getData();
-            for(Object subqueryRow: subqueryResults){
-                int dsID = subqueryRow.hashCode() % dsCount;
-                dsToSubqueryData.computeIfAbsent(dsID, k->new HashMap<>()).computeIfAbsent(subqueryAlias, k->new ArrayList<>()).add(subqueryRow);
-            }
-        }
-        List<StoreSubqueryDataThread> storeSubqueryDataThreads = new ArrayList<>();
-        //store the shard ids of the shards storing the results in each datastore
-        AtomicBoolean forwardStatus = new AtomicBoolean(true);
-        for(Map.Entry<Integer, Map<String, List<Object>>> entry: dsToSubqueryData.entrySet()){
-            Map<String, List<Integer>> aliasToShardIDs = new ConcurrentHashMap<>();
-            int dsID = entry.getKey();
-            StoreSubqueryDataThread t = new StoreSubqueryDataThread(
-                    dsID, txID, entry.getValue(), aliasToShardIDs, forwardStatus, plan);
-            t.start();
-            storeSubqueryDataThreads.add(t);
-        }
-        try {
-            for(StoreSubqueryDataThread t: storeSubqueryDataThreads){
-                t.join();
-            }
-        }catch (InterruptedException e ){
-            logger.error("Failed join threads in store subquery data");
-        }
-        //all results have been stored
-
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
 
+        Map<String, ReadQuery> concreteSubqueries = plan.getConcreteSubqueries();
+        Map<String, ReadQueryResults> concreteSubqueriesResults = new HashMap<>();
+        for(Map.Entry<String, ReadQuery> entry: concreteSubqueries.entrySet()){
+            concreteSubqueriesResults.put(entry.getKey(), entry.getValue().run(this));
+        }
         //Builds the targetShard mapping, consisting of:
         //Map < tableName, List < Shard identifiers to be queried on the table > >
-
         for (Map.Entry<String, List<Integer>> entry : partitionKeys.entrySet()) {
             String tableName = entry.getKey();
             List<Integer> tablePartitionKeys = entry.getValue();
@@ -643,6 +617,7 @@ public class Broker {
         int numReducers = dsIDs.size();
         List<ByteString> intermediates = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(numReducers);
+        List<ByteString> storedResultShardLocation = new CopyOnWriteArrayList<>();
         int reducerNum = 0;
         for (int dsID : dsIDs) {
             /*Each datastore receives a call to the shuffleReadQuery method, with message containing:
@@ -663,8 +638,11 @@ public class Broker {
             *
             * The result of all the scatter-gather are stored in the intermediate structure
             * */
-            HashMap<String, List<Integer>> dsTargetShards = new HashMap<>(targetShards); //TODO: turns out this is indeed serializable, go clean up that array of object workaround
+            HashMap<String, List<Pair<Integer, Integer>>> dsSubqueriesResults = new HashMap<>(volatileSubqueriesResults);
+            HashMap<String, List<Integer>> dsTargetShards = new HashMap<>(targetShards);
             ByteString serializedTargetShards = Utilities.objectToByteString(dsTargetShards);
+            ByteString serializedSubqueriesResults = Utilities.objectToByteString(dsSubqueriesResults);
+            ByteString serializedConcreteSubqueriesResults = Utilities.objectToByteString(new HashMap<>(concreteSubqueriesResults));
             ManagedChannel channel = dsIDToChannelMap.get(dsID);
             BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
             ShuffleReadQueryMessage m = ShuffleReadQueryMessage.newBuilder().
@@ -673,6 +651,8 @@ public class Broker {
                     setNumRepartitions(numReducers).
                     setTxID(txID).
                     setTargetShards(serializedTargetShards).
+                    setSubqueriesResults(serializedSubqueriesResults).
+                    setConcreteSubqueriesResults(serializedConcreteSubqueriesResults).
                     build();
             reducerNum++;
             StreamObserver<ShuffleReadQueryResponse> responseObserver = new StreamObserver<>() {
@@ -680,6 +660,9 @@ public class Broker {
                 public void onNext(ShuffleReadQueryResponse r) {
                     assert (r.getReturnCode() == Broker.QUERY_SUCCESS);
                     intermediates.add(r.getResponse());
+                    if(plan.isStored()){
+                        storedResultShardLocation.add(r.getResultsIntermediateLocations());
+                    }
                 }
 
                 @Override
@@ -705,74 +688,56 @@ public class Broker {
             latch.await();
         } catch (InterruptedException ignored) {
         }
-
-
-
         long aggStart = System.nanoTime();
         V ret = plan.combine(intermediates);
         long aggEnd = System.nanoTime();
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
+
+
+
+        if(plan.isStored()){
+
+
+
+        }
+
+
+        //TODO: parallelize
+        for(Map.Entry<String, List<Pair<Integer, Integer>>> subqueryRes: volatileSubqueriesResults.entrySet()){
+            for(Pair<Integer, Integer> shardIDDSiD: subqueryRes.getValue()){
+                removeIntermediateShard(shardIDDSiD.getValue0(), shardIDDSiD.getValue1());
+            }
+        }
         return ret;
     }
     public <S extends Shard, V> V retrieveAndCombineReadQuery(RetrieveAndCombineQueryPlan<S,V> plan){
         long txID = zkCurator.getTxID();
 
         ByteString serializedQueryPlan = Utilities.objectToByteString(plan);
-
         Map<String, List<Integer>> tablesToKeysMap = plan.keysForQuery();
         Map<String, List<Integer>> tablesToShardsMap = new HashMap<>();
         Map<String, List<ByteString>> retrievedData = new HashMap<>();
-
         //run subqueries
-        Map<String, ReadQuery> subqueries = plan.getSubqueriesResults();
-        Map<String, ReadQueryResults> subqueriesResults = new HashMap<>();
+        Map<String, ReadQuery> volatileSubqueries = plan.getVolatileSubqueries();
 
-        for(Map.Entry<String, ReadQuery> entry: subqueries.entrySet()){
-            subqueriesResults.put(entry.getKey(), entry.getValue().run(this));
-        }
-
-        //assign subqueries results to datastores
-        Map<Integer, Map<String, List<Object>>> dsToSubqueryData = new HashMap<>();
-        int dsCount = dsIDToChannelMap.size();
-        for(Map.Entry<String, ReadQueryResults> entry : subqueriesResults.entrySet()){
-            String subqueryAlias = entry.getKey();
-            List<Object> subqueryResults = entry.getValue().getData();
-            for(Object subqueryRow: subqueryResults){
-                int dsID = subqueryRow.hashCode() % dsCount;
-                dsToSubqueryData.computeIfAbsent(dsID, k->new HashMap<>()).computeIfAbsent(subqueryAlias, k->new ArrayList<>()).add(subqueryRow);
-            }
+        Map<String, List<Pair<Integer,Integer>>> volatileSubqueriesResults = new HashMap<>();
+        for(Map.Entry<String, ReadQuery> entry: volatileSubqueries.entrySet()){
+            volatileSubqueriesResults.put(entry.getKey(), entry.getValue().run(this).getIntermediateLocations());
         }
 
-        //store results in assigned datastores, associated with transaction ids
-        List<StoreSubqueryDataThread> storeSubqueryDataThreads = new ArrayList<>();
-        Map<Integer, Map<String, List<Integer>>> dsIDToAliasShards = new ConcurrentHashMap<>();
-        AtomicBoolean forwardStatus = new AtomicBoolean(true);
-        for(Map.Entry<Integer, Map<String, List<Object>>> entry: dsToSubqueryData.entrySet()){
-            Map<String, List<Integer>> aliasToShardIDs = new ConcurrentHashMap<>();
-            dsIDToAliasShards.put(entry.getKey(), aliasToShardIDs);
-            int dsID = entry.getKey();
-            StoreSubqueryDataThread t = new StoreSubqueryDataThread(
-                    dsID, txID, entry.getValue(), aliasToShardIDs, forwardStatus, plan);
-            t.start();
-            storeSubqueryDataThreads.add(t);
+        Map<String, ReadQuery> concreteSubqueries = plan.getConcreteSubqueries();
+        HashMap<String, ReadQueryResults> concreteSubqueriesResults = new HashMap<>();
+        for(Map.Entry<String, ReadQuery> entry: concreteSubqueries.entrySet()){
+            concreteSubqueriesResults.put(entry.getKey(), entry.getValue().run(this));
         }
-        try {
-            for(StoreSubqueryDataThread t: storeSubqueryDataThreads){
-                t.join();
-            }
-        }catch (InterruptedException e ){
-            logger.error("Failed join threads in store subquery data");
-        }
-        //all subqueries results have been stored.
-        //dsIDToAliasShards contains the mapping between the server and the map between the subquery name and the shards storing
-        //its results.
+        ByteString serializedConcreteSubqueriesResults = Utilities.objectToByteString(concreteSubqueriesResults);
 
         long lcv = zkCurator.getLastCommittedVersion();
         for(String tableName: tablesToKeysMap.keySet()){
             retrievedData.put(tableName, new CopyOnWriteArrayList<>());
             List<Integer> keyList = tablesToKeysMap.get(tableName);
             TableInfo tableInfo = getTableInfo(tableName);
-            assert (tableInfo != null);
+            assert (tableInfo != null && tableInfo != Broker.NIL_TABLE_INFO);
             assert (tableInfo.name.equals(tableName));
             List<Integer> shardNums;
             if(keyList.contains(-1)){
@@ -796,6 +761,7 @@ public class Broker {
                         .setLastCommittedVersion(lcv)
                         .setTableName(tableName)
                         .setSubquery(false)
+                        .setConcreteSubqueriesResults(serializedConcreteSubqueriesResults)
                         .build();
                 StreamObserver<RetrieveAndCombineQueryResponse> responseStreamObserver = new StreamObserver<>() {
                     @Override
@@ -821,51 +787,38 @@ public class Broker {
                 logger.error("Retrieve and combine query failed");
             }
         }
-
-        Map<String, List<Pair<Integer, Integer>>> aliasTodsIDsShard = new HashMap<>();
-        for(Map.Entry<Integer, Map<String, List<Integer>>> dsIDAliasShards: dsIDToAliasShards.entrySet()){
-            Integer dsID = dsIDAliasShards.getKey();
-            for(Map.Entry<String ,List<Integer>> aliasShards : dsIDAliasShards.getValue().entrySet()){
-                List<Pair<Integer, Integer>> dsIDsShard = new ArrayList<>();
-                for(Integer shardID: aliasShards.getValue()){
-                    dsIDsShard.add(new Pair<>(dsID, shardID));
-                }
-                aliasTodsIDsShard.computeIfAbsent(aliasShards.getKey(), k->new ArrayList<>()).addAll(dsIDsShard);
-            }
-        }
-
-        for(String alias: subqueriesResults.keySet()){
-            retrievedData.put(alias, new CopyOnWriteArrayList<>());
-            List<Pair<Integer, Integer>> dsIDsShard = aliasTodsIDsShard.get(alias);
-            CountDownLatch tableLatch = new CountDownLatch(dsIDsShard.size());
-            for(Pair<Integer, Integer> dsIDShard: dsIDsShard){
-                Integer dsID = dsIDShard.getValue0();
-                Integer shardID = dsIDShard.getValue1();
-                ManagedChannel channel = dsIDToChannelMap.get(dsID);
-                BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
-                RetrieveAndCombineQueryMessage message = RetrieveAndCombineQueryMessage.newBuilder()
-                        .setTableName(alias)
+        for(String subqueryID: volatileSubqueriesResults.keySet()){
+            retrievedData.put(subqueryID, new CopyOnWriteArrayList<>());
+            CountDownLatch tableLatch = new CountDownLatch(volatileSubqueriesResults.get(subqueryID).size());
+            for(Pair<Integer, Integer> shardIDDSIDPair: volatileSubqueriesResults.get(subqueryID)){
+                Integer shardID = shardIDDSIDPair.getValue0();
+                Integer dsID = shardIDDSIDPair.getValue1();
+                BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(dsIDToChannelMap.get(dsID));
+                RetrieveAndCombineQueryMessage requestMessage = RetrieveAndCombineQueryMessage.newBuilder()
                         .setShardID(shardID)
                         .setSerializedQueryPlan(serializedQueryPlan)
-                        .setTxID(txID)
+                        .setLastCommittedVersion(lcv)
+                        .setTableName(subqueryID)
+                        .setConcreteSubqueriesResults(serializedConcreteSubqueriesResults)
                         .setSubquery(true)
                         .build();
                 StreamObserver<RetrieveAndCombineQueryResponse> responseStreamObserver = new StreamObserver<>() {
                     @Override
                     public void onNext(RetrieveAndCombineQueryResponse response) {
                         if(response.getState() == QUERY_SUCCESS){
-                            retrievedData.get(alias).add(response.getData());
+                            retrievedData.get(subqueryID).add(response.getData());
                         }
                     }
 
                     @Override
                     public void onError(Throwable throwable) {}
+
                     @Override
                     public void onCompleted() {
                         tableLatch.countDown();
                     }
                 };
-                stub.retrieveAndCombineQuery(message, responseStreamObserver);
+                stub.retrieveAndCombineQuery(requestMessage, responseStreamObserver);
             }
             try {
                 tableLatch.await();
@@ -880,13 +833,16 @@ public class Broker {
                 retrievedData.remove(e.getKey());
             }
         }
-        if(!subqueries.isEmpty())
-            removeSubQueryData(txID);
-
         V ret = plan.combine(retrievedData);
 
         long aggEnd = System.nanoTime();
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
+        //TODO: parallelize
+        for(Map.Entry<String, List<Pair<Integer, Integer>>> subqueryRes: volatileSubqueriesResults.entrySet()){
+            for(Pair<Integer, Integer> shardIDDSiD: subqueryRes.getValue()){
+                removeIntermediateShard(shardIDDSiD.getValue0(), shardIDDSiD.getValue1());
+            }
+        }
         return ret;
     }
 
@@ -1296,101 +1252,6 @@ public class Broker {
             }
         }
     }
-    private class StoreSubqueryDataThread extends Thread{
-        private final Integer dsID;
-        private final long txID;
-        private final Map<String, List<Object>> dataToForward;
-        private final Map<String, List<Integer>> shardsIDs;
-        private final AtomicBoolean status;
-        private RetrieveAndCombineQueryPlan rcplan = null;
-        private ShuffleOnReadQueryPlan shufflePlan = null;
-
-        StoreSubqueryDataThread(Integer dsID, long txID, Map<String, List<Object>> dataToForward,
-                                Map<String, List<Integer>> shardsIDs, AtomicBoolean status, RetrieveAndCombineQueryPlan plan){
-            this.dsID = dsID;
-            this.txID = txID;
-            this.dataToForward = dataToForward;
-            this.shardsIDs = shardsIDs;
-            this.status = status;
-            this.rcplan = plan;
-        }
-
-        StoreSubqueryDataThread(Integer dsID, long txID, Map<String, List<Object>> dataToForward,
-                                Map<String, List<Integer>> shardsIDs, AtomicBoolean status, ShuffleOnReadQueryPlan plan){
-            this.dsID = dsID;
-            this.txID = txID;
-            this.dataToForward = dataToForward;
-            this.shardsIDs = shardsIDs;
-            this.status = status;
-            this.shufflePlan = plan;
-        }
-
-
-        @Override
-        public void run(){
-            forwardData();
-        }
-
-        private void forwardData(){
-            CountDownLatch latch = new CountDownLatch(1);
-            ManagedChannel channel = dsIDToChannelMap.get(dsID);
-            assert (channel != null);
-            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
-            StreamObserver<StoreSubqueryDataMessage> observer = stub.storeSubqueryData(new StreamObserver<>(){
-                @Override
-                public void onNext(StoreSubqueryDataResponse storeSubqueryDataResponse) {
-                    if(storeSubqueryDataResponse.getServerStatus() == 0){
-                        ByteString serializedShardIDsChunk = storeSubqueryDataResponse.getShardId();
-                        Integer[] shardIDsChunkArray = (Integer[]) Utilities.byteStringToObject(serializedShardIDsChunk);
-                        shardsIDs.computeIfAbsent(storeSubqueryDataResponse.getAlias(), k-> new ArrayList<>()).addAll(Arrays.asList(shardIDsChunkArray));
-                    }else{
-                        latch.countDown();
-                    }
-                }
-
-                @Override
-                public void onError(Throwable throwable) {
-                    status.set(false);
-                    latch.countDown();
-                }
-
-                @Override
-                public void onCompleted() {
-                    latch.countDown();
-                }
-            });
-            for(String aliasName: dataToForward.keySet()){
-                Object[] dataArray = dataToForward.get(aliasName).toArray();
-                int chunkSize = 1000;
-                for(int i = 0; i<dataArray.length; i+=chunkSize) {
-                    Object[] chunk = Arrays.copyOfRange(dataArray, i, Math.min(dataArray.length, i + chunkSize));
-                    ByteString serializedDataChunk = Utilities.objectToByteString(chunk);
-                    ByteString serializedQueryPlan;
-                    if (rcplan != null)
-                        serializedQueryPlan = Utilities.objectToByteString(rcplan);
-                    else
-                        serializedQueryPlan = Utilities.objectToByteString(shufflePlan);
-                    StoreSubqueryDataMessage message = StoreSubqueryDataMessage.newBuilder()
-                            .setData(serializedDataChunk)
-                            .setAlias(aliasName)
-                            .setTransactionID(txID)
-                            .setClientStatus(0)
-                            .setPlan(serializedQueryPlan)
-                            .build();
-                    observer.onNext(message);
-                }
-            }
-            StoreSubqueryDataMessage message = StoreSubqueryDataMessage.newBuilder().setClientStatus(1).build();
-            observer.onNext(message);
-            try {
-                latch.await();
-            }catch (InterruptedException e){
-                logger.error("Subquery result forwarding error: " + e.getMessage());
-            }
-            observer.onCompleted();
-        }
-    }
-
 
 
     /*UTILITIES*/
@@ -1432,7 +1293,6 @@ public class Broker {
         assert(channel != null);
         return BrokerDataStoreGrpc.newBlockingStub(channel);
     }
-
     /**Cleans the in memory structures holding both the raw data and the scattered data for the execution of a
      * volatile shuffle query
      * @param dsIDsScatter the server identifiers of those servers storing raw data
@@ -1509,43 +1369,7 @@ public class Broker {
         }
         return outcome.get() == 0;
     }
-
-    private void removeSubQueryData(long txID){
-        List<Integer> dsIDs = new ArrayList<>(dsIDToChannelMap.keySet());
-        CountDownLatch latch = new CountDownLatch(dsIDs.size());
-        AtomicInteger outcome = new AtomicInteger(0);
-        for(Integer dsID: dsIDs){
-            ManagedChannel channel = dsIDToChannelMap.get(dsID);
-            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
-            RemoveVolatileDataMessage message = RemoveVolatileDataMessage.newBuilder().setTransactionID(txID).build();
-            StreamObserver<RemoveVolatileDataResponse> observer = new StreamObserver<>() {
-                @Override
-                public void onNext(RemoveVolatileDataResponse removeVolatileDataResponse) {
-
-                }
-
-                @Override
-                public void onError(Throwable throwable) {
-                    logger.error("Broker: removeSubQueryData Failed for transaction id {}", txID);
-                    outcome.set(1);
-                    latch.countDown();
-                }
-
-                @Override
-                public void onCompleted() {
-                    latch.countDown();
-                }
-            };
-            stub.removeSubQueryData(message, observer);
-        }
-        try {
-            latch.await();
-        }catch (InterruptedException e){
-            logger.error("Broker: removeSubQueryData Failed for transaction id {}", txID);
-        }
-    }
-
-    public void registerQuery(ReadQuery query){
+    public String registerQuery(ReadQuery query){
         Integer resultTableID = zkCurator.getResultTableID();
         query.setResultTableName(Integer.toString(resultTableID));
         boolean isTableCreated = createTable(Integer.toString(resultTableID), SHARDS_PER_TABLE, query.getResultSchema(), query.getKeyStructure());
@@ -1556,9 +1380,8 @@ public class Broker {
                 StoreQueryMessage.newBuilder().setQuery(Utilities.objectToByteString(query)).build());
         logger.info("Query associated with table {} registered", resultTableID);
         assert (queryResponse.getStatus() == 0);
+        return Integer.toString(resultTableID);
     }
-
-
 
     /**Sends the statistics to the Coordinator via the appropriate Broker-Coordinator service*/
     public void sendStatisticsToCoordinator() {
@@ -1626,5 +1449,23 @@ public class Broker {
             updateMap();
             super.start();
         }
+    }
+
+    private void removeIntermediateShard(Integer shardID, Integer dataStoreID){
+        BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(dsIDToChannelMap.get(dataStoreID));
+        RemoveIntermediateShardMessage message = RemoveIntermediateShardMessage.newBuilder().setShardID(shardID).build();
+        StreamObserver<RemoveIntermediateShardResponse> responseObserver = new StreamObserver<>() {
+            @Override
+            public void onNext(RemoveIntermediateShardResponse r) {}
+
+            @Override
+            public void onError(Throwable throwable) {
+                logger.error("Error deleting intermediate shard {} from server {}", shardID, dataStoreID);
+            }
+
+            @Override
+            public void onCompleted() {}
+        };
+        stub.removeIntermediateShards(message, responseObserver);
     }
 }

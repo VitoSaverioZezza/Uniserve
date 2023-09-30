@@ -1,10 +1,7 @@
 package edu.stanford.futuredata.uniserve.relationalapi.querybuilders;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.relationalapi.AggregateQuery;
-import edu.stanford.futuredata.uniserve.relationalapi.ProdSelProjQuery;
-import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
-import edu.stanford.futuredata.uniserve.relationalapi.SimpleAggregateQuery;
+import edu.stanford.futuredata.uniserve.relationalapi.*;
 import org.javatuples.Pair;
 
 import java.util.*;
@@ -36,7 +33,9 @@ public class ReadQueryBuilder {
     private final Map<String, ReadQuery> subqueriesAlias = new HashMap<>(); //contains ALL subqueries mappings
 
     private final Map<String, String > filterPredicates = new HashMap<>();
-    private final List<Pair<String,String>> joinPairs = new ArrayList<>();
+
+    private final Map< Pair< String, String >, Pair<List<String>, List<String>>> systemJoinMetadata = new HashMap<>();
+
 
     public ReadQueryBuilder(Broker broker){
         this.broker = broker;
@@ -136,7 +135,7 @@ public class ReadQueryBuilder {
         return fromFilter(subqueryToBuild.build(), alias, filterPredicate);
     }
 
-    public ReadQueryBuilder join(String sourceOne, String sourceTwo, String attributeOne, String attributeTwo){
+    public ReadQueryBuilder join(String sourceOne, String sourceTwo, List<String> attributesOne, List<String> attributesTwo, String resultName){
         if((!tableNameToAlias.containsKey(sourceOne) && !aliasToTableName.containsKey(sourceOne) && !subqueriesAlias.containsKey(sourceOne))
                 || (!tableNameToAlias.containsKey(sourceTwo) && !aliasToTableName.containsKey(sourceTwo) && !subqueriesAlias.containsKey(sourceTwo))
         ){
@@ -144,13 +143,40 @@ public class ReadQueryBuilder {
         }
         String systemSourceOne = sourceOne;
         String systemSourceTwo = sourceTwo;
+        List<String> sourceOneSchema;
+        List<String> sourceTwoSchema;
         if(aliasToTableName.containsKey(sourceOne)){
             systemSourceOne = aliasToTableName.get(sourceOne);
         }
         if(aliasToTableName.containsKey(sourceTwo)){
             systemSourceTwo = aliasToTableName.get(sourceTwo);
         }
-        joinPairs.add(new Pair<>(systemSourceOne+"."+attributeOne, systemSourceTwo+"."+attributeTwo));
+        if(tableNameToAlias.containsKey(systemSourceOne)){
+            sourceOneSchema = broker.getTableInfo(systemSourceOne).getAttributeNames();
+        }else{
+            sourceOneSchema = subqueriesAlias.get(systemSourceOne).getResultSchema();
+        }
+        if(tableNameToAlias.containsKey(systemSourceTwo)){
+            sourceTwoSchema = broker.getTableInfo(systemSourceTwo).getAttributeNames();
+        }else{
+            sourceTwoSchema = subqueriesAlias.get(systemSourceTwo).getResultSchema();
+        }
+        Pair<String, String> tableJoin = new Pair<>(systemSourceOne, systemSourceTwo);
+        Pair<String, String> dual = new Pair<>(systemSourceTwo, systemSourceOne);
+        if(systemJoinMetadata.containsKey(tableJoin) || systemJoinMetadata.containsKey(dual)){
+            throw new RuntimeException("Join between sources already defined");
+        }
+        for(String joinAttribute: attributesOne){
+            if(!sourceOneSchema.contains(joinAttribute)){
+                throw new RuntimeException("Join attribute is not part of the schema for source " + systemSourceOne);
+            }
+        }
+        for(String joinAttribute: attributesTwo){
+            if(!sourceTwoSchema.contains(joinAttribute)){
+                throw new RuntimeException("Join attribute is not part of the schema for source " + systemSourceTwo);
+            }
+        }
+        systemJoinMetadata.put(tableJoin, new Pair<>(attributesOne, attributesTwo));
         return this;
     }
 
@@ -181,7 +207,7 @@ public class ReadQueryBuilder {
             resultQuery =  buildAggregateQuery();
         }
         if(isStored){
-            resultQuery.setRegistered();
+            resultQuery.setStored();
         }
         return resultQuery;
     }
@@ -303,8 +329,6 @@ public class ReadQueryBuilder {
         ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setSimpleQuery(simpleQuery);
         return ret;
     }
-
-
     private ReadQuery buildSimpleAggregateQuery(){
         List<String> userFinalSchema = new ArrayList<>();   //result schema of the whole query
         List<Pair<Integer, String>> systemAggregateSubschema = new ArrayList<>(); //aggregate part of the schema going as input of the final combine operation
@@ -353,7 +377,6 @@ public class ReadQueryBuilder {
         ReadQuery ret = new ReadQuery().setResultSchema(userFinalSchema).setSimpleAggregateQuery(aggregateQuery);
         return ret;
     }
-
     private ReadQuery buildAggregateQuery(){
         String selectionPredicate = rawSelectionPredicate;
         String parsedHavingPredicate = rawHavingPredicate;

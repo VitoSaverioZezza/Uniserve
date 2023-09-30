@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,7 +24,7 @@ public interface ShuffleOnReadQueryPlan<S extends Shard, T> extends Serializable
      * @return a mapping between datastores id and serialized results. The results will be given as parameters for the
      * gather operation.
      * */
-    Map<Integer, List<ByteString>> scatter(S shard, int numRepartitions, String tableName);
+    Map<Integer, List<ByteString>> scatter(S shard, int numRepartitions, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults);
     /** User-definde Gather operation
      * A gather is executed by every datastore involved in the query
      * @param ephemeralData a mapping between table identifiers and a List < ByteStrings given to the
@@ -33,12 +34,19 @@ public interface ShuffleOnReadQueryPlan<S extends Shard, T> extends Serializable
      * @return a result to be used as input for the combine operation
      * */
     ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards);
+    default void writeIntermediateShard(S intermediateShard, ByteString gatherResults){}
+
     /** The query will return the result of this function executed on all results from gather.
      * @param shardQueryResults values returned by all gather operations executed by all datastores
      * @return the query result*/
     T combine(List<ByteString> shardQueryResults);
 
-    default boolean writeSubqueryResults(S shard, String tableName, List<Object> data){return true;};
-    default Map<String, ReadQuery> getSubqueriesResults(){return new HashMap<>();}
+    default boolean isStored(){return false;}
+    default boolean isThisSubquery(){
+        return false;
+    }
+    default Map<String, ReadQuery> getVolatileSubqueries(){return new HashMap<>();}
+    default Map<String, ReadQuery> getConcreteSubqueries(){return new HashMap<>();}
+    default String getResultTableName(){return "";}
 
 }

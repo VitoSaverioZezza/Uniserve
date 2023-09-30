@@ -67,5 +67,6 @@ public class CreateTableQuery {
     }
     public CreateTableQuery shardNumber(int shardNumber){this.shardNumber=shardNumber; return this;}
 
-    public boolean run(){return broker.createTable(tableName, shardNumber, attributeNames, keyStructure);}
+    public boolean run(){
+        return broker.createTable(tableName, shardNumber, attributeNames, keyStructure);}
 }

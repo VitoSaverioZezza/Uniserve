@@ -58,7 +58,8 @@ public class BrokerCurator {
                 cf.create().forPath(path, data);
             }
         } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error("ZK Failure {}", e.getMessage());
             assert(false);
         }
     }
@@ -73,7 +74,8 @@ public class BrokerCurator {
                 cf.create().forPath(path, data);
             }
         } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error("ZK Failure {}", e.getMessage());
             assert(false);
         }
     }
@@ -92,7 +94,8 @@ public class BrokerCurator {
                 return null;
             }
         } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error("ZK Failure {}", e.getMessage());
             assert(false);
             return null;
         }
@@ -108,7 +111,8 @@ public class BrokerCurator {
                 cf.create().forPath(path, data);
             }
         } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error("ZK Failure {}", e.getMessage());
             assert(false);
         }
     }
@@ -125,7 +129,8 @@ public class BrokerCurator {
                 return null;
             }
         } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error("ZK Failure {}", e.getMessage());
             assert(false);
             return null;
         }
@@ -145,7 +150,8 @@ public class BrokerCurator {
                 cf.create().forPath(path, data);
             }
         } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error("ZK Failure {}", e.getMessage());
             assert(false);
         }
     }
@@ -161,7 +167,8 @@ public class BrokerCurator {
                 return 0L;
             }
         } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error("ZK Failure {}", e.getMessage());
             assert(false);
             return null;
         }
@@ -178,7 +185,8 @@ public class BrokerCurator {
                 return Optional.empty();
             }
         } catch (Exception e) {
-            logger.error("ZK Failure {}", e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error("ZK Failure {}", e.getMessage());
             assert(false);
             return null;
         }
@@ -190,7 +198,8 @@ public class BrokerCurator {
             byte[] b = cf.getData().forPath(path);
             return (ConsistentHash) Utilities.byteStringToObject(ByteString.copyFrom(b));
         } catch (Exception e) {
-            logger.error("getConsistentHash Error: {}", e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error("getConsistentHash Error: {}", e.getMessage());
             assert(false);
             return null;
         }
@@ -200,17 +209,18 @@ public class BrokerCurator {
         try {
             lock.acquire();
         } catch (Exception e) {
-            logger.error("WriteLock Acquire Error: {}", e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error("WriteLock Acquire Error: {}", e.getMessage());
         }
     }
     void releaseWriteLock() {
         try {
             lock.release();
         } catch (Exception e) {
-            logger.error("WriteLock Release Error: {}", e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error("WriteLock Release Error: {}", e.getMessage());
         }
     }
-
 }
 
 

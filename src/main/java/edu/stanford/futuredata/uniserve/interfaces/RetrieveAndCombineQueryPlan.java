@@ -15,17 +15,17 @@ public interface RetrieveAndCombineQueryPlan<S extends Shard, T> extends Seriali
     /**@return A list containing the names of all tables to be queried*/
     List<String> getTableNames();
     boolean isThisSubquery();
-
     /**@return a mapping between tableNames of the queried tables and a list of the partition keys to be queried on each
      * table
      */
     Map<String, List<Integer>> keysForQuery();
     ByteString retrieve(S shard, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults);
     T combine(Map<String,List<ByteString>> retrieveResults);
-    default void writeIntermediateShard(S intermediateShard, ByteString retrievedResults){}
+    default boolean writeIntermediateShard(S intermediateShard, ByteString retrievedResults){return true;}
 
     default Map<String, ReadQuery> getVolatileSubqueries(){return new HashMap<>();}
     default Map<String, ReadQuery> getConcreteSubqueries(){return new HashMap<>();}
     default boolean isStored(){return false;}
     default String getResultTableName(){return "";}
+    default SimpleWriteQueryPlan getWriteResultPlan(){return null;}
 }

@@ -46,10 +46,6 @@ public class SelectQuery<S extends Shard> implements RetrieveAndCombineQueryPlan
     }
 
     @Override
-    public void writeIntermediateShard(S intermediateShard, ByteString gatherResults){
-    }
-
-    @Override
     public List<Object> combine(Map<String, List<ByteString>> map) {
         List<ByteString> serRetrievedResults = map.get(tableName);
         List<Object> retrievedResults = new ArrayList<>();

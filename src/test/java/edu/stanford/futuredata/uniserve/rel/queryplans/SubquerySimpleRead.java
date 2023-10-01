@@ -65,14 +65,13 @@ public class SubquerySimpleRead implements RetrieveAndCombineQueryPlan<RelShard,
     }
 
     @Override
-    public void writeIntermediateShard(RelShard shard,ByteString retrievedData) {
+    public boolean writeIntermediateShard(RelShard shard,ByteString retrievedData) {
         List<Object> data = (List<Object>) Utilities.byteStringToObject(retrievedData);
         List<RelRow> rows = new ArrayList<>();
         for(Object o: data){
             rows.add((RelRow) o);
         }
-        shard.insertRows(rows);
-        shard.committRows();
+        return shard.insertRows(rows) && shard.committRows();
     }
 
     @Override

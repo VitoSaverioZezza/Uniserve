@@ -29,6 +29,7 @@ public class AnotherAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, R
     private boolean isThisSubquery = false;
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
+    private WriteResultsPlan writeResultsPlan = null;
 
     public AnotherAggregateQuery setSourceName(String sourceName) {
         this.sourceName = sourceName;
@@ -80,6 +81,10 @@ public class AnotherAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, R
     }
     public AnotherAggregateQuery setResultTableName(String resultTableName){
         this.resultTableName = resultTableName;
+        Boolean[] keyStructure = new Boolean[resultSchema.size()];
+        Arrays.fill(keyStructure, 0, aggregatesSpecification.size(), true);
+        Arrays.fill(keyStructure, aggregatesSpecification.size(), keyStructure.length, false);
+        this.writeResultsPlan = new WriteResultsPlan(resultTableName, keyStructure);
         return this;
     }
 
@@ -103,6 +108,9 @@ public class AnotherAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, R
     }
     public Map<String, ReadQuery> getConcreteSubqueries(){return predicateSubqueries;}
     public String getResultTableName(){return resultTableName;}
+    public WriteResultsPlan getWriteResultPlan() {
+        return writeResultsPlan;
+    }
 
 
     @Override
@@ -159,10 +167,9 @@ public class AnotherAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, R
         return Utilities.objectToByteString(resultRows);
     }
     @Override
-    public void writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
+    public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
         List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
-        intermediateShard.insertRows(rows);
-        intermediateShard.committRows();
+        return intermediateShard.insertRows(rows) && intermediateShard.committRows();
     }
     @Override
     public RelReadQueryResults combine(List<ByteString> shardQueryResults) {

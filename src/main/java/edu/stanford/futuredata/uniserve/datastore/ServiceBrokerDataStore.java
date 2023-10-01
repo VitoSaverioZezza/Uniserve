@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.*;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
+import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import edu.stanford.futuredata.uniserve.utilities.ZKShardDescription;
 import io.grpc.ManagedChannel;
@@ -16,6 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Semaphore;
@@ -278,8 +280,19 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     R[] rowChunk = (R[]) Utilities.byteStringToObject(writeQueryMessage.getRowData());
                     rowArrayList.add(rowChunk);
                 } else if (writeState == DataStore.PREPARE) {
+
                     assert (lastState == DataStore.COLLECT);
-                    rows = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
+
+                    if(writeQueryMessage.getIsDataCached()){
+                        shardNum = writeQueryMessage.getShard();
+                        dataStore.createShardMetadata(shardNum);
+                        txID = writeQueryMessage.getTxID();
+                        rows = dataStore.getDataToStore(new Pair<>(writeQueryMessage.getTxID(), writeQueryMessage.getShard()));
+                        writeQueryPlan = (SimpleWriteQueryPlan<R, S>) Utilities.byteStringToObject(writeQueryMessage.getSerializedQuery());
+                    }else {
+                        rows = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
+                    }
+
                     if (dataStore.shardLockMap.containsKey(shardNum)) {
                         long tStart = System.currentTimeMillis();
                         dataStore.shardLockMap.get(shardNum).writerLockLock();
@@ -640,7 +653,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         Map<String, List<ByteString>> ephemeralData = new HashMap<>();
         Map<String, S> ephemeralShards = new HashMap<>();
         Map<String, List<Pair<Integer, Integer>>> subqueriesResults = (Map<String, List<Pair<Integer, Integer>>>) Utilities.byteStringToObject(m.getSubqueriesResults());
-
+        long txID = m.getTxID();
         //TODO: I think that this can be done more elegantly
         for (String tableName: plan.getQueriedTables()) {
             /*An ephemeral shard is created for each table being queried and these structures are
@@ -775,12 +788,19 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         }
 
         ByteString b = plan.gather(ephemeralData, ephemeralShards);
-
+        ByteString serializedDestinationShard = Utilities.objectToByteString(new ArrayList<>());
 
         if(plan.isStored()){
-
-
-
+            Map<Integer, List<R>> destinationShardsRows = new HashMap<>();
+            TableInfo destinationInfo = dataStore.getTableInfo(plan.getResultTableName());
+            List<R> gatherRows = (List<R>) Utilities.byteStringToObject(b);
+            for(R row: gatherRows){
+                int destinationShardID = destinationInfo.id * Broker.SHARDS_PER_TABLE + (row.getPartitionKey(destinationInfo.getKeyStructure()) % destinationInfo.numShards);
+                destinationShardsRows.computeIfAbsent(destinationShardID, k->new ArrayList<>()).add(row);
+            }
+            txIDtoShardStoredAssignment.put(txID, destinationShardsRows);
+            ArrayList<Integer> destinationShardIDs = new ArrayList<>(destinationShardsRows.keySet());
+            serializedDestinationShard = Utilities.objectToByteString(destinationShardIDs);
         }
 
 
@@ -794,11 +814,147 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             HashMap<Integer, Integer> shardLocation = new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));
             b = Utilities.objectToByteString(shardLocation);
             ephemeralShards.values().forEach(S::destroy);
-            return ShuffleReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+            return ShuffleReadQueryResponse.newBuilder()
+                    .setReturnCode(Broker.QUERY_SUCCESS)
+                    .setResponse(b)
+                    .setDestinationShards(serializedDestinationShard)
+                    .build();
         }else{
-            return ShuffleReadQueryResponse.newBuilder().setReturnCode(Broker.QUERY_SUCCESS).setResponse(b).build();
+            return ShuffleReadQueryResponse.newBuilder()
+                    .setReturnCode(Broker.QUERY_SUCCESS)
+                    .setResponse(b)
+                    .setDestinationShards(serializedDestinationShard)
+                    .build();
         }
     }
+
+    Map<Long, Map<Integer, List<R>>> txIDtoShardStoredAssignment = new ConcurrentHashMap<>();
+
+    @Override
+    public void forwardDataToStore(ForwardDataToStoreMessage request, StreamObserver<ForwardDataToStoreResponse> responseObserver){
+        responseObserver.onNext(forwardDataToStoreHandler(request));
+        responseObserver.onCompleted();
+    }
+    private ForwardDataToStoreResponse forwardDataToStoreHandler(ForwardDataToStoreMessage request){
+        long txID = request.getTxID();
+        Map<Integer, Integer> shardIDToDSIDMap = (Map<Integer, Integer>) Utilities.byteStringToObject(request.getShardIDToDSIDMap());
+        Map<Integer, List<R>> shardIDToData = txIDtoShardStoredAssignment.get(txID);
+        if(shardIDToData == null){shardIDToData = new HashMap<>();}
+        AtomicInteger status = new AtomicInteger(0);
+        List<ForwardDataToStoreThread> threads = new ArrayList<>();
+        for(Integer shardID: shardIDToData.keySet()){
+            Integer dsID = shardIDToDSIDMap.get(shardID);
+            List<R> rows = shardIDToData.get(shardID);
+            List<ByteString> serializedData = rows.stream().map(Utilities::objectToByteString).collect(Collectors.toList());
+            DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(dataStore.getChannelForDSID(dsID));
+            ForwardDataToStoreThread t = new ForwardDataToStoreThread(dsID, serializedData, txID, status, stub, shardID);
+            t.start();
+            threads.add(t);
+        }
+        for(ForwardDataToStoreThread t: threads){
+            try {
+                t.join();
+            }catch (InterruptedException e ){
+                logger.error("Broker: Volatile scatter query interrupted: {}", e.getMessage());
+                assert(false);
+                status.set(1);
+            }
+        }
+        ForwardDataToStoreResponse response;
+        if(status.get()==1){
+            response = ForwardDataToStoreResponse.newBuilder()
+                    .setStatus(Broker.QUERY_FAILURE)
+                    .build();
+
+        }else{
+            response = ForwardDataToStoreResponse.newBuilder()
+                    .setStatus(Broker.QUERY_SUCCESS)
+                    .build();
+        }
+        return response;
+
+    }
+
+    private class ForwardDataToStoreThread extends Thread{
+        private final Integer dsID;
+        private final List<ByteString> dataToBeForwarded;
+        private final long txID;
+        private final AtomicInteger status;
+        private final DataStoreDataStoreGrpc.DataStoreDataStoreStub stub;
+        private final int shardID;
+
+        public ForwardDataToStoreThread(
+                Integer dsID,
+                List<ByteString> dataToBeForwarded,
+                long txID,
+                AtomicInteger status,
+                DataStoreDataStoreGrpc.DataStoreDataStoreStub stub,
+                int shardID
+        ){
+            this.dsID = dsID;
+            this.dataToBeForwarded = dataToBeForwarded;
+            this.txID = txID;
+            this.status = status;
+            this.stub = stub;
+            this.shardID = shardID;
+        }
+
+        @Override
+        public void run(){forwardQueryResults();}
+
+        private void forwardQueryResults(){
+            CountDownLatch forwardLatch = new CountDownLatch(1);
+            StreamObserver<CacheResultsMessage> observer = stub.cacheResults(new StreamObserver<CacheResultsResponse>(){
+                @Override
+                public void onNext(CacheResultsResponse response){
+                    forwardLatch.countDown();
+                }
+                @Override
+                public void onError(Throwable th){
+                    logger.error("query results forwarding failed for transaction {} on datastore {}  towards datastore {}", txID, dataStore.dsID, dsID);
+                    logger.info(th.getMessage());
+                    status.set(1);
+                    forwardLatch.countDown();
+                }
+                @Override
+                public void onCompleted(){
+                    forwardLatch.countDown();
+                }
+            });
+
+            if(dataToBeForwarded == null){
+                ;
+            }else{
+                int CHUNK_SIZE = 1000;
+                for(int i = 0; i< dataToBeForwarded.size(); i+=CHUNK_SIZE){
+                    ArrayList<ByteString> chunk = new ArrayList<>(dataToBeForwarded.subList(i, Integer.min(i+CHUNK_SIZE, dataToBeForwarded.size())));
+                    CacheResultsMessage payload = CacheResultsMessage.newBuilder()
+                            .setTransactionID(txID)
+                            .setShardID(shardID)
+                            .setData(Utilities.objectToByteString(chunk))
+                            .setDSID(dsID)
+                            .setState(0)
+                            .build();
+                    observer.onNext(payload);
+                }
+                CacheResultsMessage confirm = CacheResultsMessage.newBuilder()
+                        .setTransactionID(txID)
+                        .setShardID(shardID)
+                        .setState(1)
+                        .build();
+                observer.onNext(confirm);
+            }
+            try {
+                forwardLatch.await();
+            }catch (InterruptedException e){
+                status.set(1);
+                logger.error("SBDS.forward query results: forward failed from DS {} to DS {}", dataStore.dsID, dsID);
+                logger.info(e.getMessage());
+                assert (false);
+            }
+        }
+    }
+
 
     @Override
     public void retrieveAndCombineQuery(RetrieveAndCombineQueryMessage request, StreamObserver<RetrieveAndCombineQueryResponse> responseObserver){
@@ -807,6 +963,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     }
     private RetrieveAndCombineQueryResponse retrieveAndCombineQueryHandler(RetrieveAndCombineQueryMessage request){
         int shardID = request.getShardID();
+        long txID = request.getTxID();
         dataStore.shardLockMap.get(shardID).readerLockLock();
         ByteString serializedPlan = request.getSerializedQueryPlan();
         RetrieveAndCombineQueryPlan<S, Object> plan = (RetrieveAndCombineQueryPlan<S, Object>) Utilities.byteStringToObject(serializedPlan);
@@ -837,6 +994,27 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         /*Intermediate shard for subqueries*/
         Map<String, ReadQueryResults> concreteSubqueriesResults = (Map<String, ReadQueryResults>) Utilities.byteStringToObject(request.getConcreteSubqueriesResults());
         ByteString b = plan.retrieve(localShard, request.getTableName(), concreteSubqueriesResults);
+        ByteString serializedDestinationShard = Utilities.objectToByteString(new ArrayList<>());
+
+        if(plan.isStored()){
+            Map<Integer, List<R>> destinationShardsRows = new HashMap<>();
+            TableInfo destinationInfo = dataStore.getTableInfo(plan.getResultTableName());
+            List<R> gatherRows = (List<R>) Utilities.byteStringToObject(b);
+            for(R row: gatherRows){
+                int destinationShardID = destinationInfo.id * Broker.SHARDS_PER_TABLE + (row.getPartitionKey(destinationInfo.getKeyStructure()) % destinationInfo.numShards);
+                destinationShardsRows.computeIfAbsent(destinationShardID, k->new CopyOnWriteArrayList<>()).add(row);
+            }
+            txIDtoShardStoredAssignment.computeIfAbsent(txID, k->new ConcurrentHashMap<>());
+            Map<Integer, List<R>> shardRowsMap = txIDtoShardStoredAssignment.get(txID);
+            for(Map.Entry<Integer, List<R>> destShardToRows: destinationShardsRows.entrySet()) {
+                shardRowsMap.computeIfAbsent(destShardToRows.getKey(), k->new CopyOnWriteArrayList<>()).addAll(destShardToRows.getValue());
+            }
+
+            ArrayList<Integer> destinationShardIDs = new ArrayList<>(destinationShardsRows.keySet());
+            serializedDestinationShard = Utilities.objectToByteString(destinationShardIDs);
+        }
+
+
         if(plan.isThisSubquery()){
             //create the shard and
             //store the results in the shard, then return the location rather than the data.
@@ -851,7 +1029,9 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
         long unixTime = Instant.now().getEpochSecond();
         dataStore.QPSMap.get(shardID).merge(unixTime, 1, Integer::sum);
-        return RetrieveAndCombineQueryResponse.newBuilder().setData(b).setState(Broker.QUERY_SUCCESS).build();
+        return RetrieveAndCombineQueryResponse.newBuilder()
+                .setData(b)
+                .setDestinationShards(serializedDestinationShard).setState(Broker.QUERY_SUCCESS).build();
     }
 
     @Override
@@ -955,7 +1135,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
         }
 
-        ScatterVolatileDataResponse response;
         Set<Integer> setDSids = scatterResults.keySet();
         ArrayList<Integer> listDSids = new ArrayList<>();
         for(Integer dsID: setDSids ){
@@ -964,6 +1143,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
         }
         ByteString serializedDsIDlist = Utilities.objectToByteString(listDSids);
+        ScatterVolatileDataResponse response;
         if(shuffleStatus.get()==1){
             /*An error occurred, delete volatile data from all ds and
             * return error code to the broker that will proceed to

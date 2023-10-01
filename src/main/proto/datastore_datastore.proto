@@ -21,6 +21,7 @@ service DataStoreDataStore {
     // Get data for a shuffle.
     rpc Shuffle (ShuffleMessage) returns (stream ShuffleResponse) {}
     rpc StoreVolatileShuffledData(stream StoreVolatileShuffleDataMessage) returns (StoreVolatileShuffleDataResponse){}
+    rpc CacheResults(stream CacheResultsMessage) returns(CacheResultsResponse){}
 }
 message StoreVolatileShuffleDataMessage{
     int32 state = 1;
@@ -93,4 +94,15 @@ message ShuffleMessage {
 message ShuffleResponse {
     int32 returnCode = 1;
     bytes shuffleData = 2;
+}
+
+message CacheResultsMessage{
+    int32 state = 1;
+    bytes data = 2;
+    int64 transactionID = 3;
+    int32 shardID = 4;
+    int32 DSID = 5;
+}
+message CacheResultsResponse{
+    int32 state = 1;
 }

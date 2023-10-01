@@ -1,6 +1,7 @@
 package edu.stanford.futuredata.uniserve.localcloud;
 
 import edu.stanford.futuredata.uniserve.datastore.DataStoreCloud;
+import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.IOException;
@@ -35,7 +36,8 @@ public class LocalDataStoreCloud implements DataStoreCloud {
                 Files.createDirectory(Path.of(root));
             }
         }catch(IOException e){
-            logger.error(e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error(e.getMessage());
         }
     }
 
@@ -55,7 +57,8 @@ public class LocalDataStoreCloud implements DataStoreCloud {
             logger.info(e.getMessage());
             return Optional.empty();
         }
-        logger.info("Successful upload to cloud directory {} from local source directory {}", destinationDirectoryString, localSourceDirectory);
+        if(Utilities.logger_flag)
+            logger.info("Successful upload to cloud directory {} from local source directory {}", destinationDirectoryString, localSourceDirectory);
         return Optional.of(shardCloudName);
     }
 
@@ -64,9 +67,7 @@ public class LocalDataStoreCloud implements DataStoreCloud {
         String src = root + shardCloudName;
         Path destinationDirectory = Path.of(localDestinationDirectory.toString(), shardCloudName);
         try {
-            logger.info("Trying to copy from local cloud directory {} to local destination directory {}", src, destinationDirectory);
             if(!Files.exists(destinationDirectory)){
-                logger.info("Creating local destination directory {} before copying", destinationDirectory);
                 Files.createDirectory(destinationDirectory);
             }
             copyDirectory(src, destinationDirectory.toString());

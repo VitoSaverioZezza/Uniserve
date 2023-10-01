@@ -56,9 +56,6 @@ public class ShuffleOnReadQuery implements ShuffleOnReadQueryPlan<Shard, Object>
         }
         return serScatterRes;
     }
-    @Override
-    public void writeIntermediateShard(Shard intermediateShard, ByteString gatherResults){
-    }
 
     @Override
     public ByteString gather(Map ephemeralData, Map ephemeralShards) {

@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.*;
+import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
@@ -90,7 +91,8 @@ public class Broker {
             masterHost = masterHostPort.get().getValue0();
             masterPort = masterHostPort.get().getValue1();
         } else {
-            logger.error("Broker could not find master");
+            if(Utilities.logger_flag)
+                logger.error("Broker could not find master");
         }
         ManagedChannel channel = ManagedChannelBuilder.forAddress(masterHost, masterPort).usePlaintext().build();
         coordinatorBlockingStub = BrokerCoordinatorGrpc.newBlockingStub(channel);
@@ -122,7 +124,8 @@ public class Broker {
             long p99RE = remoteExecutionTimes.stream().mapToLong(i -> i).sorted().toArray()[remoteExecutionTimes.size() * 99 / 100];
             long p50agg = aggregationTimes.stream().mapToLong(i -> i).sorted().toArray()[aggregationTimes.size() / 2];
             long p99agg = aggregationTimes.stream().mapToLong(i -> i).sorted().toArray()[aggregationTimes.size() * 99 / 100];
-            logger.info("Queries: {} p50 Remote: {}μs p99 Remote: {}μs  p50 Aggregation: {}μs p99 Aggregation: {}μs", numQueries, p50RE, p99RE, p50agg, p99agg);
+            if(Utilities.logger_flag)
+                logger.info("Queries: {} p50 Remote: {}μs p99 Remote: {}μs  p50 Aggregation: {}μs p99 Aggregation: {}μs", numQueries, p50RE, p99RE, p50agg, p99agg);
         }
         zkCurator.close();
         readQueryThreadPool.shutdown();
@@ -196,7 +199,8 @@ public class Broker {
             try {
                 t.join();
             } catch (InterruptedException e) {
-                logger.error("Write query interrupted: {}", e.getMessage());
+                if(Utilities.logger_flag)
+                    logger.error("Write query interrupted: {}", e.getMessage());
                 assert(false);
             }
         }
@@ -208,7 +212,8 @@ public class Broker {
             triggeredQuery.updateStoredResults(this);
         }
 
-        logger.info("Write completed. Rows: {}. Version: {} Time: {}ms", rows.size(), txID,
+        if(Utilities.logger_flag)
+            logger.info("Write completed. Rows: {}. Version: {} Time: {}ms", rows.size(), txID,
                 System.currentTimeMillis() - tStart);
         assert (queryStatus.get() != QUERY_RETRY);
 
@@ -253,7 +258,8 @@ public class Broker {
             try {
                 t.join();
             } catch (InterruptedException e) {
-                logger.error("SimpleWrite query interrupted: {}", e.getMessage());
+                if(Utilities.logger_flag)
+                    logger.error("SimpleWrite query interrupted: {}", e.getMessage());
                 assert(false);
             }
         }
@@ -262,12 +268,49 @@ public class Broker {
         for(ReadQuery triggeredQuery: triggeredQueries){
             triggeredQuery.updateStoredResults(this);
         }
-        logger.info("SimpleWrite completed. Rows: {}. Table: {} Version: {} Time: {}ms.",
+        if(Utilities.logger_flag)
+            logger.info("SimpleWrite completed. Rows: {}. Table: {} Version: {} Time: {}ms.",
                 rows.size(), writeQueryPlan.getQueriedTable(), txID,
                 System.currentTimeMillis() - tStart);
         assert (queryStatus.get() != QUERY_RETRY);
         return queryStatus.get() == QUERY_SUCCESS;
     }
+
+
+    public <R extends Row, S extends Shard> boolean writeCachedData(
+            SimpleWriteQueryPlan<R, S> writeQueryPlan, long txID, Map<Integer, Integer> shardToDs) {
+        long tStart = System.currentTimeMillis();
+        List<WriteCachedDataThread<R, S>> writeQueryThreads = new ArrayList<>();
+        AtomicInteger queryStatus = new AtomicInteger(QUERY_SUCCESS);
+        for (Integer shardNum: shardToDs.keySet()) {
+            WriteCachedDataThread<R, S> t = new WriteCachedDataThread<>(
+                    shardNum,
+                    writeQueryPlan,
+                    txID,
+                    queryStatus,
+                    shardToDs.get(shardNum)
+            );
+            t.start();
+            writeQueryThreads.add(t);
+        }
+        for (WriteCachedDataThread<R,S> t: writeQueryThreads) {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                if(Utilities.logger_flag)
+                    logger.error("SimpleWrite query interrupted: {}", e.getMessage());
+                assert(false);
+            }
+        }
+        zkCurator.writeLastCommittedVersion(txID);
+        if(Utilities.logger_flag)
+            logger.info("Write completed. Table: {} Version: {} Time: {}ms.",
+                writeQueryPlan.getQueriedTable(), txID,
+                System.currentTimeMillis() - tStart);
+        assert (queryStatus.get() != QUERY_RETRY);
+        return queryStatus.get() == QUERY_SUCCESS;
+    }
+
 
     /*VOLATILE OPERATIONS*/
     public<V> V volatileShuffleQuery(VolatileShuffleQueryPlan plan, List<Row> rows){
@@ -312,14 +355,16 @@ public class Broker {
             try {
                 t.join();
             } catch (InterruptedException e) {
-                logger.error("Volatile shuffle query interrupted: {}", e.getMessage());
+                if(Utilities.logger_flag)
+                    logger.error("Volatile shuffle query interrupted: {}", e.getMessage());
                 assert(false);
             }
         }
         if(queryStatus.get() == Broker.QUERY_FAILURE){
             boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID, null);
             if(!successfulCleanup){
-                logger.error("Unsuccessful cleanup of shuffled data for transaction {}", txID);
+                if(Utilities.logger_flag)
+                    logger.error("Unsuccessful cleanup of shuffled data for transaction {}", txID);
                 assert (false);
                 queryStatus.set(Broker.QUERY_FAILURE);
             }
@@ -345,7 +390,8 @@ public class Broker {
             try {
                 t.join();
             }catch (InterruptedException e ){
-                logger.error("Broker: Volatile scatter query interrupted: {}", e.getMessage());
+                if(Utilities.logger_flag)
+                    logger.error("Broker: Volatile scatter query interrupted: {}", e.getMessage());
                 assert(false);
                 queryStatus.set(Broker.QUERY_FAILURE);
             }
@@ -353,7 +399,8 @@ public class Broker {
         if(queryStatus.get()==Broker.QUERY_FAILURE){
             boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID, gatherDSids);
             if(!successfulCleanup){
-                logger.error("Broker: Unsuccessful cleanup of volatile data for unsuccessful transaction {} (scatter failed)", txID);
+                if(Utilities.logger_flag)
+                    logger.error("Broker: Unsuccessful cleanup of volatile data for unsuccessful transaction {} (scatter failed)", txID);
                 assert (false);
             }
             return null;
@@ -378,14 +425,16 @@ public class Broker {
             try {
                 t.join();
             }catch (InterruptedException e){
-                logger.error("Broker: Volatile gather query interrupted: {}", e.getMessage());
+                if(Utilities.logger_flag)
+                    logger.error("Broker: Volatile gather query interrupted: {}", e.getMessage());
                 assert(false);
             }
         }
         if(queryStatus.get()==Broker.QUERY_FAILURE){
             boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID, gatherDSids);
             if(!successfulCleanup){
-                logger.error("Unsuccessful cleanup of volatile data for unsuccessful transaction {}", txID);
+                if(Utilities.logger_flag)
+                    logger.error("Unsuccessful cleanup of volatile data for unsuccessful transaction {}", txID);
                 assert (false);
             }
             return null;
@@ -400,7 +449,8 @@ public class Broker {
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
         boolean successfulCleanup = volatileShuffleCleanup(dsIDsScatter, txID, gatherDSids);
         if(!successfulCleanup){
-            logger.error("Broker: Unsuccessful cleanup of volatile data for successful transaction {}", txID);
+            if(Utilities.logger_flag)
+                logger.error("Broker: Unsuccessful cleanup of volatile data for successful transaction {}", txID);
         }
         return result;
     }
@@ -502,7 +552,6 @@ public class Broker {
                 @Override
                 public void onNext(AnchoredReadQueryResponse r) {
                     if (r.getReturnCode() == QUERY_RETRY) {
-                        logger.warn("Got QUERY_RETRY from DS{}", dsID);
                         retry();
                     } else {
                         assert (r.getReturnCode() == QUERY_SUCCESS);
@@ -513,7 +562,8 @@ public class Broker {
 
                 @Override
                 public void onError(Throwable throwable) {
-                    logger.warn("Read Query Error on DS{}: {}", dsID, throwable.getMessage());
+                    if(Utilities.logger_flag)
+                        logger.warn("Read Query Error on DS{}: {}", dsID, throwable.getMessage());
                     retry();
                 }
 
@@ -617,8 +667,8 @@ public class Broker {
         int numReducers = dsIDs.size();
         List<ByteString> intermediates = new CopyOnWriteArrayList<>();
         CountDownLatch latch = new CountDownLatch(numReducers);
-        List<ByteString> storedResultShardLocation = new CopyOnWriteArrayList<>();
         int reducerNum = 0;
+        List<ByteString> destinationShardIDs = new CopyOnWriteArrayList<>();
         for (int dsID : dsIDs) {
             /*Each datastore receives a call to the shuffleReadQuery method, with message containing:
             * - repartitionNum: the dsID
@@ -661,13 +711,14 @@ public class Broker {
                     assert (r.getReturnCode() == Broker.QUERY_SUCCESS);
                     intermediates.add(r.getResponse());
                     if(plan.isStored()){
-                        storedResultShardLocation.add(r.getResultsIntermediateLocations());
+                        destinationShardIDs.add(r.getDestinationShards());
                     }
                 }
 
                 @Override
                 public void onError(Throwable throwable) {
-                    logger.warn("Read Query Error on DS{}: {}", dsID, throwable.getMessage());
+                    if(Utilities.logger_flag)
+                        logger.warn("Read Query Error on DS{}: {}", dsID, throwable.getMessage());
                     int numDSIDs = dsIDToChannelMap.keySet().size();
                     Integer newDSID = dsIDToChannelMap.keySet().stream().skip(new Random().nextInt(numDSIDs)).findFirst().orElse(null);
                     ManagedChannel channel = dsIDToChannelMap.get(newDSID);
@@ -693,11 +744,49 @@ public class Broker {
         long aggEnd = System.nanoTime();
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
 
-
-
         if(plan.isStored()){
+            Set<Integer> destinationShardsSet = new HashSet<>();
+            for(ByteString bs: destinationShardIDs){
+                destinationShardsSet.addAll((List<Integer>)Utilities.byteStringToObject(bs));
+            }
+            HashMap<Integer, Integer> shardIDtoDSId = new HashMap<>();
+            for(Integer shardID: destinationShardsSet){
+                shardIDtoDSId.put(shardID, consistentHash.getRandomBucket(shardID));
+            }
+            CountDownLatch latch1 = new CountDownLatch(dsIDs.size());
+            ByteString serShardIDToDSId = Utilities.objectToByteString(shardIDtoDSId);
+            for(Integer dsID: dsIDs){
+                ManagedChannel channel = dsIDToChannelMap.get(dsID);
+                BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+                ForwardDataToStoreMessage m = ForwardDataToStoreMessage.newBuilder()
+                        .setTxID(txID)
+                        .setShardIDToDSIDMap(serShardIDToDSId)
+                        .build();
+                StreamObserver<ForwardDataToStoreResponse> responseObserver = new StreamObserver<ForwardDataToStoreResponse>() {
+                    @Override
+                    public void onNext(ForwardDataToStoreResponse forwardDataToStoreResponse) {
+                        assert(forwardDataToStoreResponse.getStatus() == Broker.QUERY_SUCCESS);
+                    }
 
+                    @Override
+                    public void onError(Throwable throwable) {
 
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        latch1.countDown();
+                    }
+                };
+                stub.forwardDataToStore(m, responseObserver);
+            }
+            try{
+                latch1.await();
+            }catch (Exception e ){
+                assert (false);
+            }
+
+            this.writeCachedData(plan.getWriteResultPlan(), txID, shardIDtoDSId);
 
         }
 
@@ -712,7 +801,6 @@ public class Broker {
     }
     public <S extends Shard, V> V retrieveAndCombineReadQuery(RetrieveAndCombineQueryPlan<S,V> plan){
         long txID = zkCurator.getTxID();
-
         ByteString serializedQueryPlan = Utilities.objectToByteString(plan);
         Map<String, List<Integer>> tablesToKeysMap = plan.keysForQuery();
         Map<String, List<Integer>> tablesToShardsMap = new HashMap<>();
@@ -731,7 +819,7 @@ public class Broker {
             concreteSubqueriesResults.put(entry.getKey(), entry.getValue().run(this));
         }
         ByteString serializedConcreteSubqueriesResults = Utilities.objectToByteString(concreteSubqueriesResults);
-
+        List<ByteString> destinationShardIDs = new CopyOnWriteArrayList<>();
         long lcv = zkCurator.getLastCommittedVersion();
         for(String tableName: tablesToKeysMap.keySet()){
             retrievedData.put(tableName, new CopyOnWriteArrayList<>());
@@ -748,7 +836,8 @@ public class Broker {
 
             }
             if(shardNums == null){
-                logger.error("TableInfo does not store list of shards already allocated for table " + tableName);
+                if(Utilities.logger_flag)
+                    logger.error("TableInfo does not store list of shards already allocated for table " + tableName);
             }
             shardNums.remove(Integer.valueOf(-1));
             tablesToShardsMap.put(tableName, shardNums);
@@ -756,6 +845,7 @@ public class Broker {
             for(Integer shardID:tablesToShardsMap.get(tableName)){
                 BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(getStubForShard(shardID).getChannel());
                 RetrieveAndCombineQueryMessage requestMessage = RetrieveAndCombineQueryMessage.newBuilder()
+                        .setTxID(txID)
                         .setShardID(shardID)
                         .setSerializedQueryPlan(serializedQueryPlan)
                         .setLastCommittedVersion(lcv)
@@ -768,6 +858,9 @@ public class Broker {
                     public void onNext(RetrieveAndCombineQueryResponse response) {
                         if(response.getState() == QUERY_SUCCESS){
                             retrievedData.get(tableName).add(response.getData());
+                            if(plan.isStored()){
+                                destinationShardIDs.add(response.getDestinationShards());
+                            }
                         }
                     }
 
@@ -784,7 +877,8 @@ public class Broker {
             try {
                 tableLatch.await();
             }catch (Exception e){
-                logger.error("Retrieve and combine query failed");
+                if(Utilities.logger_flag)
+                    logger.error("Retrieve and combine query failed");
             }
         }
         for(String subqueryID: volatileSubqueriesResults.keySet()){
@@ -795,6 +889,7 @@ public class Broker {
                 Integer dsID = shardIDDSIDPair.getValue1();
                 BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(dsIDToChannelMap.get(dsID));
                 RetrieveAndCombineQueryMessage requestMessage = RetrieveAndCombineQueryMessage.newBuilder()
+                        .setTxID(txID)
                         .setShardID(shardID)
                         .setSerializedQueryPlan(serializedQueryPlan)
                         .setLastCommittedVersion(lcv)
@@ -807,6 +902,9 @@ public class Broker {
                     public void onNext(RetrieveAndCombineQueryResponse response) {
                         if(response.getState() == QUERY_SUCCESS){
                             retrievedData.get(subqueryID).add(response.getData());
+                            if(plan.isStored()){
+                                destinationShardIDs.add(response.getDestinationShards());
+                            }
                         }
                     }
 
@@ -823,7 +921,8 @@ public class Broker {
             try {
                 tableLatch.await();
             }catch (Exception e){
-                logger.error("Retrieve and combine query failed");
+                if(Utilities.logger_flag)
+                    logger.error("Retrieve and combine query failed");
             }
         }
         long aggStart = System.nanoTime();
@@ -837,12 +936,62 @@ public class Broker {
 
         long aggEnd = System.nanoTime();
         aggregationTimes.add((aggEnd - aggStart) / 1000L);
+
+        Set<Integer> dsIDs = dsIDToChannelMap.keySet();
+
+        if(plan.isStored()){
+            Set<Integer> destinationShardsSet = new HashSet<>();
+            for(ByteString bs: destinationShardIDs){
+                List<Integer> destinationShards = (List<Integer>) Utilities.byteStringToObject(bs);
+                destinationShardsSet.addAll(destinationShards);
+            }
+            HashMap<Integer, Integer> shardIDtoDSId = new HashMap<>();
+            for(Integer shardID: destinationShardsSet){
+                shardIDtoDSId.put(shardID, consistentHash.getRandomBucket(shardID));
+            }
+            CountDownLatch latch1 = new CountDownLatch(dsIDs.size());
+            ByteString serShardIDToDSId = Utilities.objectToByteString(shardIDtoDSId);
+            for(Integer dsID: dsIDs){
+                ManagedChannel channel = dsIDToChannelMap.get(dsID);
+                BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+                ForwardDataToStoreMessage m = ForwardDataToStoreMessage.newBuilder()
+                        .setTxID(txID)
+                        .setShardIDToDSIDMap(serShardIDToDSId)
+                        .build();
+                StreamObserver<ForwardDataToStoreResponse> responseObserver = new StreamObserver<ForwardDataToStoreResponse>() {
+                    @Override
+                    public void onNext(ForwardDataToStoreResponse forwardDataToStoreResponse) {
+                        assert(forwardDataToStoreResponse.getStatus() == Broker.QUERY_SUCCESS);
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {
+
+                    }
+
+                    @Override
+                    public void onCompleted() {
+                        latch1.countDown();
+                    }
+                };
+                stub.forwardDataToStore(m, responseObserver);
+            }
+            try{
+                latch1.await();
+            }catch (Exception e ){
+                assert (false);
+            }
+
+            this.writeCachedData(plan.getWriteResultPlan(), txID, shardIDtoDSId);
+        }
+
         //TODO: parallelize
         for(Map.Entry<String, List<Pair<Integer, Integer>>> subqueryRes: volatileSubqueriesResults.entrySet()){
             for(Pair<Integer, Integer> shardIDDSiD: subqueryRes.getValue()){
                 removeIntermediateShard(shardIDDSiD.getValue0(), shardIDDSiD.getValue1());
             }
         }
+
         return ret;
     }
 
@@ -891,7 +1040,8 @@ public class Broker {
 
                             @Override
                             public void onError(Throwable th) {
-                                logger.warn("Write query RPC failed for shard {}", shardNum);
+                                if(Utilities.logger_flag)
+                                    logger.warn("Write query RPC failed for shard {}", shardNum);
                                 subQueryStatus.set(QUERY_FAILURE);
                                 prepareLatch.countDown();
                                 finishLatch.countDown();
@@ -923,7 +1073,8 @@ public class Broker {
                 try {
                     prepareLatch.await();
                 } catch (InterruptedException e) {
-                    logger.error("Write Interrupted: {}", e.getMessage());
+                    if(Utilities.logger_flag)
+                        logger.error("Write Interrupted: {}", e.getMessage());
                     assert (false);
                 }
                 if (subQueryStatus.get() == QUERY_RETRY) {
@@ -932,7 +1083,8 @@ public class Broker {
                         Thread.sleep(shardMapDaemonSleepDurationMillis);
                         continue;
                     } catch (InterruptedException e) {
-                        logger.error("Write Interrupted: {}", e.getMessage());
+                        if(Utilities.logger_flag)
+                            logger.error("Write Interrupted: {}", e.getMessage());
                         assert (false);
                     }
                 }
@@ -944,7 +1096,8 @@ public class Broker {
                 try {
                     queryLatch.await();
                 } catch (InterruptedException e) {
-                    logger.error("Write Interrupted: {}", e.getMessage());
+                    if(Utilities.logger_flag)
+                        logger.error("Write Interrupted: {}", e.getMessage());
                     assert (false);
                 }
                 assert(queryStatus.get() != QUERY_RETRY);
@@ -967,7 +1120,8 @@ public class Broker {
                 try {
                     finishLatch.await();
                 } catch (InterruptedException e) {
-                    logger.error("Write Interrupted: {}", e.getMessage());
+                    if(Utilities.logger_flag)
+                        logger.error("Write Interrupted: {}", e.getMessage());
                     assert (false);
                 }
             }
@@ -1012,7 +1166,8 @@ public class Broker {
 
                             @Override
                             public void onError(Throwable th) {
-                                logger.warn("SimpleWrite query RPC failed for shard {}", shardNum);
+                                if(Utilities.logger_flag)
+                                    logger.warn("SimpleWrite query RPC failed for shard {}", shardNum);
                                 subQueryStatus.set(QUERY_FAILURE);
                                 prepareLatch.countDown();
                                 finishLatch.countDown();
@@ -1044,7 +1199,8 @@ public class Broker {
                 try {
                     prepareLatch.await();
                 } catch (InterruptedException e) {
-                    logger.error("SimpleWrite Interrupted: {}", e.getMessage());
+                    if(Utilities.logger_flag)
+                        logger.error("SimpleWrite Interrupted: {}", e.getMessage());
                     assert (false);
                 }
                 if (subQueryStatus.get() == QUERY_RETRY) {
@@ -1053,7 +1209,8 @@ public class Broker {
                         Thread.sleep(shardMapDaemonSleepDurationMillis);
                         continue;
                     } catch (InterruptedException e) {
-                        logger.error("SimpleWrite Interrupted: {}", e.getMessage());
+                        if(Utilities.logger_flag)
+                            logger.error("SimpleWrite Interrupted: {}", e.getMessage());
                         assert (false);
                     }
                 }
@@ -1066,12 +1223,104 @@ public class Broker {
                 try {
                     finishLatch.await();
                 } catch (InterruptedException e) {
-                    logger.error("SimpleWrite Interrupted: {}", e.getMessage());
+                    if(Utilities.logger_flag)
+                        logger.error("SimpleWrite Interrupted: {}", e.getMessage());
                     assert (false);
                 }
             }
         }
     }
+    private class WriteCachedDataThread<R extends Row, S extends Shard> extends Thread{
+        private final int shardNum;
+        private final SimpleWriteQueryPlan<R, S> writeQueryPlan;
+        private final long txID;
+        private final AtomicInteger queryStatus;
+        private final int dsID;
+
+        WriteCachedDataThread(int shardNum, SimpleWriteQueryPlan<R, S> writeQueryPlan, long txID,
+                               AtomicInteger queryStatus, int dsID) {
+            this.shardNum = shardNum;
+            this.writeQueryPlan = writeQueryPlan;
+            this.txID = txID;
+            this.queryStatus = queryStatus;
+            this.dsID = dsID;
+        }
+
+        @Override
+        public void run() { writeQuery(); }
+
+        private void writeQuery() {
+            AtomicInteger subQueryStatus = new AtomicInteger(QUERY_RETRY);
+            while (subQueryStatus.get() == QUERY_RETRY) {
+                BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(dsIDToChannelMap.get(dsID));
+                final CountDownLatch prepareLatch = new CountDownLatch(1);
+                final CountDownLatch finishLatch = new CountDownLatch(1);
+                StreamObserver<WriteQueryMessage> observer =
+                        stub.simpleWriteQuery(new StreamObserver<>() {
+                            @Override
+                            public void onNext(WriteQueryResponse writeQueryResponse) {
+                                subQueryStatus.set(writeQueryResponse.getReturnCode());
+                                prepareLatch.countDown();
+                            }
+
+                            @Override
+                            public void onError(Throwable th) {
+                                if(Utilities.logger_flag)
+                                    logger.warn("SimpleWrite query RPC failed for shard {}", shardNum);
+                                subQueryStatus.set(QUERY_FAILURE);
+                                prepareLatch.countDown();
+                                finishLatch.countDown();
+                            }
+
+                            @Override
+                            public void onCompleted() {
+                                finishLatch.countDown();
+                            }
+                        });
+                WriteQueryMessage prepare = WriteQueryMessage.newBuilder()
+                        .setSerializedQuery(Utilities.objectToByteString(writeQueryPlan))
+                        .setTxID(txID)
+                        .setShard(shardNum)
+                        .setIsDataCached(true)
+                        .setWriteState(DataStore.PREPARE)
+                        .build();
+                observer.onNext(prepare);
+                try {
+                    prepareLatch.await();
+                } catch (InterruptedException e) {
+                    if(Utilities.logger_flag)
+                        logger.error("SimpleWrite Interrupted: {}", e.getMessage());
+                    assert (false);
+                }
+                if (subQueryStatus.get() == QUERY_RETRY) {
+                    try {
+                        observer.onCompleted();
+                        Thread.sleep(shardMapDaemonSleepDurationMillis);
+                        continue;
+                    } catch (InterruptedException e) {
+                        if(Utilities.logger_flag)
+                            logger.error("SimpleWrite Interrupted: {}", e.getMessage());
+                        assert (false);
+                    }
+                }
+                assert(subQueryStatus.get() != QUERY_RETRY);
+                if (subQueryStatus.get() == QUERY_FAILURE) {
+                    queryStatus.set(QUERY_FAILURE);
+                }
+                assert(queryStatus.get() != QUERY_RETRY);
+                observer.onCompleted();
+                try {
+                    finishLatch.await();
+                } catch (InterruptedException e) {
+                    if(Utilities.logger_flag)
+                        logger.error("SimpleWrite Interrupted: {}", e.getMessage());
+                    assert (false);
+                }
+            }
+        }
+    }
+
+
     /**Forwards raw data to servers*/
     private class StoreVolatileDataThread<R extends Row> extends Thread{
         private final Integer dsID;
@@ -1119,7 +1368,8 @@ public class Broker {
 
                             @Override
                             public void onError(Throwable th) {
-                                logger.warn("StoreVolatileDataThread: Volatile shuffle query RPC failed for datastore {}", dsID);
+                                if(Utilities.logger_flag)
+                                    logger.warn("StoreVolatileDataThread: Volatile shuffle query RPC failed for datastore {}", dsID);
                                 subQueryStatus.set(QUERY_FAILURE);
                                 prepareLatch.countDown();
                             }
@@ -1146,7 +1396,8 @@ public class Broker {
                 try {
                     prepareLatch.await();
                 } catch (InterruptedException e) {
-                    logger.error("StoreVolatileDataThread: Volatile Shuffle Interrupted: {}", e.getMessage());
+                    if(Utilities.logger_flag)
+                        logger.error("StoreVolatileDataThread: Volatile Shuffle Interrupted: {}", e.getMessage());
                     assert (false);
                 }
 
@@ -1159,7 +1410,6 @@ public class Broker {
             }
         }
     }
-
     /**Triggers execution of the scatter operation between servers storing raw data assocciated with the transaction
      * identifier*/
     private class ScatterVolatileDataThread<V> extends Thread{
@@ -1254,6 +1504,7 @@ public class Broker {
     }
 
 
+
     /*UTILITIES*/
     /**Retrieves a TableInfo object associated with the given table name.
      * @param tableName The name of the queried table
@@ -1316,7 +1567,8 @@ public class Broker {
 
                 @Override
                 public void onError(Throwable throwable) {
-                    logger.error("Broker: removeVolatileData Failed for transaction id {}", txID);
+                    if(Utilities.logger_flag)
+                        logger.error("Broker: removeVolatileData Failed for transaction id {}", txID);
                     outcome.set(1);
                     latch.countDown();
                 }
@@ -1331,7 +1583,8 @@ public class Broker {
         try {
             latch.await();
         }catch (InterruptedException e){
-            logger.error("Broker: RemoveVolatileData Failed for transaction id {}", txID);
+            if(Utilities.logger_flag)
+                logger.error("Broker: RemoveVolatileData Failed for transaction id {}", txID);
             return false;
         }
         if(gatherDSids == null || outcome.get() != 0) {
@@ -1350,7 +1603,8 @@ public class Broker {
 
                 @Override
                 public void onError(Throwable throwable) {
-                    logger.error("Broker: removeVolatileScatteredData Failed for transaction id {}", txID);
+                    if(Utilities.logger_flag)
+                        logger.error("Broker: removeVolatileScatteredData Failed for transaction id {}", txID);
                     outcome.set(1);
                 }
 
@@ -1364,7 +1618,8 @@ public class Broker {
         try{
             secondLatch.await();
         }catch (InterruptedException e){
-            logger.error("Broker: removeVolatileScatteredData Failed for transaction id {}", txID);
+            if(Utilities.logger_flag)
+                logger.error("Broker: removeVolatileScatteredData Failed for transaction id {}", txID);
             return false;
         }
         return outcome.get() == 0;
@@ -1378,7 +1633,8 @@ public class Broker {
         }
         StoreQueryResponse queryResponse = coordinatorBlockingStub.storeQuery(
                 StoreQueryMessage.newBuilder().setQuery(Utilities.objectToByteString(query)).build());
-        logger.info("Query associated with table {} registered", resultTableID);
+        if(Utilities.logger_flag)
+            logger.info("Query associated with table {} registered", resultTableID);
         assert (queryResponse.getStatus() == 0);
         return Integer.toString(resultTableID);
     }
@@ -1460,7 +1716,8 @@ public class Broker {
 
             @Override
             public void onError(Throwable throwable) {
-                logger.error("Error deleting intermediate shard {} from server {}", shardID, dataStoreID);
+                if(Utilities.logger_flag)
+                    logger.error("Error deleting intermediate shard {} from server {}", shardID, dataStoreID);
             }
 
             @Override

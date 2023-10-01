@@ -231,7 +231,8 @@ public class DataStore<R extends Row, S extends Shard> {
                 }
                 shardMap.put(shardNum, shard.get());
                 shardVersionMap.put(shardNum, 0);
-                logger.info("DS{} Created new primary shard {}", dsID, shardNum);
+                if(Utilities.logger_flag)
+                    logger.info("DS{} Created new primary shard {}", dsID, shardNum);
             } else {
                 shardVersionMap.put(shardNum, zkShardDescription.versionNumber);
             }
@@ -281,7 +282,8 @@ public class DataStore<R extends Row, S extends Shard> {
         }
         // Notify the coordinator about the upload.
         zkCurator.setZKShardDescription(shardNum, cloudName.get(), versionNumber);
-        logger.info("DS{} Shard {}-{} upload succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - uploadStart);
+        if(Utilities.logger_flag)
+            logger.info("DS{} Shard {}-{} upload succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - uploadStart);
     }
 
     /** Synchronously download a shard from the cloud **/
@@ -303,7 +305,8 @@ public class DataStore<R extends Row, S extends Shard> {
         }
         Path targetDirectory = Path.of(downloadDirectory.toString(), cloudName);
         Optional<S> shard = shardFactory.createShardFromDir(targetDirectory, shardNum);
-        logger.info("DS{} Shard {}-{} download succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - downloadStart);
+        if(Utilities.logger_flag)
+            logger.info("DS{} Shard {}-{} download succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - downloadStart);
         return shard;
     }
 
@@ -338,7 +341,8 @@ public class DataStore<R extends Row, S extends Shard> {
         }
 
         Optional<S> retShard = shardFactory.createShardFromDir(targetDirectory, shardNum);
-        logger.info("DS{} Shard {}-{} copy succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - copyStart);
+        if(Utilities.logger_flag)
+            logger.info("DS{} Shard {}-{} copy succeeded. Time: {}ms", dsID, shardNum, versionNumber, System.currentTimeMillis() - copyStart);
         return retShard;
     }
 
@@ -401,7 +405,8 @@ public class DataStore<R extends Row, S extends Shard> {
     public boolean addVolatileData(long transactionID, Shard data){
         try{
             volatileData.computeIfAbsent(transactionID, k -> new ArrayList<>()).add(data);
-            logger.info("Volatile shard stored");
+            if(Utilities.logger_flag)
+                logger.info("Volatile shard stored");
             return true;
         }catch (Exception e){
             logger.warn("Impossible to store volatile data for DS {} transaction {}", dsID, transactionID);
@@ -440,6 +445,9 @@ public class DataStore<R extends Row, S extends Shard> {
 
     public TableInfo getTableInfo(String tableName) {
         DTableInfoResponse r = coordinatorStub.tableInfo(DTableInfoMessage.newBuilder().setTableName(tableName).build());
+        if(r.getReturnCode() != Broker.QUERY_SUCCESS){
+            System.out.println("\t\tDS.getTableInfo ----- failed for tableID: " + tableName);
+        }
         assert(r.getReturnCode() == Broker.QUERY_SUCCESS);
         TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards());
         Object[] attributeNamesArray = (Object[]) Utilities.byteStringToObject(r.getAttributeNames());
@@ -452,5 +460,17 @@ public class DataStore<R extends Row, S extends Shard> {
         t.setRegisteredQueries((ArrayList<ReadQuery>) Utilities.byteStringToObject(r.getTriggeredQueries()));
         t.setTableShardsIDs((ArrayList<Integer>) Utilities.byteStringToObject(r.getShardIDs()));
         return t;
+    }
+
+    private Map<Pair<Long, Integer>, List<R>> resultsToStore = new ConcurrentHashMap<>();
+    public ArrayList<R> getDataToStore(Pair<Long, Integer> dataIndex){
+        List<R> ret = resultsToStore.get(dataIndex);
+        if(ret == null){
+            return new ArrayList<>();
+        }
+        return new ArrayList<>(ret);
+    }
+    public void storeResults(Pair<Long, Integer> dataIndex, List<R> data){
+        resultsToStore.put(dataIndex, data);
     }
 }

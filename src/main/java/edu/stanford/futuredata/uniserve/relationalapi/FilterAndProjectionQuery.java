@@ -10,10 +10,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelReadQueryResults> {
@@ -39,6 +36,7 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     private Map<String, ReadQuery> sourceSubqueries = new HashMap<>();
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
+    private WriteResultsPlan writeResultsPlan = null;
 
     public FilterAndProjectionQuery setSourceName(String sourceName) {
         this.sourceName = sourceName;
@@ -82,6 +80,9 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     }
     public FilterAndProjectionQuery setResultTableName(String resultTableName){
         this.resultTableName = resultTableName;
+        Boolean[] keyStructure = new Boolean[resultSchema.size()];
+        Arrays.fill(keyStructure, true);
+        this.writeResultsPlan = new WriteResultsPlan(resultTableName, keyStructure);
         return this;
     }
 
@@ -103,6 +104,9 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     }
     public Map<String, ReadQuery> getConcreteSubqueries(){return predicateSubqueries;}
     public String getResultTableName(){return resultTableName;}
+    public WriteResultsPlan getWriteResultPlan() {
+        return writeResultsPlan;
+    }
 
     @Override
     public List<String> getTableNames() {
@@ -127,10 +131,9 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
         return Utilities.objectToByteString(retrievedData);
     }
     @Override
-    public void writeIntermediateShard(RelShard intermediateShard, ByteString retrievedResults){
+    public boolean writeIntermediateShard(RelShard intermediateShard, ByteString retrievedResults){
         List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(retrievedResults);
-        intermediateShard.insertRows(rows);
-        intermediateShard.committRows();
+        return intermediateShard.insertRows(rows) && intermediateShard.committRows();
     }
 
 

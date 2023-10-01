@@ -3,6 +3,7 @@ package edu.stanford.futuredata.uniserve.relationalapi;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.SimpleWriteQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
@@ -10,10 +11,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryResults> {
@@ -32,6 +30,7 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     private boolean isDistinct = false; //still necessary, if one source is a subquery without equal rows
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
+    private WriteResultsPlan writeResultsPlan = null;
 
     public JoinQuery setSourceOne(String sourceOne) {
         this.sourceOne = sourceOne;
@@ -88,11 +87,17 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     }
     public JoinQuery setResultTableName(String resultTableName){
         this.resultTableName = resultTableName;
+        Boolean[] keyStructure = new Boolean[resultSchema.size()];
+        Arrays.fill(keyStructure, true);
+        this.writeResultsPlan = new WriteResultsPlan(resultTableName, keyStructure);
         return this;
     }
 
     public List<String> getPredicates(){
         return new ArrayList<>(filterPredicates.values());
+    }
+    public List<String> getSystemResultSchema() {
+        return systemResultSchema;
     }
     public boolean isStored(){
         return stored;
@@ -103,6 +108,9 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     public Map<String, ReadQuery> getVolatileSubqueries(){return sourceSubqueries;}
     public Map<String, ReadQuery> getConcreteSubqueries(){return predicateSubqueries;}
     public String getResultTableName(){return resultTableName;}
+    public WriteResultsPlan getWriteResultPlan() {
+        return writeResultsPlan;
+    }
 
     @Override
     public List<String> getQueriedTables() {
@@ -207,10 +215,9 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         return Utilities.objectToByteString(res);
     }
     @Override
-    public void writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
+    public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
         List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
-        intermediateShard.insertRows(rows);
-        intermediateShard.committRows();
+        return intermediateShard.insertRows(rows) && intermediateShard.committRows();
     }
     @Override
     public RelReadQueryResults combine(List<ByteString> shardQueryResults) {

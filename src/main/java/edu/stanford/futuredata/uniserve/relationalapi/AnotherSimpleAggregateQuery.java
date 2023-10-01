@@ -32,6 +32,7 @@ public class AnotherSimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelSh
     private boolean isThisSubquery = false;
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
+    private WriteResultsPlan writeResultsPlan = null;
 
     public AnotherSimpleAggregateQuery setSourceName(String sourceName) {
         this.sourceName = sourceName;
@@ -75,6 +76,9 @@ public class AnotherSimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelSh
     }
     public AnotherSimpleAggregateQuery setResultTableName(String resultTableName){
         this.resultTableName = resultTableName;
+        Boolean[] keyStructure = new Boolean[resultsSchema.size()];
+        Arrays.fill(keyStructure, true);
+        this.writeResultsPlan = new WriteResultsPlan(resultTableName, keyStructure);
         return this;
     }
 
@@ -95,6 +99,9 @@ public class AnotherSimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelSh
         return predicateSubqueries;
     }
     public String getResultTableName(){return resultTableName;}
+    public WriteResultsPlan getWriteResultPlan() {
+        return writeResultsPlan;
+    }
 
     @Override
     public List<String> getQueriedTables() {
@@ -142,10 +149,9 @@ public class AnotherSimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelSh
         return Utilities.objectToByteString(results);
     }
     @Override
-    public void writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
+    public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
         List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
-        intermediateShard.insertRows(rows);
-        intermediateShard.committRows();
+        return intermediateShard.insertRows(rows) && intermediateShard.committRows();
     }
     @Override
     public RelReadQueryResults combine(List<ByteString> shardQueryResults) {

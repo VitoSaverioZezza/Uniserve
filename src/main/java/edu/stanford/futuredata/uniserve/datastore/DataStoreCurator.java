@@ -86,7 +86,8 @@ class DataStoreCurator {
             byte[] b = cf.getData().forPath(path);
             return new ZKShardDescription(new String(b));
         } catch (Exception e) {
-            logger.error(e.getMessage());
+            if(Utilities.logger_flag)
+                logger.error(e.getMessage());
             return null;
         }
     }

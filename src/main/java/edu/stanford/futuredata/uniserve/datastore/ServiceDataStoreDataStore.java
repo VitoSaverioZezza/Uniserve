@@ -46,9 +46,9 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             int shardNum;
             int versionNumber;
             long txID;
-            SimpleWriteQueryPlan<R, S> writeQueryPlan;
+            SimpleWriteQueryPlan<R, S> writeQueryPlan = null;
             final List<R[]> rowArrayList = new ArrayList<>();
-            List<R> rowList;
+            ArrayList<R> rowList;
             int lastState = DataStore.COLLECT;
 
             @Override
@@ -59,14 +59,14 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                     versionNumber = replicaWriteMessage.getVersionNumber();
                     shardNum = replicaWriteMessage.getShard();
                     txID = replicaWriteMessage.getTxID();
-                    writeQueryPlan = (SimpleWriteQueryPlan<R, S>) Utilities.byteStringToObject(replicaWriteMessage.getSerializedQuery()); // TODO:  Only send this once.
+                    writeQueryPlan = (SimpleWriteQueryPlan<R, S>) Utilities.byteStringToObject(replicaWriteMessage.getSerializedQuery());
                     R[] rowChunk = (R[]) Utilities.byteStringToObject(replicaWriteMessage.getRowData());
                     rowArrayList.add(rowChunk);
                 } else if (writeState == DataStore.PREPARE) {
                     assert(lastState == DataStore.COLLECT);
-                    rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList());
+                    rowList = new ArrayList<>(rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList()));
                     dataStore.shardLockMap.get(shardNum).writerLockLock();
-                    responseObserver.onNext(executeReplicaWrite(shardNum, writeQueryPlan, rowList));
+                    responseObserver.onNext(executeReplicaWrite(shardNum, rowList));
                     dataStore.shardLockMap.get(shardNum).writerLockUnlock();
                 }
                 lastState = writeState;
@@ -83,10 +83,10 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                 responseObserver.onCompleted();
             }
 
-            private ReplicaWriteResponse executeReplicaWrite(int shardNum, SimpleWriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+            private ReplicaWriteResponse executeReplicaWrite(int shardNum, ArrayList<R> rows) {
                 if (dataStore.shardMap.containsKey(shardNum)) {
                     S shard = dataStore.shardMap.get(shardNum);
-                    boolean success =  writeQueryPlan.write(shard, rows);
+                    boolean success = writeQueryPlan.write(shard, rows);
                     if (success) {
                         return ReplicaWriteResponse.newBuilder().setReturnCode(0).build();
                     } else {
@@ -465,6 +465,39 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             @Override
             public void onError(Throwable throwable) {
                 logger.error("volatile store of scattered data failed for transaction {} on datastore {}", txID, dataStore.dsID);
+                responseObserver.onError(throwable);
+            }
+
+            @Override
+            public void onCompleted() {
+            }
+        };
+    }
+
+    @Override
+    public StreamObserver<CacheResultsMessage> cacheResults(StreamObserver<CacheResultsResponse> responseObserver){
+        return new StreamObserver<CacheResultsMessage>() {
+            final ArrayList<ByteString> results = new ArrayList<>();
+            Long txID;
+            int shardID;
+
+            @Override
+            public void onNext(CacheResultsMessage message) {
+                if(message.getState() == 0){
+                    results.addAll((List<ByteString>)Utilities.byteStringToObject(message.getData()));
+                    txID = message.getTransactionID();
+                    shardID = message.getShardID();
+                } else if (message.getState() == 1) {
+                    List<R> data = results.stream().map(v -> (R)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+                    dataStore.storeResults(new Pair<>(txID, shardID), data);
+                    responseObserver.onNext(CacheResultsResponse.newBuilder().setState(0).build());
+                    responseObserver.onCompleted();
+                }
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                logger.error("caching of query results failed for transaction {} on datastore {}", txID, dataStore.dsID);
                 responseObserver.onError(throwable);
             }
 

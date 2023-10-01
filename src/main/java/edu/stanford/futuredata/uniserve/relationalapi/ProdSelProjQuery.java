@@ -149,10 +149,9 @@ public class ProdSelProjQuery implements RetrieveAndCombineQueryPlan<RelShard, R
     }
 
     @Override
-    public void writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
+    public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
         List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
-        intermediateShard.insertRows(rows);
-        intermediateShard.committRows();
+        return intermediateShard.insertRows(rows) && intermediateShard.committRows();
     }
 
     @Override

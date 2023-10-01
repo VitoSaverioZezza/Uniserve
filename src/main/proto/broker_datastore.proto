@@ -25,6 +25,17 @@ service BrokerDataStore {
 
     rpc RetrieveAndCombineQuery(RetrieveAndCombineQueryMessage) returns (RetrieveAndCombineQueryResponse){}
     rpc RemoveIntermediateShards(RemoveIntermediateShardMessage) returns(RemoveIntermediateShardResponse){}
+
+    rpc ForwardDataToStore(ForwardDataToStoreMessage) returns (ForwardDataToStoreResponse){}
+}
+
+
+message ForwardDataToStoreMessage{
+    bytes shardIDToDSIDMap = 1;
+    int64 txID = 2;
+}
+message ForwardDataToStoreResponse{
+    int32 status = 1;
 }
 
 message RemoveIntermediateShardMessage{
@@ -100,6 +111,7 @@ message WriteQueryMessage {
     bytes rowData = 3;
     int64 txID = 4;
     int32 writeState = 5;
+    bool isDataCached = 6;
 }
 message WriteQueryResponse {
     int32 returnCode = 1;

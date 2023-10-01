@@ -49,6 +49,15 @@ public class ReadQuery implements Serializable {
     }
     public ReadQuery setResultTableName(String resultTableName) {
         this.resultTableName = resultTableName;
+        if (filterAndProjectionQuery != null) {
+            filterAndProjectionQuery.setResultTableName(resultTableName);
+        } else if (anotherSimpleAggregateQuery != null) {
+            anotherSimpleAggregateQuery.setResultTableName(resultTableName);
+        } else if (anotherAggregateQuery != null) {
+            anotherAggregateQuery.setResultTableName(resultTableName);
+        } else {
+            joinQuery.setResultTableName(resultTableName);
+        }
         return this;
     }
 
@@ -88,7 +97,7 @@ public class ReadQuery implements Serializable {
         RelReadQueryResults results = new RelReadQueryResults();
         String registeredTableResults = queryMatch(broker);
         if(!registeredTableResults.isEmpty()){
-            logger.info("query matches an already registered query");
+            logger.info("Query is already stored, reading from result table {}", registeredTableResults);
             ReadQuery rq = new ANewReadQueryBuilder(broker).select().from(registeredTableResults).build();
             if(filterAndProjectionQuery != null && filterAndProjectionQuery.isThisSubquery()){
                 rq.setIsThisSubquery(true);
@@ -96,20 +105,29 @@ public class ReadQuery implements Serializable {
                 rq.setIsThisSubquery(true);
             } else if (anotherAggregateQuery != null && anotherAggregateQuery.isThisSubquery()) {
                 rq.setIsThisSubquery(true);
-            } else if (joinQuery.isThisSubquery()) {
+            } else if (joinQuery != null && joinQuery.isThisSubquery()) {
                 rq.setIsThisSubquery(true);
             }
             results = rq.run(broker);
         }else {
-
             if(stored){
                 logger.info("Query needs to be registered");
-                keyStructure = new Boolean[resultSchema.size()];
-                Arrays.fill(keyStructure, true);
-                //What does this method do? Creates the table and registers the query to all sources
                 this.resultTableName = broker.registerQuery(this);
+                if(this.filterAndProjectionQuery != null){
+                    keyStructure = new Boolean[resultSchema.size()];
+                    Arrays.fill(keyStructure, true);
+                } else if (anotherAggregateQuery != null ) {
+                    keyStructure = new Boolean[resultSchema.size()];
+                    Arrays.fill(keyStructure, 0, anotherAggregateQuery.getSystemSelectedFields().size(), true);
+                    Arrays.fill(keyStructure, anotherAggregateQuery.getSystemSelectedFields().size(), resultSchema.size(), false);
+                } else if (anotherSimpleAggregateQuery != null) {
+                    keyStructure = new Boolean[resultSchema.size()];
+                    Arrays.fill(keyStructure, true);
+                } else if (joinQuery != null) {
+                    keyStructure = new Boolean[resultSchema.size()];
+                    Arrays.fill(keyStructure, true);
+                }
             }
-
             if (filterAndProjectionQuery != null) {
                 results = broker.retrieveAndCombineReadQuery(filterAndProjectionQuery);
             } else if (anotherSimpleAggregateQuery != null) {
@@ -124,13 +142,20 @@ public class ReadQuery implements Serializable {
         return results;
     }
     public RelReadQueryResults updateStoredResults(Broker broker){
-
+        if (filterAndProjectionQuery != null) {
+            broker.retrieveAndCombineReadQuery(filterAndProjectionQuery);
+        } else if (anotherSimpleAggregateQuery != null) {
+            broker.shuffleReadQuery(anotherSimpleAggregateQuery);
+        } else if (anotherAggregateQuery != null) {
+            broker.shuffleReadQuery(anotherAggregateQuery);
+        } else {
+            broker.shuffleReadQuery(joinQuery);
+        }
         return null;
     }
 
     @Override
     public boolean equals(Object obj){
-        System.out.println("RQ.equals ----- this should not be called, like, never");
         if(!(obj instanceof ReadQuery)){
             return false;
         }
@@ -142,8 +167,9 @@ public class ReadQuery implements Serializable {
         }
         List<ReadQuery> concreteSubqueriesInput = new ArrayList<>(readQuery.getConcreteSubqueries().values());
         List<ReadQuery> concreteSubqueriesThis = new ArrayList<>(this.getConcreteSubqueries().values());
-        if(concreteSubqueriesInput.size() != concreteSubqueriesThis.size())
+        if(concreteSubqueriesInput.size() != concreteSubqueriesThis.size()) {
             return false;
+        }
         for(int i = 0; i<concreteSubqueriesInput.size(); i++){
             ReadQuery subqInput = concreteSubqueriesInput.get(i);
             boolean match = false;
@@ -159,8 +185,9 @@ public class ReadQuery implements Serializable {
         }
         List<ReadQuery> volatileSubqueriesInput = new ArrayList<>(readQuery.getVolatileSubqueries().values());
         List<ReadQuery> volatileSubqueriesThis = new ArrayList<>(this.getVolatileSubqueries().values());
-        if(volatileSubqueriesInput.size() != concreteSubqueriesThis.size())
+        if(volatileSubqueriesInput.size() != volatileSubqueriesThis.size()) {
             return false;
+        }
         for(int i = 0; i<volatileSubqueriesInput.size(); i++){
             ReadQuery subqInput = volatileSubqueriesInput.get(i);
             boolean match = false;
@@ -303,8 +330,12 @@ public class ReadQuery implements Serializable {
             return filterAndProjectionQuery.getSystemResultSchema();
         } else if (anotherSimpleAggregateQuery!=null) {
             return new ArrayList<>();
-        }else{
+        }else if(anotherAggregateQuery != null){
             return anotherAggregateQuery.getSystemSelectedFields();
+        } else if (joinQuery != null) {
+            return joinQuery.getSystemResultSchema();
+        }else{
+            return new ArrayList<>();
         }
     }
     public List<String> getPredicate(){

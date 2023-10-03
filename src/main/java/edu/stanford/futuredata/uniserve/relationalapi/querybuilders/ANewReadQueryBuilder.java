@@ -1,10 +1,7 @@
 package edu.stanford.futuredata.uniserve.relationalapi.querybuilders;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.relationalapi.AnotherAggregateQuery;
-import edu.stanford.futuredata.uniserve.relationalapi.AnotherSimpleAggregateQuery;
-import edu.stanford.futuredata.uniserve.relationalapi.FilterAndProjectionQuery;
-import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
+import edu.stanford.futuredata.uniserve.relationalapi.*;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import org.javatuples.Pair;
 
@@ -37,6 +34,8 @@ public class ANewReadQueryBuilder {
     private boolean isStored = false;
 
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
+    private List<SerializablePredicate> operations = new ArrayList<>();
+
 
     public ANewReadQueryBuilder(Broker broker){
         this.broker = broker;
@@ -56,15 +55,14 @@ public class ANewReadQueryBuilder {
         return this;
     }
     public ANewReadQueryBuilder alias(String... aliases){
-        if(projectionAttributes.isEmpty()){
-            throw new RuntimeException("Alias specified for non-explicitly declared selection attributes");
-        }
         userResultsSchema = Arrays.asList(aliases);
         if(!noDuplicateInStringArray(aliases))
             throw new RuntimeException("Error in parameter alias definition: Multiple projection args have the same alias");
+        /*
         if((userResultsSchema.size() + aggregateUserAttributesNames.size()) != (projectionAttributes.size() + aggregates.size())){
             throw new RuntimeException("Wrong number of aliases provided for selected fields");
         }
+        */
         return this;
     }
     public ANewReadQueryBuilder avg(String aggregatedField, String alias){
@@ -90,6 +88,17 @@ public class ANewReadQueryBuilder {
     public ANewReadQueryBuilder sum(String aggregatedField, String alias){
         aggregates.add(new Pair<>(SUM, aggregatedField));
         this.aggregateUserAttributesNames.add(alias);
+        return this;
+    }
+
+    public ANewReadQueryBuilder apply(SerializablePredicate... operations){
+        for(SerializablePredicate operation: operations){
+            if(operation == null){
+                this.operations.add(o->o);
+            }else {
+                this.operations.add(operation);
+            }
+        }
         return this;
     }
 
@@ -192,6 +201,10 @@ public class ANewReadQueryBuilder {
         if(projectionAttributes.isEmpty()){
             projectionAttributes = this.sourceSchema;
         }
+        if(!userResultsSchema.isEmpty() && userResultsSchema.size() != projectionAttributes.size()){
+            throw new RuntimeException("Wrong number of aliases provided for selected fields");
+        }
+
         for(String userAttribute: this.userResultsSchema){
             if(userAttribute == null || userAttribute.isEmpty()){
                 resultSchema.add(userResultsSchema.indexOf(userAttribute),
@@ -208,6 +221,13 @@ public class ANewReadQueryBuilder {
         if(resultSchema.isEmpty()){
             resultSchema = this.projectionAttributes;
         }
+
+        if(operations.size() < resultSchema.size()){
+            for(int i = operations.size(); i<resultSchema.size(); i++){
+                operations.add(o -> o);
+            }
+        }
+
         FilterAndProjectionQuery query = new FilterAndProjectionQuery()
                 .setSourceName          (this.sourceName)
                 .setSourceSchema        (this.sourceSchema)
@@ -217,6 +237,7 @@ public class ANewReadQueryBuilder {
                 .setIsThisSubquery      (false)
                 .setSourceSubqueries    (this.subquery)
                 .setPredicateSubqueries (this.predicateSubqueries)
+                .setOperations(this.operations)
                 ;
         if(this.distinct){
             query = query.setDistinct();
@@ -261,6 +282,13 @@ public class ANewReadQueryBuilder {
         }
         finalUserSchema.addAll(finalUserSchemaSelect);
         finalUserSchema.addAll(aggregateUserAttributesNames);
+
+        if(operations.size() < finalUserSchema.size()){
+            for(int i = operations.size(); i<finalUserSchema.size(); i++){
+                operations.add(o -> o);
+            }
+        }
+
         AnotherAggregateQuery query = new AnotherAggregateQuery()
                 .setSourceName(this.sourceName)
                 .setSourceIsTable(this.sourceIsTable)
@@ -273,6 +301,7 @@ public class ANewReadQueryBuilder {
                 .setIsThisSubquery(false)
                 .setHavingPredicate(this.rawHavingPredicate)
                 .setPredicateSubqueries(this.predicateSubqueries)
+                .setOperations(this.operations)
                 ;
         if(this.isStored){
             query = query.setStored();
@@ -284,6 +313,11 @@ public class ANewReadQueryBuilder {
         return readQuery;
     }
     private ReadQuery buildSimpleAggregateQuery(){
+        if(operations.size() < aggregateUserAttributesNames.size()){
+            for(int i = operations.size(); i<aggregateUserAttributesNames.size(); i++){
+                operations.add(o -> o);
+            }
+        }
         AnotherSimpleAggregateQuery query = new AnotherSimpleAggregateQuery()
                 .setSourceName(this.sourceName)
                 .setSourceIsTable(this.sourceIsTable)
@@ -294,6 +328,7 @@ public class ANewReadQueryBuilder {
                 .setSourceSubqueries(this.subquery)
                 .setIsThisSubquery(false)
                 .setPredicateSubqueries(this.predicateSubqueries)
+                .setOperations(this.operations)
                 ;
         if(this.isStored){
             query = query.setStored();

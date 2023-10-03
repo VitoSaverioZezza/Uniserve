@@ -35,4 +35,27 @@ public class RelRow implements Row {
     public Object getField(int attributeIndex){
         return data.get(attributeIndex);
     }
+
+    @Override
+    public boolean equals(Object input){
+        if(!(input instanceof RelRow)){
+            return false;
+        }
+        RelRow inputRow = (RelRow) input;
+        if(inputRow.getSize() != this.getSize()){
+            return false;
+        }
+        for(int i = 0; i<this.getSize(); i++){
+            if(!this.getField(i).equals(inputRow.getField(i))){
+                return false;
+            }
+        }
+        return true;
+    }
+    public void print(){
+        for(Object field: data){
+            System.out.print(field + " | ");
+        }
+        System.out.println();
+    }
 }

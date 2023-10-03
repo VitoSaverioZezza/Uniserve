@@ -37,6 +37,8 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
+    private List<SerializablePredicate> operations = new ArrayList<>();
+
 
     public FilterAndProjectionQuery setSourceName(String sourceName) {
         this.sourceName = sourceName;
@@ -83,6 +85,10 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
         Boolean[] keyStructure = new Boolean[resultSchema.size()];
         Arrays.fill(keyStructure, true);
         this.writeResultsPlan = new WriteResultsPlan(resultTableName, keyStructure);
+        return this;
+    }
+    public FilterAndProjectionQuery setOperations(List<SerializablePredicate> operations) {
+        this.operations = operations;
         return this;
     }
 
@@ -227,7 +233,11 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
                 rawNewRow.add(rawRow.getField(sourceSchema.indexOf(systemAttributeName)));
             }
             RelRow newRow = new RelRow(rawNewRow.toArray());
-            projectionResults.add(newRow);
+            if(operations.isEmpty()) {
+                projectionResults.add(newRow);
+            }else{
+                projectionResults.add(applyOperations(newRow));
+            }
         }
         return projectionResults;
     }
@@ -240,5 +250,13 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
             }
         }
         return nonDuplicateRows;
+    }
+    private RelRow applyOperations(RelRow inputRow){
+        List<Object> newRow = new ArrayList<>();
+        for(int i = 0; i<inputRow.getSize(); i++){
+            SerializablePredicate lambda = operations.get(i);
+            newRow.add(lambda.run(inputRow.getField(i)));
+        }
+        return new RelRow(newRow.toArray());
     }
 }

@@ -1,7 +1,9 @@
 package edu.stanford.futuredata.uniserve.relationalapi;
 
 import com.google.protobuf.ByteString;
+import edu.stanford.futuredata.uniserve.api.lambdamethods.WriteShardLambda;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
+import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
@@ -17,9 +19,8 @@ import java.util.stream.Collectors;
 public class AnotherSimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryResults> {
 
     //these queries operate on a single source, therefore there is no need for the use of the dotted notation
-    //there are no attributes selected for projection, the only colums are the results of the aggregate operations
+    //there are no attributes selected for projection, the only columns are the results of the aggregate operations
     //therefore the result schema is the list of the attribute aliases provided by the user
-
 
     private String sourceName = "";
     private boolean sourceIsTable = true;
@@ -33,6 +34,7 @@ public class AnotherSimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelSh
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
+    private List<SerializablePredicate> operations = new ArrayList<>();
 
     public AnotherSimpleAggregateQuery setSourceName(String sourceName) {
         this.sourceName = sourceName;
@@ -81,6 +83,10 @@ public class AnotherSimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelSh
         this.writeResultsPlan = new WriteResultsPlan(resultTableName, keyStructure);
         return this;
     }
+    public AnotherSimpleAggregateQuery setOperations(List<SerializablePredicate> operations) {
+        this.operations = operations;
+        return this;
+    }
 
     public List<Pair<Integer, String>> getAggregatesSpecification() {
         return aggregatesSpecification;
@@ -127,13 +133,15 @@ public class AnotherSimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelSh
         List<RelRow> filteredData = filter(shardData, concreteSubqueriesResults);
 
         Integer aggregatingDSID = sourceName.hashCode() % numRepartitions;
+        if(aggregatingDSID < 0){
+            aggregatingDSID = aggregatingDSID*-1;
+        }
         RelRow partialResultsRow = computePartialResults(filteredData);
         Map<Integer, List<ByteString>> ret = new HashMap<>();
         List<ByteString> serializedRow = new ArrayList<>();
 
         serializedRow.add(Utilities.objectToByteString(partialResultsRow));
         ret.put(aggregatingDSID, serializedRow);
-
         return ret;
     }
     @Override
@@ -305,6 +313,18 @@ public class AnotherSimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelSh
                 resultRow.add(sum);
             }
         }
-        return new RelRow(resultRow.toArray());
+        if(operations.isEmpty()) {
+            return new RelRow(resultRow.toArray());
+        }else{
+            return applyOperations(new RelRow(resultRow.toArray()));
+        }
+    }
+    private RelRow applyOperations(RelRow inputRow){
+        List<Object> newRow = new ArrayList<>();
+        for(int i = 0; i<inputRow.getSize(); i++){
+            SerializablePredicate lambda = operations.get(i);
+            newRow.add(lambda.run(inputRow.getField(i)));
+        }
+        return new RelRow(newRow.toArray());
     }
 }

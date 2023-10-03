@@ -27,6 +27,7 @@ service BrokerDataStore {
     rpc RemoveIntermediateShards(RemoveIntermediateShardMessage) returns(RemoveIntermediateShardResponse){}
 
     rpc ForwardDataToStore(ForwardDataToStoreMessage) returns (ForwardDataToStoreResponse){}
+    rpc RemoveCachedData(RemoveVolatileDataMessage) returns (RemoveVolatileDataResponse){}
 }
 
 

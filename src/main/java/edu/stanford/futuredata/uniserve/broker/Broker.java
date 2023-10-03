@@ -622,6 +622,7 @@ public class Broker {
     public <S extends Shard, V> V shuffleReadQuery(ShuffleOnReadQueryPlan<S, V> plan) {
         long txID = zkCurator.getTxID();
         //run subqueries
+
         Map<String, ReadQuery> volatileSubqueries = plan.getVolatileSubqueries();
         Map<String, List<Pair<Integer, Integer>>> volatileSubqueriesResults = new HashMap<>();
         for(Map.Entry<String, ReadQuery> entry: volatileSubqueries.entrySet()){
@@ -629,6 +630,8 @@ public class Broker {
         }
         Map<String, List<Integer>> partitionKeys = plan.keysForQuery();
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
+
+
 
         Map<String, ReadQuery> concreteSubqueries = plan.getConcreteSubqueries();
         Map<String, ReadQueryResults> concreteSubqueriesResults = new HashMap<>();
@@ -661,7 +664,6 @@ public class Broker {
         }
 
 
-        //ByteString serializedTargetShards = Utilities.objectToByteString(targetShards);
         ByteString serializedQuery = Utilities.objectToByteString(plan);
         Set<Integer> dsIDs = dsIDToChannelMap.keySet();
         int numReducers = dsIDs.size();
@@ -787,9 +789,8 @@ public class Broker {
             }
 
             this.writeCachedData(plan.getWriteResultPlan(), txID, shardIDtoDSId);
-
+            removeCachedResults(txID);
         }
-
 
         //TODO: parallelize
         for(Map.Entry<String, List<Pair<Integer, Integer>>> subqueryRes: volatileSubqueriesResults.entrySet()){
@@ -983,6 +984,7 @@ public class Broker {
             }
 
             this.writeCachedData(plan.getWriteResultPlan(), txID, shardIDtoDSId);
+            removeCachedResults(txID);
         }
 
         //TODO: parallelize
@@ -1724,5 +1726,40 @@ public class Broker {
             public void onCompleted() {}
         };
         stub.removeIntermediateShards(message, responseObserver);
+    }
+    private boolean removeCachedResults(Long txID){
+        CountDownLatch latch = new CountDownLatch(dsIDToChannelMap.size());
+        AtomicInteger outcome = new AtomicInteger(0);
+        for(Integer dsID: dsIDToChannelMap.keySet()){
+            ManagedChannel channel = dsIDToChannelMap.get(dsID);
+            BrokerDataStoreGrpc.BrokerDataStoreStub stub = BrokerDataStoreGrpc.newStub(channel);
+            RemoveVolatileDataMessage message = RemoveVolatileDataMessage.newBuilder().setTransactionID(txID).build();
+            StreamObserver<RemoveVolatileDataResponse> observer = new StreamObserver<>() {
+                @Override
+                public void onNext(RemoveVolatileDataResponse removeVolatileDataResponse) {}
+
+                @Override
+                public void onError(Throwable throwable) {
+                    if(Utilities.logger_flag)
+                        logger.error("Broker: removeVolatileData Failed for transaction id {}", txID);
+                    outcome.set(1);
+                    latch.countDown();
+                }
+
+                @Override
+                public void onCompleted() {
+                    latch.countDown();
+                }
+            };
+            stub.removeCachedData(message, observer);
+        }
+        try {
+            latch.await();
+        }catch (InterruptedException e){
+            if(Utilities.logger_flag)
+                logger.error("Broker: RemoveVolatileData Failed for transaction id {}", txID);
+            return false;
+        }
+        return outcome.get() == 0;
     }
 }

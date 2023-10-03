@@ -30,6 +30,8 @@ public class AnotherAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, R
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
+    private List<SerializablePredicate> operations = new ArrayList<>();
+
 
     public AnotherAggregateQuery setSourceName(String sourceName) {
         this.sourceName = sourceName;
@@ -85,6 +87,10 @@ public class AnotherAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, R
         Arrays.fill(keyStructure, 0, aggregatesSpecification.size(), true);
         Arrays.fill(keyStructure, aggregatesSpecification.size(), keyStructure.length, false);
         this.writeResultsPlan = new WriteResultsPlan(resultTableName, keyStructure);
+        return this;
+    }
+    public AnotherAggregateQuery setOperations(List<SerializablePredicate> operations) {
+        this.operations = operations;
         return this;
     }
 
@@ -161,7 +167,11 @@ public class AnotherAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, R
             List<Object> aggregatedAttributeRes = computeAggregates(group.getValue()); //second part of the row containing aggregates
             result.addAll(aggregatedAttributeRes);
             if(checkHavingPredicate(result)) {
-                resultRows.add(new RelRow(result.toArray()));
+                if(operations.isEmpty()) {
+                    resultRows.add(new RelRow(result.toArray()));
+                }else{
+                    resultRows.add(applyOperations(new RelRow(result.toArray())));
+                }
             }
         }
         return Utilities.objectToByteString(resultRows);
@@ -315,4 +325,13 @@ public class AnotherAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, R
         }
         return ret;
     }
+    private RelRow applyOperations(RelRow inputRow){
+        List<Object> newRow = new ArrayList<>();
+        for(int i = 0; i<inputRow.getSize(); i++){
+            SerializablePredicate lambda = operations.get(i);
+            newRow.add(lambda.run(inputRow.getField(i)));
+        }
+        return new RelRow(newRow.toArray());
+    }
+
 }

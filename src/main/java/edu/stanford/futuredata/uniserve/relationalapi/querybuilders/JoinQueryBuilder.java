@@ -3,6 +3,7 @@ package edu.stanford.futuredata.uniserve.relationalapi.querybuilders;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.relationalapi.JoinQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
+import edu.stanford.futuredata.uniserve.relationalapi.SerializablePredicate;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 
 import java.util.*;
@@ -26,6 +27,8 @@ public class JoinQueryBuilder {
     private boolean isStored = false;
 
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
+
+    private List<SerializablePredicate> operations = new ArrayList<>();
 
     public JoinQueryBuilder(Broker broker){
         this.broker = broker;
@@ -206,6 +209,17 @@ public class JoinQueryBuilder {
         return this;
     }
 
+    public JoinQueryBuilder apply(SerializablePredicate... operations){
+        for(SerializablePredicate operation: operations){
+            if(operation == null){
+                this.operations.add(o->o);
+            }else {
+                this.operations.add(operation);
+            }
+        }
+        return this;
+    }
+
     public JoinQueryBuilder alias(String... resultSchema){
         resultUserSchema.addAll(Arrays.asList(resultSchema));
         for(int i=0; i<resultUserSchema.size()-1;i++){
@@ -247,6 +261,12 @@ public class JoinQueryBuilder {
             }
         } else if (resultUserSchema.size() > resultSystemSchema.size()) {
             resultUserSchema.subList(resultSystemSchema.size(), resultUserSchema.size()).clear();
+        }
+
+        if(operations.size() < resultUserSchema.size()){
+            for(int i = operations.size(); i<resultUserSchema.size(); i++){
+                operations.add(o -> o);
+            }
         }
 
         JoinQuery query = new JoinQuery()

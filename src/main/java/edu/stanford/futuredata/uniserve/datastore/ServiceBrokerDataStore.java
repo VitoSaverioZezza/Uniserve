@@ -1279,4 +1279,24 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             }
         }
     }
+
+
+    @Override
+    public void removeCachedData(RemoveVolatileDataMessage request, StreamObserver<RemoveVolatileDataResponse> responseObserver){
+        responseObserver.onNext(removeCachedDataHandler(request));
+        responseObserver.onCompleted();
+    }
+    private RemoveVolatileDataResponse removeCachedDataHandler(RemoveVolatileDataMessage m){
+        long txID = m.getTransactionID();
+        Map<Integer, List<R>> shardRowAssignments = txIDtoShardStoredAssignment.get(txID);
+        if(shardRowAssignments == null){shardRowAssignments = new HashMap<>();}
+        List<Pair<Long, Integer>> transactionShards = new ArrayList<>();
+        for(Map.Entry<Integer, List<R>> entry: shardRowAssignments.entrySet()){
+            transactionShards.add(new Pair<>(txID, entry.getKey()));
+        }
+        dataStore.removeCachedData(transactionShards);
+        txIDtoShardStoredAssignment.remove(m.getTransactionID());
+        return RemoveVolatileDataResponse.newBuilder().build();
+    }
+
 }

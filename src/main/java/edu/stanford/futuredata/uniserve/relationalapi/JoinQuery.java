@@ -31,6 +31,8 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
+    private List<SerializablePredicate> operations = new ArrayList<>();
+
 
     public JoinQuery setSourceOne(String sourceOne) {
         this.sourceOne = sourceOne;
@@ -74,7 +76,7 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         return this;
     }
     public JoinQuery setIsThisSubquery(boolean isThisSubquery){
-        this.isThisSubquery = true;
+        this.isThisSubquery = isThisSubquery;
         return this;
     }
     public JoinQuery setDistinct(){
@@ -90,6 +92,10 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         Boolean[] keyStructure = new Boolean[resultSchema.size()];
         Arrays.fill(keyStructure, true);
         this.writeResultsPlan = new WriteResultsPlan(resultTableName, keyStructure);
+        return this;
+    }
+    public JoinQuery setOperations(List<SerializablePredicate> operations) {
+        this.operations = operations;
         return this;
     }
 
@@ -165,8 +171,6 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         List<String> joinAttributesOne = sourcesJoinAttributes.get(sourceOne);
         List<String> joinAttributesTwo = sourcesJoinAttributes.get(sourceTwo);
         ArrayList<RelRow> joinedRows = new ArrayList<>();
-
-
         for(RelRow rowOne: rowsSourceOne){
             for(RelRow rowTwo: rowsSourceTwo){
                 boolean matching = true;
@@ -203,7 +207,11 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
                             );
                         }
                     }
-                    joinedRows.add(new RelRow(rawNewRow.toArray()));
+                    if(operations.isEmpty()) {
+                        joinedRows.add(new RelRow(rawNewRow.toArray()));
+                    }else{
+                        joinedRows.add(applyOperations(new RelRow(rawNewRow.toArray())));
+                    }
                 }
             }
         }
@@ -233,7 +241,7 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
             }
             results.setIntermediateLocations(ret);
             //List of Map<ShardID, dsID> to be converted in what is in the RelReadQueryResults
-        }else {
+        }else{
             List<RelRow> ret = new ArrayList<>();
             for(ByteString serSubset: shardQueryResults){
                 ret.addAll((List<RelRow>)Utilities.byteStringToObject(serSubset));
@@ -324,5 +332,13 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
             System.out.println(e.getMessage());
             return false;
         }
+    }
+    private RelRow applyOperations(RelRow inputRow){
+        List<Object> newRow = new ArrayList<>();
+        for(int i = 0; i<inputRow.getSize(); i++){
+            SerializablePredicate lambda = operations.get(i);
+            newRow.add(lambda.run(inputRow.getField(i)));
+        }
+        return new RelRow(newRow.toArray());
     }
 }

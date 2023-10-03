@@ -473,4 +473,9 @@ public class DataStore<R extends Row, S extends Shard> {
     public void storeResults(Pair<Long, Integer> dataIndex, List<R> data){
         resultsToStore.put(dataIndex, data);
     }
+    public void removeCachedData(List<Pair<Long, Integer>> dataIndexes){
+        for(Pair<Long, Integer> dataIndex:dataIndexes) {
+            resultsToStore.remove(dataIndex);
+        }
+    }
 }

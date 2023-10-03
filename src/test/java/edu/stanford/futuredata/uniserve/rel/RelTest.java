@@ -14,6 +14,7 @@ import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.relational.RelShardFactory;
 import edu.stanford.futuredata.uniserve.relationalapi.API;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
+import edu.stanford.futuredata.uniserve.relationalapi.SerializablePredicate;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
@@ -112,9 +113,22 @@ public class RelTest {
         }
     }
 
-    @Test
-    public void simpleQueriesTest(){
-        Coordinator coordinator = new Coordinator(
+    int numServers = 10;
+    Coordinator coordinator = null;
+    List<LocalDataStoreCloud> ldscList = new ArrayList<>();
+    List<DataStore<RelRow, RelShard>> dataStores = new ArrayList<>();
+
+
+
+    String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/FilmTestFile.txt";
+    String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/ActorTestFile.txt";
+    String coursesFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/courses.txt";
+    String examsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/exams.txt";
+    String professorsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/professors.txt";
+    String studentsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/students.txt";
+
+    private void startServers(){
+        coordinator = new Coordinator(
                 null,
                 new DefaultLoadBalancer(),
                 new DefaultAutoScaler(),
@@ -123,10 +137,8 @@ public class RelTest {
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
 
-        int numServers = 10;
-
-        List<LocalDataStoreCloud> ldscList = new ArrayList<>();
-        List<DataStore> dataStores = new ArrayList<>();
+        ldscList = new ArrayList<>();
+        dataStores = new ArrayList<>();
         for(int i = 0; i<numServers; i++) {
             ldscList.add(new LocalDataStoreCloud());
             DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldscList.get(i),
@@ -140,14 +152,28 @@ public class RelTest {
             dataStore.startServing();
             dataStores.add(dataStore);
         }
+    }
+    private void stopServers(){
+        coordinator.stopServing();
+        for(DataStore dataStore:dataStores) {
+            dataStore.shutDown();
+        }
+        try {
+            for(LocalDataStoreCloud ldsc: ldscList) {
+                ldsc.clear();
+            }
+        } catch (Exception e) {
+            ;
+        }
+    }
 
+    @Test
+    public void operationTests(){
+        startServers();
         Broker broker = new Broker(zkHost, zkPort);
 
         List<RelRow> actorRows = new ArrayList<>();
         List<RelRow> filmRows = new ArrayList<>();
-
-        String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/ActorTestFile.txt";
-        String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/FilmTestFile.txt";
 
         int filmCount = 0;
         try (BufferedReader br = new BufferedReader(new FileReader(filmFilePath))) {
@@ -178,12 +204,82 @@ public class RelTest {
             e.printStackTrace();
         }
         API api = new API(broker);
+        System.out.println("----- OPERATIONS TESTING -----");
+        System.out.println("\tTEST ----- Creating tables");
         api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").shardNumber(20).keys("ID").build().run();
         api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").shardNumber(20).build().run();
+        System.out.println("\tTEST ----- Populating tables");
         api.write().table("Actors").data(actorRows).build().run();
         api.write().table("Films").data(filmRows).build().run();
 
+        System.out.println("\tTEST ----- Doubling film budgets");
+        SerializablePredicate doubling = o -> ((Integer) o)*2;
+        RelReadQueryResults doubleBudgetResult = api.read().select().from("Films").apply(null, null, doubling).build().run(broker);
+        for(RelRow writtenRow: filmRows){
+            boolean present = false;
+            for(RelRow readRow: doubleBudgetResult.getData()){
+                if(readRow.getField(0).equals(readRow.getField(0)) &&
+                        readRow.getField(1).equals(readRow.getField(1)) &&
+                        ((Integer)readRow.getField(2)).equals(
+                                ((Integer) writtenRow.getField(2))*2)
+                ){
+                    present=true;
+                    break;
+                }
+            }
+            assertTrue(present);
+        }
+
+        broker.shutdown();
+        stopServers();
+    }
+
+
+
+    @Test
+    public void simpleQueriesTest(){
+        startServers();
+        Broker broker = new Broker(zkHost, zkPort);
+        List<RelRow> actorRows = new ArrayList<>();
+        List<RelRow> filmRows = new ArrayList<>();
+
+        int filmCount = 0;
+        try (BufferedReader br = new BufferedReader(new FileReader(filmFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 2) {
+                    filmRows.add(new RelRow(filmCount, parts[0], Integer.valueOf(parts[1])));
+                    filmCount++;
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        int count = 0;
+        try (BufferedReader br = new BufferedReader(new FileReader(actorFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 3) {
+                    actorRows.add(new RelRow(count, parts[0], parts[1], Integer.valueOf(parts[2]), new Random().nextInt(filmCount)));
+                    count++;
+                } else {
+                    System.out.println("No match for " + line);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        API api = new API(broker);
         System.out.println("----- BASIC QUERIES TESTING -----");
+        System.out.println("\tTEST ----- Creating tables");
+        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").shardNumber(20).keys("ID").build().run();
+        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").shardNumber(20).build().run();
+        System.out.println("\tTEST ----- Populating tables");
+        api.write().table("Actors").data(actorRows).build().run();
+        api.write().table("Films").data(filmRows).build().run();
+
 
         System.out.println("\tTEST ----- Select All Actors, single table query");
         RelReadQueryResults allActors = api.read()
@@ -205,6 +301,8 @@ public class RelTest {
             }
             assertTrue(present);
         }
+        System.out.println("\t\tTEST ----- Read all actors OK");
+
 
         System.out.println("\tTEST ----- Select All Films, single table query");
         RelReadQueryResults allFilms = api.read()
@@ -226,6 +324,8 @@ public class RelTest {
             }
             assertTrue(present);
         }
+        System.out.println("\t\tTEST ----- Read all films OK");
+
 
         System.out.println("\tTEST ----- Projection on single table");
         RelReadQueryResults actorSimpleProj = api.read()
@@ -248,6 +348,66 @@ public class RelTest {
             }
             assertTrue(present);
         }
+        System.out.println("\t\tTEST ----- Projection on all actors OK");
+
+
+        System.out.println("\tTEST ----- Single table with aliases on fields");
+        RelReadQueryResults actorSimpleAlias = api.read()
+                .select()
+                .alias("A_ID", "A_FullName", "A_DateOfBirth", "A_Salary", "A_FilmID")
+                .from("Actors")
+                .build()
+                .run(broker);
+        assertEquals(actorSimpleAlias.getData().size(), count);
+        assertEquals(actorSimpleAlias.getFieldNames(), new ArrayList<>(Arrays.asList("A_ID", "A_FullName", "A_DateOfBirth", "A_Salary", "A_FilmID")));
+        for(RelRow row: actorSimpleAlias.getData()){
+            assertEquals(row.getSize(), 5);
+        }
+        for(RelRow readRow: actorSimpleAlias.getData()){
+            boolean present = false;
+            for(RelRow writtenRow: actorRows){
+                if(readRow.getField(0).equals(writtenRow.getField(0)) &&
+                        readRow.getField(1).equals(writtenRow.getField(1)) &&
+                        readRow.getField(2).equals(writtenRow.getField(2)) &&
+                        readRow.getField(3).equals(writtenRow.getField(3)) &&
+                        readRow.getField(4).equals(writtenRow.getField(4))
+                ){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- User defined schema OK");
+
+
+        System.out.println("\tTEST ----- Single table with aliases on not all fields");
+        RelReadQueryResults actorAlias = api.read()
+                .select()
+                .alias("A_ID", "", null, "A_Salary", "A_FilmID")
+                .from("Actors")
+                .build()
+                .run(broker);
+        assertEquals(actorAlias.getData().size(), count);
+        assertEquals(actorAlias.getFieldNames(), new ArrayList<>(Arrays.asList("A_ID", "FullName", "DateOfBirth", "A_Salary", "A_FilmID")));
+        for(RelRow row: actorAlias.getData()){
+            assertEquals(row.getSize(), 5);
+        }
+        for(RelRow readRow: actorAlias.getData()){
+            boolean present = false;
+            for(RelRow writtenRow: actorRows){
+                if(readRow.getField(0).equals(writtenRow.getField(0)) &&
+                        readRow.getField(1).equals(writtenRow.getField(1)) &&
+                        readRow.getField(2).equals(writtenRow.getField(2)) &&
+                        readRow.getField(3).equals(writtenRow.getField(3)) &&
+                        readRow.getField(4).equals(writtenRow.getField(4))
+                ){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- User partially defined schema OK");
+
 
         System.out.println("\tTEST ----- Projection on single table with aliases on fields");
         RelReadQueryResults actorSimpleProjAlias = api.read()
@@ -271,6 +431,34 @@ public class RelTest {
             }
             assertTrue(present);
         }
+        System.out.println("\t\tTEST ----- User defined schema on projection OK");
+
+
+        System.out.println("\tTEST ----- Projection on single table with some aliases on fields");
+        RelReadQueryResults actorProjAlias = api.read()
+                .select("ID", "FullName", "Salary")
+                .alias(null, "A_FullName", "")
+                .from("Actors")
+                .build()
+                .run(broker);
+        assertEquals(actorProjAlias.getData().size(), count);
+        assertEquals(actorProjAlias.getFieldNames(), new ArrayList<>(Arrays.asList("ID", "A_FullName", "Salary")));
+        for(RelRow row: actorProjAlias.getData()){
+            assertEquals(row.getSize(), 3);
+        }
+        for(RelRow readRow: actorProjAlias.getData()){
+            boolean present = false;
+            for(RelRow writtenRow: actorRows){
+                if(readRow.getField(0).equals(writtenRow.getField(0)) &&
+                        readRow.getField(1).equals(writtenRow.getField(1)) &&
+                        readRow.getField(2).equals(writtenRow.getField(3))){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- User partially defined schema on projection OK");
+
 
         System.out.println("----- PREDICATE TESTING -----");
 
@@ -294,6 +482,7 @@ public class RelTest {
             }
             assertTrue(present);
         }
+        System.out.println("\t\tTEST ----- Selection on single table and single field OK");
 
         System.out.println("\tTEST ----- Select on Single Table, multiple fields");
         RelReadQueryResults selectFilms = api.read()
@@ -318,6 +507,8 @@ public class RelTest {
         }
         assertEquals(selectFilms.getData().size(), selectFilmsRowCount);
         assertEquals(selectFilms.getFieldNames(), new ArrayList<>(Arrays.asList("ID", "Director", "Budget")));
+        System.out.println("\t\tTEST ----- Selection on multiple fields OK");
+
 
         System.out.println("\tTEST ----- Selection and Projection on single table");
         RelReadQueryResults actorSelProj = api.read()
@@ -340,6 +531,8 @@ public class RelTest {
             }
             assertTrue(present);
         }
+        System.out.println("\t\tTEST ----- selection and projection OK");
+
 
         System.out.println("\tTEST ----- Selection and Projection on single table with aliases on fields");
         RelReadQueryResults actorSelectProjAlias = api.read()
@@ -363,20 +556,40 @@ public class RelTest {
             }
             assertTrue(present);
         }
-        System.out.println("\tTEST ----- Join");
-        RelReadQueryResults joinResults = api.read()
-                .select("Actors.FullName", "Films.Director", "Films.ID")
-                .alias("ActorName", "DirectorName", "")
-                .from(
-                        api.join().sources("Actors", "Films",
-                                "", "Director == \"Christopher Nolan\"",
-                                List.of("FilmID"), List.of("ID")).build(), "FilmActorsJoin")
+        System.out.println("\t\tTEST ----- Selection and projection on user-defined schema OK");
 
+
+        System.out.println("\tTEST ----- Selection and Projection on single table with aliases on fields");
+        RelReadQueryResults actorSelectProjPartialAlias = api.read()
+                .select("FullName", "Salary")
+                .alias("", "A_Salary")
+                .fromFilter("Actors", "FullName == \"Julia Roberts\" || FullName == \"Vin Diesel\"")
                 .build()
                 .run(broker);
+        assertEquals(actorSelectProjPartialAlias.getData().size(), 2);
+        assertEquals(actorSelectProjPartialAlias.getFieldNames(), new ArrayList<>(Arrays.asList("FullName", "A_Salary")));
+        for(RelRow row: actorSelectProjPartialAlias.getData()){
+            assertEquals(row.getSize(), 2);
+        }
+        for(RelRow readRow: actorSelectProjPartialAlias.getData()){
+            boolean present = false;
+            for(RelRow writtenRow: actorRows){
+                if(readRow.getField(0).equals(writtenRow.getField(1)) &&
+                        readRow.getField(1).equals(writtenRow.getField(3))){
+                    present = true;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- Selection and projection on user-partially-defined schema OK");
 
-        printRowList(joinResults.getData());
-
+        System.out.println("------ JOIN AND DISTINCT TESTING -----");
+        System.out.println("\tTEST ----- Join");
+        RelReadQueryResults joinResults = api.join()
+                .sources("Actors", "Films",
+                        "", "Director == \"Christopher Nolan\"",
+                        List.of("FilmID"), List.of("ID")).build()
+                .run(broker);
         int joinSize = 0;
         for(RelRow actorWrittenRow: actorRows){
             for(RelRow filmWrittenRow: filmRows){
@@ -385,9 +598,15 @@ public class RelTest {
                     joinSize++;
                     boolean isContainedInResults = false;
                     for(RelRow joinRow: joinResults.getData()){
-                        if(joinRow.getField(0).equals(actorWrittenRow.getField(1)) &&
-                                joinRow.getField(1).equals(filmWrittenRow.getField(1)) &&
-                                joinRow.getField(2).equals(filmWrittenRow.getField(0))
+                        if(!isContainedInResults &&
+                                joinRow.getField(0).equals(actorWrittenRow.getField(0)) &&
+                                joinRow.getField(1).equals(actorWrittenRow.getField(1)) &&
+                                joinRow.getField(2).equals(actorWrittenRow.getField(2)) &&
+                                joinRow.getField(3).equals(actorWrittenRow.getField(3)) &&
+                                joinRow.getField(4).equals(actorWrittenRow.getField(4)) &&
+                                joinRow.getField(5).equals(filmWrittenRow.getField(0)) &&
+                                joinRow.getField(6).equals(filmWrittenRow.getField(1)) &&
+                                joinRow.getField(7).equals(filmWrittenRow.getField(2))
                         ){
                             isContainedInResults = true;
                         }
@@ -397,10 +616,13 @@ public class RelTest {
             }
         }
         for(RelRow resRow: joinResults.getData()){
-            assertEquals(resRow.getSize(), 3);
+            assertEquals(resRow.getSize(), 8);
         }
         assertEquals(joinSize, joinResults.getData().size());
-        assertEquals(joinResults.getFieldNames(), Arrays.asList("ActorName", "DirectorName", "Films.ID"));
+        assertEquals(joinResults.getFieldNames(), Arrays.asList("Actors.ID", "Actors.FullName", "Actors.DateOfBirth",
+                "Actors.Salary", "Actors.FilmID", "Films.ID", "Films.Director", "Films.Budget"));
+        System.out.println("\tTEST ----- Join OK");
+
 
         System.out.println("\tTEST ----- Distinct");
         RelRow newRow = new RelRow(123, "Quentin Tarantino", 80000000);
@@ -426,9 +648,10 @@ public class RelTest {
             }
             assertTrue(present);
         }
-        printRowList(distinctResults.getData());
         assertEquals(distinctResults.getData().size(), filmRows.size()-1);
         assertEquals(distinctResults.getFieldNames(), Arrays.asList("Director", "Budget"));
+        System.out.println("\tTEST ----- Distinct OK");
+
 
         broker.shutdown();
         coordinator.stopServing();
@@ -444,44 +667,171 @@ public class RelTest {
         }
     }
     @Test
-    public void nestedQueriesTests(){
-        Coordinator coordinator = new Coordinator(
-                null,
-                new DefaultLoadBalancer(),
-                new DefaultAutoScaler(),
-                zkHost, zkPort,
-                "127.0.0.1", 7777);
-        coordinator.runLoadBalancerDaemon = false;
-        coordinator.startServing();
-
-        int numServers = 10;
-        List<LocalDataStoreCloud> ldscList = new ArrayList<>();
-        List<DataStore> dataStores = new ArrayList<>();
-        for(int i = 0; i<numServers; i++) {
-            ldscList.add(new LocalDataStoreCloud());
-            DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldscList.get(i),
-                    new RelShardFactory(),
-                    Path.of("/var/tmp/RelUniserve"),
-                    zkHost, zkPort,
-                    "127.0.0.1", 8000 + i,
-                    -1,
-                    false
-            );
-            dataStore.startServing();
-            dataStores.add(dataStore);
+    public void aggregateTests() {
+        System.out.println("TEST ----- AGGREGATES TESTING");
+        startServers();
+        Broker broker = new Broker(zkHost, zkPort);
+        List<RelRow> actorRows = new ArrayList<>();
+        List<RelRow> filmRows = new ArrayList<>();
+        String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/ActorTestFile.txt";
+        String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/FilmTestFile.txt";
+        int totFilmBudget = 0, avgFilmBudget = 0, minBudget = Integer.MAX_VALUE, maxBudget = Integer.MIN_VALUE;
+        int filmCount = 0;
+        int count = 0;
+        try (BufferedReader br = new BufferedReader(new FileReader(filmFilePath))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 2) {
+                    int budget = Integer.parseInt(parts[1]);
+                    filmRows.add(new RelRow(filmCount, parts[0], budget));
+                    filmCount++;
+                    totFilmBudget += budget;
+                    minBudget = Integer.min(minBudget, budget);
+                    maxBudget = Integer.max(maxBudget, budget);
+                }
+            }
+            avgFilmBudget = totFilmBudget / filmCount;
+        } catch (IOException e) {
+            e.printStackTrace();
         }
+        try (BufferedReader br = new BufferedReader(new FileReader(actorFilePath))) {
+            String line;
+            Random rng = new Random(Time.currentElapsedTime());
+            while ((line = br.readLine()) != null) {
+                String[] parts = line.split(",");
+                if (parts.length == 3) {
+                    int random = rng.nextInt();
+                    if (random < 0) {
+                        random *= -1;
+                    }
+                    actorRows.add(new RelRow(count, parts[0], parts[1], Integer.valueOf(parts[2]), random % filmCount));
+                    count++;
+                } else {
+                    System.out.println("No match for " + line);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        API api = new API(broker);
+        System.out.println("\tTEST ----- Table creation");
+        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").keys("ID").build().run();
+        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").build().run();
+        System.out.println("\tTEST ----- Populating tables");
+        api.write().table("Actors").data(actorRows).build().run();
+        api.write().table("Films").data(filmRows).build().run();
+
+
+        System.out.println("\tTEST ----- All aggregate operators on single table and single attribute");
+        RelReadQueryResults totBudget = api.read()
+                .select()
+                .from("Films")
+                .sum("Budget", "TotBudget")
+                .count("Budget", "Count")
+                .avg("Budget", "AvgFilmBudget")
+                .max("Budget", "MaxBudget")
+                .min("Budget", "MinBudget")
+                .build().run(broker);
+        assertEquals(totFilmBudget, (int) (Integer) totBudget.getData().get(0).getField(0));
+        assertEquals(filmCount, (int) (Integer) totBudget.getData().get(0).getField(1));
+        assertEquals(avgFilmBudget, (int) (Integer) totBudget.getData().get(0).getField(2));
+        assertEquals(maxBudget, (int) (Integer) totBudget.getData().get(0).getField(3));
+        assertEquals(minBudget, (int) (Integer) totBudget.getData().get(0).getField(4));
+        System.out.println("\t\tTEST ----- Simple Aggregate on table OK");
+
+        System.out.println("\tTEST ----- Simple aggregate on filter and projection subquery");
+        ReadQuery filterAndProjectionFilms = api.read().select("ID", "Budget").fromFilter("Films", "ID > 10").build();
+        RelReadQueryResults budgetFilmsIDMoreThan10 = api.read()
+                .select()
+                .sum("Budget", "TotBudget")
+                .count("Budget", "Count")
+                .avg("Budget", "AvgFilmBudget")
+                .max("Budget", "MaxBudget")
+                .min("Budget", "MinBudget")
+                .from(filterAndProjectionFilms, "filProjFilm")
+                .build().run(broker);
+        int count10 = filmRows.size()-11, sum10 = 0, avg10 = 0, min10 = Integer.MAX_VALUE, max10 = Integer.MIN_VALUE;
+        for(RelRow writtenFilmRow: filmRows){
+            int val = (Integer) writtenFilmRow.getField(2);
+            sum10 += val;
+            min10 = Integer.min(val, min10);
+            max10 = Integer.max(val, max10);
+        }
+        avg10 = sum10 / count10;
+        assertEquals(sum10, (int) (Integer) budgetFilmsIDMoreThan10.getData().get(0).getField(0));
+        assertEquals(count10, (int) (Integer) budgetFilmsIDMoreThan10.getData().get(0).getField(1));
+        assertEquals(avg10, (int) (Integer) budgetFilmsIDMoreThan10.getData().get(0).getField(2));
+        assertEquals(max10, (int) (Integer) budgetFilmsIDMoreThan10.getData().get(0).getField(3));
+        assertEquals(min10, (int) (Integer) budgetFilmsIDMoreThan10.getData().get(0).getField(4));
+        System.out.println("\tTEST ----- Simple aggregate on filter and projection subquery");
+
+
+        System.out.println("\t\tTEST ----- Groups aggregate operation on subquery results, with predicate on results");
+        RelReadQueryResults totalActorEarnings = api.read()
+                .select("Films.Director")
+                .alias("DirectorName")
+                .sum("Actors.Salary", "TotalActorsEarnings")
+                .count("Actors.Salary", "NumFilms")
+                .from(
+                        api.join().sources("Actors", "Films",  null, null,
+                                List.of("FilmID"), List.of("ID")).build(), "JoinedFilmsActors"
+                )
+                .having("NumFilms > 1")
+                .build().run(broker);
+        Map<String, Integer> sums = new HashMap<>();
+        Map<String, Integer> counts = new HashMap<>();
+
+        for (int i = 0; i < filmRows.size(); i++) {
+            RelRow filmRow = filmRows.get(i);
+            for (int j = 0; j < actorRows.size(); j++) {
+                RelRow actorRow = actorRows.get(j);
+                if (actorRow.getField(4).equals(filmRow.getField(0))) {
+                    if (sums.containsKey((String) filmRow.getField(1))) {
+                        sums.put((String) filmRow.getField(1), (sums.get((String) filmRow.getField(1)) + (Integer) actorRow.getField(3)));
+                    } else {
+                        sums.put((String) filmRow.getField(1), (Integer) actorRow.getField(3));
+                    }
+                    if (counts.containsKey((String) filmRow.getField(1))) {
+                        counts.put((String) filmRow.getField(1), (sums.get((String) filmRow.getField(1)) + 1));
+                    } else {
+                        counts.put((String) filmRow.getField(1), 1);
+                    }
+                }
+            }
+        }
+        for (RelRow resRow : totalActorEarnings.getData()) {
+            String directorName = (String) resRow.getField(0);
+            if (counts.containsKey(directorName) && counts.get(directorName) > 1) {
+                assertEquals(sums.get(directorName), (Integer) resRow.getField(1));
+            }
+        }
+        System.out.println("\t\tTEST ----- Group and predicate OK");
+
+
+        for(DataStore dataStore:dataStores) {
+            dataStore.shutDown();
+        }
+        try {
+            for(LocalDataStoreCloud ldsc: ldscList) {
+                ldsc.clear();
+            }
+        } catch (Exception e) {
+            ;
+        }
+        broker.shutdown();
+        coordinator.stopServing();
+    }
+    @Test
+    public void nestedQueriesTests(){
+        System.out.println("TEST ----- NESTING TESTS");
+        startServers();
         Broker broker = new Broker(zkHost, zkPort);
 
         List<RelRow> coursesRows = new ArrayList<>();
         List<RelRow> examsRows = new ArrayList<>();
         List<RelRow> studentsRows = new ArrayList<>();
         List<RelRow> professorsRows = new ArrayList<>();
-
-        String coursesFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/courses.txt";
-        String examsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/exams.txt";
-        String professorsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/professors.txt";
-        String studentsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/students.txt";
-
 
         int coursesCount = 0, examsCount = 0, professorsCount = 0, studentsCount = 0;
         try (BufferedReader br = new BufferedReader(new FileReader(coursesFilePath))) {
@@ -563,7 +913,7 @@ public class RelTest {
         List<String> coursesSchema = List.of("Code", "Name", "Faculty", "CFUs", "ProfessorID", "StudentsCount");
         List<String> examsSchema = List.of("CourseCode", "StudentID", "Grade");
 
-        System.out.println("TEST   -----   Creating tables");
+        System.out.println("\tTEST ----- Creating tables");
         api.createTable("Students")
                 .attributes(studentsSchema.toArray(new String[0]))
                 .keys("ID")
@@ -581,21 +931,284 @@ public class RelTest {
                 .keys("CourseCode", "StudentID")
                 .build().run();
 
-        System.out.println("TEST   -----   Writing tables");
-        System.out.println("\tTEST   -----   Writing students");
+        System.out.println("\tTEST ----- Populating tables");
+        System.out.println("\t\tTEST   -----   Populating students");
         api.write().table("Students").data(studentsRows).build().run();
-        System.out.println("\tTEST   -----   Writing professors");
+        System.out.println("\t\tTEST   -----   Populating professors");
         api.write().table("Professors").data(professorsRows).build().run();
-        System.out.println("\tTEST   -----   Writing courses");
+        System.out.println("\t\tTEST   -----   Populating courses");
         api.write().table("Courses").data(coursesRows).build().run();
-        System.out.println("\tTEST   -----   Writing exams");
+        System.out.println("\t\tTEST   -----   Populating exams");
         api.write().table("Exams").data(examsRows).build().run();
 
+        Random rng = new Random();
         System.out.println("----- NESTED QUERIES TESTING -----");
 
-        System.out.println("\tTEST ----- max CFUs");
-        long tStart = System.currentTimeMillis();
+        System.out.println("\tTEST ----- Nested simple query");
+        ReadQuery allStudentsQuery = api.read().from("Students").build();
+        RelReadQueryResults allStudentSelect = api.read().select().from(allStudentsQuery, "allStudents").build().run(broker);
+        assertEquals(allStudentSelect.getData().size(), studentsCount);
+        for(RelRow readRow: allStudentSelect.getData()){
+            boolean present = false;
+            for(RelRow writeRow: studentsRows){
+                if (readRow.equals(writeRow)) {
+                    present = true;
+                    break;
+                }
+           }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- Simple nesting OK");
 
+        System.out.println("\tTEST ----- Filter in nested query");
+        int randomStudentID = rng.nextInt()%studentsCount;
+        if(randomStudentID<0){randomStudentID = (randomStudentID * -1);}
+        ReadQuery filterOnSubqueryQuery = api.read().fromFilter("Students", "ID < "+randomStudentID).build();
+        RelReadQueryResults randomStudent = api.read().select().from(filterOnSubqueryQuery, "randomStudent").build().run(broker);
+        for(RelRow readRow: randomStudent.getData()){
+            boolean present = false;
+            for(RelRow writeRow: studentsRows){
+                if (readRow.equals(writeRow)) {
+                    present = true;
+                    break;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- Filter in nested query OK");
+
+        System.out.println("\tTEST ----- Filter on nested query");
+        randomStudent = api.read().select().fromFilter(allStudentsQuery, "randomStudent", "ID == " + randomStudentID ).build().run(broker);
+        for(RelRow readRow: randomStudent.getData()){
+            boolean present = false;
+            for(RelRow writeRow: studentsRows){
+                if (readRow.equals(writeRow)) {
+                    present = true;
+                    break;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- Filter on nested query OK");
+
+        System.out.println("\tTEST ----- Projection in nested query");
+        ReadQuery projectAllStudentsSubQuery = api.read().select("ID").from("Students").build();
+        RelReadQueryResults allStudentsIDs = api.read().select().from(projectAllStudentsSubQuery, "allIDs").build().run(broker);
+        for(RelRow readRow: allStudentsIDs.getData()){
+            boolean present = false;
+            for(RelRow writeRow: studentsRows){
+                if (readRow.getField(0).equals(writeRow.getField(0))) {
+                    present = true;
+                    break;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- Projection in nested query OK");
+
+        System.out.println("\tTEST ----- Projection on nested query");
+        allStudentsIDs = api.read().select("ID").from(allStudentsQuery, "allStudents").build().run(broker);
+        for(RelRow readRow: allStudentsIDs.getData()){
+            boolean present = false;
+            for(RelRow writeRow: studentsRows){
+                if (readRow.getField(0).equals(writeRow.getField(0))) {
+                    present = true;
+                    break;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- Projection on nested query OK");
+
+        System.out.println("\tTEST ----- Filter and projection in nested query");
+        ReadQuery randomStudentIDQuery = api.read().select("ID").fromFilter("Students", "ID == " + randomStudentID).build();
+        RelReadQueryResults randomStudentIDRes = api.read().select().from(randomStudentIDQuery, "randomStudentID").build().run(broker);
+        for(RelRow readRow: randomStudentIDRes.getData()){
+            boolean present = false;
+            for(RelRow writeRow: studentsRows){
+                if (readRow.getField(0).equals(writeRow.getField(0))) {
+                    present = true;
+                    break;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- Filter and projection in nested query OK");
+
+        System.out.println("\tTEST ----- Filter and projection on nested query");
+        randomStudentIDRes = api.read().select("ID").fromFilter(allStudentsQuery, "randomStudent", "ID == "+randomStudentID).build().run(broker);
+        for(RelRow readRow: randomStudentIDRes.getData()){
+            boolean present = false;
+            for(RelRow writeRow: studentsRows){
+                if (readRow.getField(0).equals(writeRow.getField(0))) {
+                    present = true;
+                    break;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- Filter and projection on nested query OK");
+
+        System.out.println("\tTEST ----- Filter on subquery with projection");
+        randomStudentIDRes = api.read().select().fromFilter(projectAllStudentsSubQuery, "allStudentsIDs", "ID == " + randomStudentID).build().run(broker);
+        for(RelRow readRow: randomStudentIDRes.getData()){
+            boolean present = false;
+            for(RelRow writeRow: studentsRows){
+                if (readRow.getField(0).equals(writeRow.getField(0))) {
+                    present = true;
+                    break;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- Filter on subquery with projection OK");
+
+        System.out.println("\tTEST ----- Projection on subquery with filter");
+        randomStudentIDRes = api.read().select("ID").from(randomStudentIDQuery, "aStudentID").build().run(broker);
+        for(RelRow readRow: randomStudentIDRes.getData()){
+            boolean present = false;
+            for(RelRow writeRow: studentsRows){
+                if (readRow.getField(0).equals(writeRow.getField(0))) {
+                    present = true;
+                    break;
+                }
+            }
+            assertTrue(present);
+        }
+        System.out.println("\t\tTEST ----- Projection on subquery with filter OK");
+
+        int sum = 0;
+        int count = examsRows.size();
+        int min = Integer.MAX_VALUE;
+        int max = Integer.MIN_VALUE;
+        int avg = 0;
+        for(RelRow writtenRow: examsRows){
+            int rowValue = (Integer)writtenRow.getField(examsSchema.indexOf("Grade"));
+            sum = sum + rowValue;
+            min = Integer.min(min, rowValue);
+            max = Integer.max(max, rowValue);
+        }
+        avg = sum/count;
+
+        System.out.println("\tTEST ----- Simple Aggregate subquery");
+        ReadQuery allAggregates = api.read().select().from("Exams")
+                .avg("Grade", "avgGrade")
+                .max("Grade", "maxGrade")
+                .min("Grade", "minGrade")
+                .count("Grade", "numEntries")
+                .sum("Grade", "sumGrades").build();
+        RelReadQueryResults allAggregatesSubq = api.read().select().from(allAggregates, "allAggregates").build().run(broker);
+        assertEquals(allAggregatesSubq.getData().size(), 1);
+        RelRow allAggregatesResultRow = allAggregatesSubq.getData().get(0);
+        assertEquals(avg, allAggregatesResultRow.getField(0));
+        assertEquals(max, allAggregatesResultRow.getField(1));
+        assertEquals(min, allAggregatesResultRow.getField(2));
+        assertEquals(count, allAggregatesResultRow.getField(3));
+        assertEquals(sum, allAggregatesResultRow.getField(4));
+        System.out.println("\t\tTEST ----- Simple Aggregate subquery OK");
+
+
+        System.out.println("\tTEST ----- Simple aggregate query on simple subquery");
+        ReadQuery allExams = api.read().select().from("Exams").build();
+        allAggregatesSubq = api.read().select().from(allExams, "allExams")
+                .avg("Grade", "avgGrade")
+                .max("Grade", "maxGrade")
+                .min("Grade", "minGrade")
+                .count("Grade", "numEntries")
+                .sum("Grade", "sumGrades").build().run(broker);
+        assertEquals(allAggregatesSubq.getData().size(), 1);
+        allAggregatesResultRow = allAggregatesSubq.getData().get(0);
+        assertEquals(avg, allAggregatesResultRow.getField(0));
+        assertEquals(max, allAggregatesResultRow.getField(1));
+        assertEquals(min, allAggregatesResultRow.getField(2));
+        assertEquals(count, allAggregatesResultRow.getField(3));
+        assertEquals(sum, allAggregatesResultRow.getField(4));
+        System.out.println("\t\tTEST ----- Simple aggregate query on simple subquery OK");
+
+
+        System.out.println("\tTEST ----- Simple aggregate on projection sub query");
+        ReadQuery allGrades = api.read().select("Grade").from("Exams").build();
+        allAggregatesSubq = api.read().select().from(allGrades, "allGrades")
+                .avg("Grade", "avgGrade")
+                .max("Grade", "maxGrade")
+                .min("Grade", "minGrade")
+                .count("Grade", "numEntries")
+                .sum("Grade", "sumGrades").build().run(broker);
+        assertEquals(allAggregatesSubq.getData().size(), 1);
+        allAggregatesResultRow = allAggregatesSubq.getData().get(0);
+        assertEquals(avg, allAggregatesResultRow.getField(0));
+        assertEquals(max, allAggregatesResultRow.getField(1));
+        assertEquals(min, allAggregatesResultRow.getField(2));
+        assertEquals(count, allAggregatesResultRow.getField(3));
+        assertEquals(sum, allAggregatesResultRow.getField(4));
+        System.out.println("\t\tTEST ----- Simple aggregate on projection sub query OK");
+
+        System.out.println("\tTEST ----- Simple aggregate on filter and projection sub query");
+        ReadQuery allGoodGrades = api.read().select("Grade").fromFilter("Exams", "Grades >= 18").build();
+        allAggregatesSubq = api.read().select().from(allGoodGrades, "allGoodGrades")
+                .avg("Grade", "avgGrade")
+                .max("Grade", "maxGrade")
+                .min("Grade", "minGrade")
+                .count("Grade", "numEntries")
+                .sum("Grade", "sumGrades").build().run(broker);
+        assertEquals(allAggregatesSubq.getData().size(), 1);
+        allAggregatesResultRow = allAggregatesSubq.getData().get(0);
+
+        int avg18 = 0, max18 = Integer.MIN_VALUE, min18 = Integer.MAX_VALUE, count18 = 0, sum18 = 0;
+        for(RelRow writtenRow:examsRows){
+            int grade = (Integer) writtenRow.getField(2);
+            if(grade >= 18){
+                sum18 += sum18;
+                count18++;
+                min18 = Integer.min(min18, grade);
+                max18 = Integer.max(max18, grade);
+            }
+        }
+        avg18 = sum18 / count18;
+        assertEquals(avg18, allAggregatesResultRow.getField(0));
+        assertEquals(max18, allAggregatesResultRow.getField(1));
+        assertEquals(min18, allAggregatesResultRow.getField(2));
+        assertEquals(count18, allAggregatesResultRow.getField(3));
+        assertEquals(sum18, allAggregatesResultRow.getField(4));
+        System.out.println("\t\tTEST ----- Simple aggregate on filter and projection sub query OK");
+
+
+        System.out.println("\tTEST ----- Aggregate on aggregate subquery");
+        ReadQuery studentAvgGrade = api.read()
+                .select("StudentID")
+                .avg("Grade", "avgGrade")
+                .from("Exams").build();
+        RelReadQueryResults maxAvgGrade = api.read().select().max("avgGrade", "maxAVG")
+                .from(studentAvgGrade, "avgGrades").build().run(broker);
+
+        Map<Integer, List<RelRow>> studentsIDsToExams = new HashMap<>();
+        for(RelRow writtenRow: examsRows){
+            int studentID = (int) writtenRow.getField(examsSchema.indexOf("StudentID"));
+            studentsIDsToExams.computeIfAbsent(studentID, k->new ArrayList<>()).add(writtenRow);
+        }
+        Map<Integer, Integer> studentIDToAVG = new HashMap<>();
+        for(Map.Entry<Integer, List<RelRow>> entry: studentsIDsToExams.entrySet()){
+            int studentID = entry.getKey();
+            int avgGrade = 0;
+            for(RelRow exam: entry.getValue()){
+                avgGrade += (int) exam.getField(examsSchema.indexOf("Grade"));
+            }
+            avgGrade = avgGrade / entry.getValue().size();
+            studentIDToAVG.put(studentID, avgGrade);
+        }
+        int maxAVG = 0;
+        for(Map.Entry<Integer, Integer> entry: studentIDToAVG.entrySet()){
+            int currentStudentAVG = entry.getValue();
+            if(currentStudentAVG > maxAVG)
+                maxAVG = currentStudentAVG;
+        }
+        for(RelRow readRow: maxAvgGrade.getData()){
+            assertEquals(maxAVG, ((int) readRow.getField(0)));
+        }
+        System.out.println("\t\tTEST ----- Aggregate on aggregate subquery OK");
+
+        System.out.println("\tTEST ----- Join on subquery");
+        long tStart = System.currentTimeMillis();
         RelReadQueryResults maxCFUs = api.read().select("Courses.Code", "Courses.Name").alias("Code", "Name").from(
                 api.join().sources(
                                 "Courses",
@@ -629,6 +1242,8 @@ public class RelTest {
         }
         assertEquals(maxCFUs.getFieldNames(), List.of("Code", "Name"));
         assertEquals(writtenMaxCFU.size(), maxCFUs.getData().size());
+        System.out.println("\t\tTEST ----- Nested Join query, with nested simple aggregate OK");
+
 
         System.out.println("\tTEST ----- not min CFUs");
         tStart = System.currentTimeMillis();
@@ -661,8 +1276,10 @@ public class RelTest {
         }
         assertEquals(writtenNotMinCFUs.size(), notMinCFUs.getData().size());
         assertEquals(notMinCFUs.getFieldNames(), List.of("Code", "Name"));
+        System.out.println("\t\tTEST ----- Nested query on predicate OK");
 
-        System.out.println("\tTEST ----- Students who took at least 20");
+
+        System.out.println("\tTEST ----- Students who took at least 20, filter on nested query");
         tStart = System.currentTimeMillis();
         RelReadQueryResults atLeast20 = api.read().select("Exams.CourseCode", "Students.ID", "Students.Name", "Students.Surname")
                 .alias("CourseCode", "StudentID", "Name", "Surname")
@@ -691,6 +1308,43 @@ public class RelTest {
             }
         }
         assertEquals(atLeast20.getData().size(), matchesSize);
+        System.out.println("\t\tTEST ----- Nested Join query OK");
+
+
+        System.out.println("\tTEST ----- Students who took at least 20, filter on main query");
+        tStart = System.currentTimeMillis();
+        atLeast20 = api.read().select("Exams.CourseCode", "Students.ID", "Students.Name", "Students.Surname")
+                .alias("CourseCode", "StudentID", "Name", "Surname")
+                .fromFilter(
+                        api.join().sources(
+                                "Exams", "Students",
+                                "", "",
+                                List.of("StudentID"), List.of("ID")).build(),
+                        "J", "Exams.Grade >= 20"
+                ).build().run(broker);
+        System.out.println("\t\tExecution time: " + (System.currentTimeMillis() - tStart)+"ms.");
+        matchesSize = 0;
+        for(RelRow writtenExamRow: examsRows){
+            if((int) writtenExamRow.getField(2) >= 20){
+                matchesSize++;
+                for(RelRow writtenStudent: studentsRows){
+                    if(writtenExamRow.getField(1).equals(writtenStudent.getField(0))){
+                        boolean present = false;
+                        for(RelRow readRow: atLeast20.getData()){
+                            if(readRow.getField(0).equals(writtenExamRow.getField(0)) &&
+                                    readRow.getField(1).equals(writtenStudent.getField(0)) &&
+                                    readRow.getField(3).equals(writtenStudent.getField(2)) &&
+                                    readRow.getField(2).equals(writtenStudent.getField(1))){
+                                present = true;
+                            }
+                        }
+                        assertTrue(present);
+                    }
+                }
+            }
+        }
+        assertEquals(atLeast20.getData().size(), matchesSize);
+        System.out.println("\t\tTEST ----- Nested query with filter OK");
 
         broker.shutdown();
         for(DataStore dataStore: dataStores) {
@@ -705,182 +1359,10 @@ public class RelTest {
             ;
         }
     }
-    @Test
-    public void aggregateTests() {
-        System.out.println("Starting aggregate test components");
-        Coordinator coordinator = new Coordinator(
-                null,
-                new DefaultLoadBalancer(),
-                new DefaultAutoScaler(),
-                zkHost, zkPort,
-                "127.0.0.1", 7777);
-        coordinator.runLoadBalancerDaemon = false;
-        coordinator.startServing();
-        int numServers = 10;
 
-        List<LocalDataStoreCloud> ldscList = new ArrayList<>();
-        List<DataStore> dataStores = new ArrayList<>();
-        for(int i = 0; i<numServers; i++) {
-            ldscList.add(new LocalDataStoreCloud());
-            DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldscList.get(i),
-                    new RelShardFactory(),
-                    Path.of("/var/tmp/RelUniserve"),
-                    zkHost, zkPort,
-                    "127.0.0.1", 8000 + i,
-                    -1,
-                    false
-            );
-            dataStore.startServing();
-            dataStores.add(dataStore);
-        }
-        Broker broker = new Broker(zkHost, zkPort);
-        List<RelRow> actorRows = new ArrayList<>();
-        List<RelRow> filmRows = new ArrayList<>();
-        String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/ActorTestFile.txt";
-        String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/FilmTestFile.txt";
-        int totFilmBudget = 0, avgFilmBudget = 0, minBudget = Integer.MAX_VALUE, maxBudget = Integer.MIN_VALUE;
-        int filmCount = 0;
-        int count = 0;
-        try (BufferedReader br = new BufferedReader(new FileReader(filmFilePath))) {
-            String line;
-            while ((line = br.readLine()) != null) {
-                String[] parts = line.split(",");
-                if (parts.length == 2) {
-                    int budget = Integer.parseInt(parts[1]);
-                    filmRows.add(new RelRow(filmCount, parts[0], budget));
-                    filmCount++;
-                    totFilmBudget += budget;
-                    minBudget = Integer.min(minBudget, budget);
-                    maxBudget = Integer.max(maxBudget, budget);
-                }
-            }
-            avgFilmBudget = totFilmBudget / filmCount;
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        try (BufferedReader br = new BufferedReader(new FileReader(actorFilePath))) {
-            String line;
-            Random rng = new Random(Time.currentElapsedTime());
-            while ((line = br.readLine()) != null) {
-                String[] parts = line.split(",");
-                if (parts.length == 3) {
-                    int random = rng.nextInt();
-                    if (random < 0) {
-                        random *= -1;
-                    }
-                    actorRows.add(new RelRow(count, parts[0], parts[1], Integer.valueOf(parts[2]), random % filmCount));
-                    count++;
-                } else {
-                    System.out.println("No match for " + line);
-                }
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        API api = new API(broker);
-        System.out.println("Actors and Films table creation...");
-        api.createTable("Actors").attributes("ID", "FullName", "DateOfBirth", "Salary", "FilmID").keys("ID").build().run();
-        api.createTable("Films").attributes("ID", "Director", "Budget").keys("ID").build().run();
-        System.out.println("Updating Actors and Films tables...");
-        api.write().table("Actors").data(actorRows).build().run();
-        api.write().table("Films").data(filmRows).build().run();
-
-        System.out.println("Aggregating on Films' Budgets");
-        RelReadQueryResults totBudget = api.read()
-                .select()
-                .from("Films")
-                .sum("Budget", "TotBudget")
-                .count("Budget", "Count")
-                .avg("Budget", "AvgFilmBudget")
-                .max("Budget", "MaxBudget")
-                .min("Budget", "MinBudget")
-                .build().run(broker);
-        assertEquals(totFilmBudget, (int) (Integer) totBudget.getData().get(0).getField(0));
-        assertEquals(filmCount, (int) (Integer) totBudget.getData().get(0).getField(1));
-        assertEquals(avgFilmBudget, (int) (Integer) totBudget.getData().get(0).getField(2));
-        assertEquals(maxBudget, (int) (Integer) totBudget.getData().get(0).getField(3));
-        assertEquals(minBudget, (int) (Integer) totBudget.getData().get(0).getField(4));
-
-        System.out.println("Aggregating on multiple sources...");
-        RelReadQueryResults totalActorEarnings = api.read()
-                .select("Films.Director")
-                .alias("DirectorName")
-                .sum("Actors.Salary", "TotalActorsEarnings")
-                .count("Actors.Salary", "NumFilms")
-                .from(
-                        api.join().sources("Actors", "Films",  null, null,
-                                List.of("FilmID"), List.of("ID")).build(), "JoinedFilmsActors"
-                )
-                .having("NumFilms > 1")
-                .build().run(broker);
-        Map<String, Integer> sums = new HashMap<>();
-        Map<String, Integer> counts = new HashMap<>();
-
-        for (int i = 0; i < filmRows.size(); i++) {
-            RelRow filmRow = filmRows.get(i);
-            for (int j = 0; j < actorRows.size(); j++) {
-                RelRow actorRow = actorRows.get(j);
-                if (actorRow.getField(4).equals(filmRow.getField(0))) {
-                    if (sums.containsKey((String) filmRow.getField(1))) {
-                        sums.put((String) filmRow.getField(1), (sums.get((String) filmRow.getField(1)) + (Integer) actorRow.getField(3)));
-                    } else {
-                        sums.put((String) filmRow.getField(1), (Integer) actorRow.getField(3));
-                    }
-                    if (counts.containsKey((String) filmRow.getField(1))) {
-                        counts.put((String) filmRow.getField(1), (sums.get((String) filmRow.getField(1)) + 1));
-                    } else {
-                        counts.put((String) filmRow.getField(1), 1);
-                    }
-                }
-            }
-        }
-        for (RelRow resRow : totalActorEarnings.getData()) {
-            String directorName = (String) resRow.getField(0);
-            if (counts.containsKey(directorName) && counts.get(directorName) > 1) {
-                assertEquals(sums.get(directorName), (Integer) resRow.getField(1));
-            }
-        }
-
-        for(DataStore dataStore:dataStores) {
-            dataStore.shutDown();
-        }
-        try {
-            for(LocalDataStoreCloud ldsc: ldscList) {
-                ldsc.clear();
-            }
-        } catch (Exception e) {
-            ;
-        }
-        broker.shutdown();
-        coordinator.stopServing();
-    }
     @Test
     public void storedTest() {
-        Coordinator coordinator = new Coordinator(
-                null,
-                new DefaultLoadBalancer(),
-                new DefaultAutoScaler(),
-                zkHost, zkPort,
-                "127.0.0.1", 7777);
-        coordinator.runLoadBalancerDaemon = false;
-        coordinator.startServing();
-
-        int numServers = 10;
-        List<LocalDataStoreCloud> ldscList = new ArrayList<>();
-        List<DataStore> dataStores = new ArrayList<>();
-        for(int i = 0; i<numServers; i++) {
-            ldscList.add(new LocalDataStoreCloud());
-            DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldscList.get(i),
-                    new RelShardFactory(),
-                    Path.of("/var/tmp/RelUniserve"),
-                    zkHost, zkPort,
-                    "127.0.0.1", 8000 + i,
-                    -1,
-                    false
-            );
-            dataStore.startServing();
-            dataStores.add(dataStore);
-        }
+        startServers();
         Broker broker = new Broker(zkHost, zkPort);
 
         List<RelRow> coursesRows = new ArrayList<>();

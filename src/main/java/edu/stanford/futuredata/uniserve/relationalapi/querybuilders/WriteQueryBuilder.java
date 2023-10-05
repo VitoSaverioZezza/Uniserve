@@ -1,6 +1,5 @@
 package edu.stanford.futuredata.uniserve.relationalapi.querybuilders;
 
-import edu.stanford.futuredata.uniserve.api.querybuilders.ReadQueryBuilder;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;

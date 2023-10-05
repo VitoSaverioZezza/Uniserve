@@ -44,7 +44,7 @@ public class DeleteQueryBuilder {
         this.dataQuery = query;
         return this;
     }
-    public DeleteQueryBuilder data(ReadQueryBuilder queryBuilder){
+    public DeleteQueryBuilder data(RelReadQueryBuilder queryBuilder){
         return data(queryBuilder.build());
     }
 

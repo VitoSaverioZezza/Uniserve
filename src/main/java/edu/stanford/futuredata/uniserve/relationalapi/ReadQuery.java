@@ -2,7 +2,7 @@ package edu.stanford.futuredata.uniserve.relationalapi;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
-import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.ANewReadQueryBuilder;
+import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.RelReadQueryBuilder;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import org.javatuples.Pair;
 import org.slf4j.Logger;
@@ -15,9 +15,9 @@ public class ReadQuery implements Serializable {
     private static final Logger logger = LoggerFactory.getLogger(ReadQuery.class);
 
     private FilterAndProjectionQuery filterAndProjectionQuery = null;
-    private AnotherSimpleAggregateQuery anotherSimpleAggregateQuery = null;
+    private SimpleAggregateQuery simpleAggregateQuery = null;
     private JoinQuery joinQuery = null;
-    private AnotherAggregateQuery anotherAggregateQuery = null;
+    private AggregateQuery aggregateQuery = null;
 
     private List<String> resultSchema = new ArrayList<>();
 
@@ -30,16 +30,16 @@ public class ReadQuery implements Serializable {
         this.filterAndProjectionQuery = filterAndProjectionQuery;
         return this;
     }
-    public ReadQuery setAnotherAggregateQuery(AnotherAggregateQuery aggregateQuery) {
-        this.anotherAggregateQuery = aggregateQuery;
+    public ReadQuery setAnotherAggregateQuery(AggregateQuery aggregateQuery) {
+        this.aggregateQuery = aggregateQuery;
         return this;
     }
     public ReadQuery setJoinQuery(JoinQuery query){
         this.joinQuery = query;
         return this;
     }
-    public ReadQuery setAnotherSimpleAggregateQuery(AnotherSimpleAggregateQuery anotherSimpleAggregateQuery) {
-        this.anotherSimpleAggregateQuery = anotherSimpleAggregateQuery;
+    public ReadQuery setAnotherSimpleAggregateQuery(SimpleAggregateQuery simpleAggregateQuery) {
+        this.simpleAggregateQuery = simpleAggregateQuery;
         return this;
     }
 
@@ -51,10 +51,10 @@ public class ReadQuery implements Serializable {
         this.resultTableName = resultTableName;
         if (filterAndProjectionQuery != null) {
             filterAndProjectionQuery.setResultTableName(resultTableName);
-        } else if (anotherSimpleAggregateQuery != null) {
-            anotherSimpleAggregateQuery.setResultTableName(resultTableName);
-        } else if (anotherAggregateQuery != null) {
-            anotherAggregateQuery.setResultTableName(resultTableName);
+        } else if (simpleAggregateQuery != null) {
+            simpleAggregateQuery.setResultTableName(resultTableName);
+        } else if (aggregateQuery != null) {
+            aggregateQuery.setResultTableName(resultTableName);
         } else {
             joinQuery.setResultTableName(resultTableName);
         }
@@ -64,10 +64,10 @@ public class ReadQuery implements Serializable {
     public ReadQuery setIsThisSubquery(boolean isThisSubquery){
         if(filterAndProjectionQuery != null){
             filterAndProjectionQuery.setIsThisSubquery(isThisSubquery);
-        } else if (anotherSimpleAggregateQuery != null) {
-            anotherSimpleAggregateQuery.setIsThisSubquery(isThisSubquery);
-        } else if (anotherAggregateQuery != null) {
-            anotherAggregateQuery.setIsThisSubquery(isThisSubquery);
+        } else if (simpleAggregateQuery != null) {
+            simpleAggregateQuery.setIsThisSubquery(isThisSubquery);
+        } else if (aggregateQuery != null) {
+            aggregateQuery.setIsThisSubquery(isThisSubquery);
         } else if (joinQuery != null){
             joinQuery.setIsThisSubquery(isThisSubquery);
         } else {
@@ -91,19 +91,19 @@ public class ReadQuery implements Serializable {
     }
 
     public RelReadQueryResults run(Broker broker){
-        if(filterAndProjectionQuery == null && joinQuery == null && anotherAggregateQuery == null && anotherSimpleAggregateQuery == null){
+        if(filterAndProjectionQuery == null && joinQuery == null && aggregateQuery == null && simpleAggregateQuery == null){
             throw new RuntimeException("No valid query is defined");
         }
         RelReadQueryResults results = new RelReadQueryResults();
         String registeredTableResults = queryMatch(broker);
         if(!registeredTableResults.isEmpty()){
             logger.info("Query is already stored, reading from result table {}", registeredTableResults);
-            ReadQuery rq = new ANewReadQueryBuilder(broker).select().from(registeredTableResults).build();
+            ReadQuery rq = new RelReadQueryBuilder(broker).select().from(registeredTableResults).build();
             if(filterAndProjectionQuery != null && filterAndProjectionQuery.isThisSubquery()){
                 rq.setIsThisSubquery(true);
-            } else if (anotherSimpleAggregateQuery != null && anotherSimpleAggregateQuery.isThisSubquery()) {
+            } else if (simpleAggregateQuery != null && simpleAggregateQuery.isThisSubquery()) {
                 rq.setIsThisSubquery(true);
-            } else if (anotherAggregateQuery != null && anotherAggregateQuery.isThisSubquery()) {
+            } else if (aggregateQuery != null && aggregateQuery.isThisSubquery()) {
                 rq.setIsThisSubquery(true);
             } else if (joinQuery != null && joinQuery.isThisSubquery()) {
                 rq.setIsThisSubquery(true);
@@ -116,11 +116,11 @@ public class ReadQuery implements Serializable {
                 if(this.filterAndProjectionQuery != null){
                     keyStructure = new Boolean[resultSchema.size()];
                     Arrays.fill(keyStructure, true);
-                } else if (anotherAggregateQuery != null ) {
+                } else if (aggregateQuery != null ) {
                     keyStructure = new Boolean[resultSchema.size()];
-                    Arrays.fill(keyStructure, 0, anotherAggregateQuery.getSystemSelectedFields().size(), true);
-                    Arrays.fill(keyStructure, anotherAggregateQuery.getSystemSelectedFields().size(), resultSchema.size(), false);
-                } else if (anotherSimpleAggregateQuery != null) {
+                    Arrays.fill(keyStructure, 0, aggregateQuery.getSystemSelectedFields().size(), true);
+                    Arrays.fill(keyStructure, aggregateQuery.getSystemSelectedFields().size(), resultSchema.size(), false);
+                } else if (simpleAggregateQuery != null) {
                     keyStructure = new Boolean[resultSchema.size()];
                     Arrays.fill(keyStructure, true);
                 } else if (joinQuery != null) {
@@ -130,10 +130,10 @@ public class ReadQuery implements Serializable {
             }
             if (filterAndProjectionQuery != null) {
                 results = broker.retrieveAndCombineReadQuery(filterAndProjectionQuery);
-            } else if (anotherSimpleAggregateQuery != null) {
-                results = broker.shuffleReadQuery(anotherSimpleAggregateQuery);
-            } else if (anotherAggregateQuery != null) {
-                results = broker.shuffleReadQuery(anotherAggregateQuery);
+            } else if (simpleAggregateQuery != null) {
+                results = broker.shuffleReadQuery(simpleAggregateQuery);
+            } else if (aggregateQuery != null) {
+                results = broker.shuffleReadQuery(aggregateQuery);
             } else {
                 results = broker.shuffleReadQuery(joinQuery);
             }
@@ -144,10 +144,10 @@ public class ReadQuery implements Serializable {
     public RelReadQueryResults updateStoredResults(Broker broker){
         if (filterAndProjectionQuery != null) {
             broker.retrieveAndCombineReadQuery(filterAndProjectionQuery);
-        } else if (anotherSimpleAggregateQuery != null) {
-            broker.shuffleReadQuery(anotherSimpleAggregateQuery);
-        } else if (anotherAggregateQuery != null) {
-            broker.shuffleReadQuery(anotherAggregateQuery);
+        } else if (simpleAggregateQuery != null) {
+            broker.shuffleReadQuery(simpleAggregateQuery);
+        } else if (aggregateQuery != null) {
+            broker.shuffleReadQuery(aggregateQuery);
         } else {
             broker.shuffleReadQuery(joinQuery);
         }
@@ -252,10 +252,10 @@ public class ReadQuery implements Serializable {
                 sourceTables.addAll(subquery.getSourceTables());
             }
             return sourceTables;
-        }else if(anotherSimpleAggregateQuery != null) {
-            Set<String> sourceTables = new HashSet<>(anotherSimpleAggregateQuery.getQueriedTables());
-            Map<String, ReadQuery> volatileSubqueries = anotherSimpleAggregateQuery.getVolatileSubqueries();
-            Map<String, ReadQuery> concreteSubqueries = anotherSimpleAggregateQuery.getConcreteSubqueries();
+        }else if(simpleAggregateQuery != null) {
+            Set<String> sourceTables = new HashSet<>(simpleAggregateQuery.getQueriedTables());
+            Map<String, ReadQuery> volatileSubqueries = simpleAggregateQuery.getVolatileSubqueries();
+            Map<String, ReadQuery> concreteSubqueries = simpleAggregateQuery.getConcreteSubqueries();
 
             for(ReadQuery subquery: volatileSubqueries.values()){
                 sourceTables.addAll(subquery.getSourceTables());
@@ -277,9 +277,9 @@ public class ReadQuery implements Serializable {
             }
             return sourceTables;
         } else {
-            Set<String> sourceTables = new HashSet<>(anotherAggregateQuery.getQueriedTables());
-            Map<String, ReadQuery> volatileSubqueries = anotherAggregateQuery.getVolatileSubqueries();
-            Map<String, ReadQuery> concreteSubqueries = anotherAggregateQuery.getConcreteSubqueries();
+            Set<String> sourceTables = new HashSet<>(aggregateQuery.getQueriedTables());
+            Map<String, ReadQuery> volatileSubqueries = aggregateQuery.getVolatileSubqueries();
+            Map<String, ReadQuery> concreteSubqueries = aggregateQuery.getConcreteSubqueries();
 
             for(ReadQuery subquery: volatileSubqueries.values()){
                 sourceTables.addAll(subquery.getSourceTables());
@@ -294,10 +294,10 @@ public class ReadQuery implements Serializable {
         Map<String, ReadQuery> subqueries = new HashMap<>();
         if(filterAndProjectionQuery != null){
             subqueries.putAll(filterAndProjectionQuery.getVolatileSubqueries());
-        }else if(anotherSimpleAggregateQuery != null){
-            subqueries.putAll(anotherSimpleAggregateQuery.getVolatileSubqueries());
-        }else if(anotherAggregateQuery != null){
-            subqueries.putAll(anotherAggregateQuery.getVolatileSubqueries());
+        }else if(simpleAggregateQuery != null){
+            subqueries.putAll(simpleAggregateQuery.getVolatileSubqueries());
+        }else if(aggregateQuery != null){
+            subqueries.putAll(aggregateQuery.getVolatileSubqueries());
         }else{
             subqueries.putAll(joinQuery.getVolatileSubqueries());
         }
@@ -307,10 +307,10 @@ public class ReadQuery implements Serializable {
         Map<String, ReadQuery> subqueries = new HashMap<>();
         if(filterAndProjectionQuery != null){
             subqueries.putAll(filterAndProjectionQuery.getConcreteSubqueries());
-        }else if(anotherSimpleAggregateQuery != null){
-            subqueries.putAll(anotherSimpleAggregateQuery.getConcreteSubqueries());
-        }else if(anotherAggregateQuery != null){
-            subqueries.putAll(anotherAggregateQuery.getConcreteSubqueries());
+        }else if(simpleAggregateQuery != null){
+            subqueries.putAll(simpleAggregateQuery.getConcreteSubqueries());
+        }else if(aggregateQuery != null){
+            subqueries.putAll(aggregateQuery.getConcreteSubqueries());
         }else{
             subqueries.putAll(joinQuery.getConcreteSubqueries());
         }
@@ -319,19 +319,19 @@ public class ReadQuery implements Serializable {
     public List<Pair<Integer, String>> getAggregates(){
         if(filterAndProjectionQuery != null || joinQuery != null){
             return new ArrayList<>();
-        }else if(anotherSimpleAggregateQuery != null){
-            return anotherSimpleAggregateQuery.getAggregatesSpecification();
+        }else if(simpleAggregateQuery != null){
+            return simpleAggregateQuery.getAggregatesSpecification();
         }else{
-            return anotherAggregateQuery.getAggregatesSpecification();
+            return aggregateQuery.getAggregatesSpecification();
         }
     }
     public List<String> getSystemFinalSchema(){
         if(filterAndProjectionQuery != null){
             return filterAndProjectionQuery.getSystemResultSchema();
-        } else if (anotherSimpleAggregateQuery!=null) {
+        } else if (simpleAggregateQuery !=null) {
             return new ArrayList<>();
-        }else if(anotherAggregateQuery != null){
-            return anotherAggregateQuery.getSystemSelectedFields();
+        }else if(aggregateQuery != null){
+            return aggregateQuery.getSystemSelectedFields();
         } else if (joinQuery != null) {
             return joinQuery.getSystemResultSchema();
         }else{
@@ -341,26 +341,12 @@ public class ReadQuery implements Serializable {
     public List<String> getPredicate(){
         if(filterAndProjectionQuery != null){
             return filterAndProjectionQuery.getPredicates();
-        } else if (anotherSimpleAggregateQuery!=null) {
-            return anotherSimpleAggregateQuery.getPredicates();
-        }else if(anotherAggregateQuery != null){
-            return anotherAggregateQuery.getPredicates();
+        } else if (simpleAggregateQuery !=null) {
+            return simpleAggregateQuery.getPredicates();
+        }else if(aggregateQuery != null){
+            return aggregateQuery.getPredicates();
         }else{
             return joinQuery.getPredicates();
         }
-    }
-
-
-    public ReadQuery setSimpleQuery(ProdSelProjQuery simpleQuery) {
-
-        return this;
-    }
-    public ReadQuery setAggregateQuery(AggregateQuery aggregateQuery) {
-
-        return this;
-    }
-    public ReadQuery setSimpleAggregateQuery(SimpleAggregateQuery simpleAggregateQuery) {
-
-        return this;
     }
 }

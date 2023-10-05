@@ -1,176 +1,328 @@
 package edu.stanford.futuredata.uniserve.relationalapi;
 
 import com.google.protobuf.ByteString;
-import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
-import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
+import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
-import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.ReadQueryBuilder;
+import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.RelReadQueryBuilder;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
+import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
-public class SimpleAggregateQuery implements RetrieveAndCombineQueryPlan<RelShard, RelReadQueryResults> {
-    private Map<String, ReadQuery> subquery = new HashMap<>();
-    private List<Pair<Integer, String>> aggregatesSubschema = new ArrayList<>();
-    private List<String> gatherInputRowsSchema = new ArrayList<>();
-    private List<String> userFinalSchema = new ArrayList<>();
-    private boolean stored = false;
+public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryResults> {
 
+    //these queries operate on a single source, therefore there is no need for the use of the dotted notation
+    //there are no attributes selected for projection, the only columns are the results of the aggregate operations
+    //therefore the result schema is the list of the attribute aliases provided by the user
+
+    private String sourceName = "";
+    private boolean sourceIsTable = true;
+    private List<String> sourceSchema = new ArrayList<>();
+    private List<String> resultsSchema = new ArrayList<>();
+    private List<Pair<Integer, String>> aggregatesSpecification = new ArrayList<>();
+    private String filterPredicate = "";
+    private Map<String, ReadQuery> sourceSubqueries = new HashMap<>();
+    private boolean stored;
+    private boolean isThisSubquery = false;
+    private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
+    private String resultTableName = "";
+    private WriteResultsPlan writeResultsPlan = null;
+    private List<SerializablePredicate> operations = new ArrayList<>();
+
+    public SimpleAggregateQuery setSourceName(String sourceName) {
+        this.sourceName = sourceName;
+        return this;
+    }
+    public SimpleAggregateQuery setSourceIsTable(boolean sourceIsTable){
+        this.sourceIsTable = sourceIsTable;
+        return this;
+    }
+    public SimpleAggregateQuery setSourceSchema(List<String> sourceSchema) {
+        this.sourceSchema = sourceSchema;
+        return this;
+    }
+    public SimpleAggregateQuery setResultsSchema(List<String> resultsSchema) {
+        this.resultsSchema = resultsSchema;
+        return this;
+    }
+    public SimpleAggregateQuery setAggregatesSpecification(List<Pair<Integer, String>> aggregatesSpecification) {
+        this.aggregatesSpecification = aggregatesSpecification;
+        return this;
+    }
+    public SimpleAggregateQuery setFilterPredicate(String filterPredicate) {
+        this.filterPredicate = filterPredicate;
+        return this;
+    }
+    public SimpleAggregateQuery setSourceSubqueries(Map<String, ReadQuery> sourceSubqueries){
+        this.sourceSubqueries = sourceSubqueries;
+        return this;
+    }
     public SimpleAggregateQuery setStored(){
         this.stored = true;
         return this;
     }
-
-
-    public SimpleAggregateQuery setIntermediateQuery(String queryName, ReadQuery intermediateQuery){
-        subquery.put(queryName, intermediateQuery);
+    public SimpleAggregateQuery setIsThisSubquery(boolean isThisSubquery) {
+        this.isThisSubquery = isThisSubquery;
         return this;
     }
-    public SimpleAggregateQuery setAggregatesSubschema(List<Pair<Integer,String>> aggregatesSubschema){
-        this.aggregatesSubschema = aggregatesSubschema;
+    public SimpleAggregateQuery setPredicateSubqueries(Map<String, ReadQuery> predicateSubqueries){
+        this.predicateSubqueries = predicateSubqueries;
         return this;
     }
-    public SimpleAggregateQuery setGatherInputRowsSchema(List<String> gatherInputRowsSchema){
-        this.gatherInputRowsSchema = gatherInputRowsSchema;
+    public SimpleAggregateQuery setResultTableName(String resultTableName){
+        this.resultTableName = resultTableName;
+        Boolean[] keyStructure = new Boolean[resultsSchema.size()];
+        Arrays.fill(keyStructure, true);
+        this.writeResultsPlan = new WriteResultsPlan(resultTableName, keyStructure);
         return this;
     }
-    public SimpleAggregateQuery setFinalSchema(List<String> userFinalSchema){
-        this.userFinalSchema = userFinalSchema;
+    public SimpleAggregateQuery setOperations(List<SerializablePredicate> operations) {
+        this.operations = operations;
         return this;
     }
 
-
-    public RelReadQueryResults run(Broker broker){
-        RelReadQueryResults res;
-        res = broker.retrieveAndCombineReadQuery(this);
-        res.setFieldNames(userFinalSchema);
-        return res;
+    public List<Pair<Integer, String>> getAggregatesSpecification() {
+        return aggregatesSpecification;
     }
-
+    public List<String> getPredicates(){
+        return List.of(filterPredicate);
+    }
+    public boolean isStored(){
+        return stored;
+    }
+    public boolean isThisSubquery(){
+        return isThisSubquery;
+    }
+    public Map<String, ReadQuery> getVolatileSubqueries(){return sourceSubqueries;}
+    public Map<String, ReadQuery> getConcreteSubqueries(){
+        return predicateSubqueries;
+    }
+    public String getResultTableName(){return resultTableName;}
+    public WriteResultsPlan getWriteResultPlan() {
+        return writeResultsPlan;
+    }
 
     @Override
-    public List<String> getTableNames() {
-        return new ArrayList<>();
+    public List<String> getQueriedTables() {
+        if(sourceIsTable){
+            return List.of(sourceName);
+        }else{
+            return List.of();
+        }
     }
-
-    @Override
-    public boolean isThisSubquery() {
-        return false;
-    }
-
     @Override
     public Map<String, List<Integer>> keysForQuery() {
-        return new HashMap<>();
-    }
-
-
-    private List<Object> computePartialResults(List<RelRow> shardData){
-        List<Object> partialResults = new ArrayList<>();
-        for(Pair<Integer, String> aggregate: aggregatesSubschema){
-            if(aggregate.getValue0().equals(ReadQueryBuilder.AVG)){
-                Integer[] countSum = new Integer[2];
-                Arrays.fill(countSum, 0);
-                for(RelRow row: shardData){
-                    countSum[0]++;
-                    countSum[1] += (Integer) row.getField(gatherInputRowsSchema.indexOf(aggregate.getValue1()));
-                }
-                partialResults.add(countSum);
-            } else if (aggregate.getValue0().equals(ReadQueryBuilder.MIN)) {
-                Integer min = Integer.MAX_VALUE;
-                for (RelRow row: shardData){
-                    min = Integer.min(min, (Integer) row.getField(gatherInputRowsSchema.indexOf(aggregate.getValue1())));
-                }
-                partialResults.add(min);
-            } else if (aggregate.getValue0().equals(ReadQueryBuilder.MAX)) {
-                Integer max = Integer.MIN_VALUE;
-                for (RelRow row: shardData){
-                    max = Integer.max(max, (Integer) row.getField(gatherInputRowsSchema.indexOf(aggregate.getValue1())));
-                }
-                partialResults.add(max);
-            } else if (aggregate.getValue0().equals(ReadQueryBuilder.COUNT)) {
-                partialResults.add(shardData.size());
-            } else if (aggregate.getValue0().equals(ReadQueryBuilder.SUM)) {
-                Integer sum = 0;
-                for (RelRow row: shardData){
-                    sum += (Integer) row.getField(gatherInputRowsSchema.indexOf(aggregate.getValue1()));
-                }
-                partialResults.add(sum);
-            }
+        if(sourceIsTable){
+            return Map.of(sourceName, List.of(-1));
+        }else{
+            return Map.of();
         }
-        return partialResults;
     }
 
 
     @Override
-    public ByteString retrieve(RelShard shard, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
-        return Utilities.objectToByteString(computePartialResults(shard.getData()).toArray());
+    public Map<Integer, List<ByteString>> scatter(RelShard shard, int numRepartitions, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
+        List<RelRow> shardData = shard.getData();
+        List<RelRow> filteredData = filter(shardData, concreteSubqueriesResults);
+
+        Integer aggregatingDSID = sourceName.hashCode() % numRepartitions;
+        if(aggregatingDSID < 0){
+            aggregatingDSID = aggregatingDSID*-1;
+        }
+        RelRow partialResultsRow = computePartialResults(filteredData);
+        Map<Integer, List<ByteString>> ret = new HashMap<>();
+        List<ByteString> serializedRow = new ArrayList<>();
+
+        serializedRow.add(Utilities.objectToByteString(partialResultsRow));
+        ret.put(aggregatingDSID, serializedRow);
+        return ret;
+    }
+    @Override
+    public ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, RelShard> ephemeralShards) {
+        //this should be executed only once, by the dsID selected by the scatter!!
+        List<ByteString> serializedPartialResultRows = ephemeralData.get(sourceName);
+        if(serializedPartialResultRows == null || serializedPartialResultRows.isEmpty()){
+            return Utilities.objectToByteString(new ArrayList<>());
+        }
+        List<RelRow> partialResults = serializedPartialResultRows.stream().map((v)->(RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+        ArrayList<RelRow> results = new ArrayList<>();
+        results.add(computeResults(partialResults));
+        return Utilities.objectToByteString(results);
     }
     @Override
     public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
         List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
         return intermediateShard.insertRows(rows) && intermediateShard.committRows();
     }
-
     @Override
-    public RelReadQueryResults combine(Map<String, List<ByteString>> retrieveResults) {
-        List<ByteString> results = retrieveResults.get(new ArrayList<>(subquery.keySet()).get(0));
-        List<List<Object>> partialResultList = new ArrayList<>();
-        List<Object> res = new ArrayList<>();
-        for(ByteString serializedPartialResults: results){
-            partialResultList.add(Arrays.asList((Object[]) Utilities.byteStringToObject(serializedPartialResults)));
+    public RelReadQueryResults combine(List<ByteString> shardQueryResults) {
+        RelReadQueryResults results = new RelReadQueryResults();
+        results.setFieldNames(resultsSchema);
+        if(isThisSubquery){
+            List<Map<Integer, Integer>> desIntermediateShardLocations = shardQueryResults.stream().map(v->(Map<Integer,Integer>)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+            List<Pair<Integer, Integer>> ret = new ArrayList<>();
+            for(Map<Integer,Integer> intermediateShardsLocation: desIntermediateShardLocations){
+                for(Map.Entry<Integer, Integer> shardLocation: intermediateShardsLocation.entrySet()){
+                    ret.add(new Pair<>(shardLocation.getKey(), shardLocation.getValue()));
+                }
+            }
+            results.setIntermediateLocations(ret);
+            //List of Map<ShardID, dsID> to be converted in what is in the RelReadQueryResults
+        }else {
+            List<RelRow> ret = new ArrayList<>();
+            for(ByteString serSubset: shardQueryResults){
+                ret.addAll((List<RelRow>)Utilities.byteStringToObject(serSubset));
+            }
+            results.addData(ret);
+            //List of RelRows lsis to be merged together in the structure
         }
-        for(Pair<Integer, String> aggregate: aggregatesSubschema){
-            if(aggregate.getValue0().equals(ReadQueryBuilder.AVG)){
-                int sum = 0, count = 0;
-                for(List<Object> partialAggregates: partialResultList){
-                    Integer[] countSum = (Integer[]) partialAggregates.get(aggregatesSubschema.indexOf(aggregate));
-                    sum += countSum[1];
-                    count += countSum[0];
-                }
-                res.add(aggregatesSubschema.indexOf(aggregate), sum/count);
-            } else if (aggregate.getValue0().equals(ReadQueryBuilder.MIN)) {
-                int min = Integer.MAX_VALUE;
-                for(List<Object> partialAggregates: partialResultList){
-                    Integer currentMin = (Integer) partialAggregates.get(aggregatesSubschema.indexOf(aggregate));
-                    min = Integer.min(min, currentMin);
-                }
-                res.add(aggregatesSubschema.indexOf(aggregate), min);
-            } else if (aggregate.getValue0().equals(ReadQueryBuilder.MAX)) {
-                int max = Integer.MIN_VALUE;
-                for(List<Object> partialAggregates: partialResultList){
-                    Integer currentMin = (Integer) partialAggregates.get(aggregatesSubschema.indexOf(aggregate));
-                    max = Integer.max(max, currentMin);
-                }
-                res.add(aggregatesSubschema.indexOf(aggregate), max);
-            } else if (aggregate.getValue0().equals(ReadQueryBuilder.COUNT) || aggregate.getValue0().equals(ReadQueryBuilder.SUM)) {
-                int countOrSum = 0;
-                for(List<Object> partialAggregates: partialResultList){
-                    countOrSum += (Integer) partialAggregates.get(aggregatesSubschema.indexOf(aggregate));
-                }
-                res.add(aggregatesSubschema.indexOf(aggregate), countOrSum);
+        return results;
+    }
+
+    private List<RelRow> filter(List<RelRow> data, Map<String, ReadQueryResults> subqRes) {
+        if(filterPredicate.isEmpty()){
+            return data;
+        }
+        List<RelRow> filteredRows = new ArrayList<>();
+        Map<String, RelReadQueryResults> sRes = new HashMap<>();
+        for(Map.Entry<String, ReadQueryResults> entry: subqRes.entrySet()){
+            sRes.put(entry.getKey(), (RelReadQueryResults) entry.getValue());
+        }
+        for(RelRow row: data){
+            if(checkFilterPredicate(row, sRes)){
+                filteredRows.add(row);
+            }
+        }
+        return filteredRows;
+    }
+    private boolean checkFilterPredicate(RelRow row, Map<String, RelReadQueryResults> subqRes){
+        Map<String, Object> values = new HashMap<>();
+
+        for(Map.Entry<String, RelReadQueryResults> entry: subqRes.entrySet()){
+            if(filterPredicate.contains(entry.getKey())){
+                values.put(entry.getKey(), entry.getValue().getData().get(0).getField(0));
             }
         }
 
-        RelReadQueryResults readQueryResults = new RelReadQueryResults();
-        readQueryResults.addData(List.of(new RelRow(res.toArray())));
-        return readQueryResults;
+        for(String attributeName: sourceSchema){
+            if(filterPredicate.contains(attributeName)){
+                Object val = row.getField(sourceSchema.indexOf(attributeName));
+                values.put(attributeName, val);
+            }
+        }
+
+        JexlEngine jexl = new JexlBuilder().create();
+        JexlExpression expression = jexl.createExpression(filterPredicate);
+        JexlContext context = new MapContext(values);
+        Object result = expression.evaluate(context);
+        try{
+            if(!(result instanceof Boolean))
+                return false;
+            else {
+                return (Boolean) result;
+            }
+        }catch (Exception e ){
+            System.out.println(e.getMessage());
+            return false;
+        }
     }
+    private RelRow computePartialResults(List<RelRow> shardData){
+        List<Object> partialResults = new ArrayList<>();
+        for(Pair<Integer, String> aggregate: aggregatesSpecification){
+            Integer aggregateCode = aggregate.getValue0();
+            String aggregatedAttribute = aggregate.getValue1();
+            if(aggregateCode.equals(RelReadQueryBuilder.AVG)){
+                Integer[] countSum = new Integer[2];
+                Arrays.fill(countSum, 0);
+                for(RelRow row: shardData){
+                    countSum[0]++;
+                    countSum[1] += (Integer) row.getField(sourceSchema.indexOf(aggregatedAttribute));
+                }
+                partialResults.add(countSum);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.MIN)) {
+                Integer min = Integer.MAX_VALUE;
+                for (RelRow row: shardData){
+                    min = Integer.min(min, (Integer) row.getField(sourceSchema.indexOf(aggregatedAttribute)));
+                }
+                partialResults.add(min);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.MAX)) {
+                Integer max = Integer.MIN_VALUE;
+                for (RelRow row: shardData){
+                    max = Integer.max(max, (Integer) row.getField(sourceSchema.indexOf(aggregatedAttribute)));
+                }
+                partialResults.add(max);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.COUNT)) {
+                partialResults.add(shardData.size());
+            } else if (aggregateCode.equals(RelReadQueryBuilder.SUM)) {
+                Integer sum = 0;
+                for (RelRow row: shardData){
+                    sum += (Integer) row.getField(sourceSchema.indexOf(aggregatedAttribute));
+                }
+                partialResults.add(sum);
+            }
+        }
 
 
-    @Override
-    public Map<String, ReadQuery> getVolatileSubqueries() {
-        return subquery;
+        return new RelRow(partialResults.toArray());
     }
-
-
-
-
-    public List<Pair<Integer, String>> getAggregatesSubschema(){
-        return aggregatesSubschema;
+    private RelRow computeResults(List<RelRow> partialResults){
+        List<Object> resultRow = new ArrayList<>();
+        for(Pair<Integer, String> pair: aggregatesSpecification){
+            Integer aggregateCode = pair.getValue0();
+            if(aggregateCode.equals(RelReadQueryBuilder.AVG)){
+                Integer count = 0;
+                Integer sum = 0;
+                for(RelRow row: partialResults){
+                    Integer[] countSum = (Integer[]) row.getField(aggregatesSpecification.indexOf(pair));
+                    count += countSum[0];
+                    sum += countSum[1];
+                }
+                if(count != 0) {
+                    resultRow.add(sum / count);
+                }
+            } else if (aggregateCode.equals(RelReadQueryBuilder.MIN)) {
+                Integer min = Integer.MAX_VALUE;
+                for (RelRow row: partialResults){
+                    min = Integer.min(min, (Integer) row.getField(aggregatesSpecification.indexOf(pair)));
+                }
+                resultRow.add(min);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.MAX)) {
+                Integer max = Integer.MIN_VALUE;
+                for (RelRow row: partialResults){
+                    max = Integer.max(max, (Integer) row.getField(aggregatesSpecification.indexOf(pair)));
+                }
+                resultRow.add(max);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.COUNT)) {
+                Integer count = 0;
+                for(RelRow row: partialResults){
+                    count += (Integer) row.getField(aggregatesSpecification.indexOf(pair));
+                }
+                resultRow.add(count);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.SUM)) {
+                Integer sum = 0;
+                for (RelRow row: partialResults){
+                    sum += (Integer) row.getField(aggregatesSpecification.indexOf(pair));
+                }
+                resultRow.add(sum);
+            }
+        }
+        if(operations.isEmpty()) {
+            return new RelRow(resultRow.toArray());
+        }else{
+            return applyOperations(new RelRow(resultRow.toArray()));
+        }
     }
-
+    private RelRow applyOperations(RelRow inputRow){
+        List<Object> newRow = new ArrayList<>();
+        for(int i = 0; i<inputRow.getSize(); i++){
+            SerializablePredicate lambda = operations.get(i);
+            newRow.add(lambda.run(inputRow.getField(i)));
+        }
+        return new RelRow(newRow.toArray());
+    }
 }

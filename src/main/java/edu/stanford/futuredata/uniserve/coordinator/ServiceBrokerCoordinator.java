@@ -3,7 +3,6 @@ package edu.stanford.futuredata.uniserve.coordinator;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.api.PersistentReadQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;

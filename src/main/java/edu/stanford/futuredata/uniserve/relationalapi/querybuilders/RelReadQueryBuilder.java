@@ -7,7 +7,7 @@ import org.javatuples.Pair;
 
 import java.util.*;
 
-public class ANewReadQueryBuilder {
+public class RelReadQueryBuilder {
     private Broker broker;
 
     public static final Integer AVG = 1;
@@ -37,24 +37,20 @@ public class ANewReadQueryBuilder {
     private List<SerializablePredicate> operations = new ArrayList<>();
 
 
-    public ANewReadQueryBuilder(Broker broker){
+    public RelReadQueryBuilder(Broker broker){
         this.broker = broker;
     }
 
     //TODO: INPUT SAFETY CHECKS
 
-    public ANewReadQueryBuilder select(){
+    public RelReadQueryBuilder select(){
         return this;
     }
-    public ANewReadQueryBuilder select(String... selectedFields){
-        if(!noDuplicateInStringArray(selectedFields)){
-            throw new RuntimeException("Duplicate elements in select clause arguments");
-        }
+    public RelReadQueryBuilder select(String... selectedFields){
         this.projectionAttributes.addAll(Arrays.asList(selectedFields));
-
         return this;
     }
-    public ANewReadQueryBuilder alias(String... aliases){
+    public RelReadQueryBuilder alias(String... aliases){
         userResultsSchema = Arrays.asList(aliases);
         if(!noDuplicateInStringArray(aliases))
             throw new RuntimeException("Error in parameter alias definition: Multiple projection args have the same alias");
@@ -65,33 +61,33 @@ public class ANewReadQueryBuilder {
         */
         return this;
     }
-    public ANewReadQueryBuilder avg(String aggregatedField, String alias){
+    public RelReadQueryBuilder avg(String aggregatedField, String alias){
         this.aggregates.add(new Pair<>(AVG, aggregatedField));
         this.aggregateUserAttributesNames.add(alias);
         return this;
     }
-    public ANewReadQueryBuilder min(String aggregatedField, String alias){
+    public RelReadQueryBuilder min(String aggregatedField, String alias){
         this.aggregates.add(new Pair<>(MIN, aggregatedField));
         this.aggregateUserAttributesNames.add(alias);
         return this;
     }
-    public ANewReadQueryBuilder max(String aggregatedField, String alias){
+    public RelReadQueryBuilder max(String aggregatedField, String alias){
         this.aggregates.add(new Pair<>(MAX, aggregatedField));
         this.aggregateUserAttributesNames.add(alias);
         return this;
     }
-    public ANewReadQueryBuilder count(String aggregatedField, String alias){
+    public RelReadQueryBuilder count(String aggregatedField, String alias){
         this.aggregates.add(new Pair<>(COUNT, aggregatedField));
         this.aggregateUserAttributesNames.add(alias);
         return this;
     }
-    public ANewReadQueryBuilder sum(String aggregatedField, String alias){
+    public RelReadQueryBuilder sum(String aggregatedField, String alias){
         aggregates.add(new Pair<>(SUM, aggregatedField));
         this.aggregateUserAttributesNames.add(alias);
         return this;
     }
 
-    public ANewReadQueryBuilder apply(SerializablePredicate... operations){
+    public RelReadQueryBuilder apply(SerializablePredicate... operations){
         for(SerializablePredicate operation: operations){
             if(operation == null){
                 this.operations.add(o->o);
@@ -102,7 +98,7 @@ public class ANewReadQueryBuilder {
         return this;
     }
 
-    public ANewReadQueryBuilder from(String tableName){
+    public RelReadQueryBuilder from(String tableName){
         if(tableName == null || tableName.isEmpty()){
             throw new RuntimeException("Invalid tableName, missing");
         }
@@ -114,7 +110,7 @@ public class ANewReadQueryBuilder {
         sourceName = tableName;
         return this;
     }
-    public ANewReadQueryBuilder from(ReadQuery subquery, String alias){
+    public RelReadQueryBuilder from(ReadQuery subquery, String alias){
         if(subquery == null){
             throw new RuntimeException("Subquery is null");
         }
@@ -128,21 +124,21 @@ public class ANewReadQueryBuilder {
         sourceSchema = subquery.getResultSchema();
         return this;
     }
-    public ANewReadQueryBuilder from(ReadQueryBuilder subqueryToBuild, String alias){
+    public RelReadQueryBuilder from(RelReadQueryBuilder subqueryToBuild, String alias){
         if(subqueryToBuild == null){
             throw new RuntimeException("Subquery is null");
         }
         return from(subqueryToBuild.build(), alias);
     }
 
-    public ANewReadQueryBuilder fromFilter(String tableName, String filter){
+    public RelReadQueryBuilder fromFilter(String tableName, String filter){
         if(filter == null || filter.isEmpty()){
             throw new RuntimeException("Filter is empty or null");
         }
         this.sourceFilter = filter;
         return from(tableName);
     }
-    public ANewReadQueryBuilder fromFilter(ReadQuery subquery, String alias, String filter){
+    public RelReadQueryBuilder fromFilter(ReadQuery subquery, String alias, String filter){
         if(filter == null || filter.isEmpty()){
             throw new RuntimeException("Filter is empty or null");
         }
@@ -153,7 +149,16 @@ public class ANewReadQueryBuilder {
         this.sourceFilter = filter;
         return from(subquery, alias);
     }
-    public ANewReadQueryBuilder fromFilter(ReadQueryBuilder subqueryToBuild, String alias, String filter){
+    public RelReadQueryBuilder fromFilter(RelReadQueryBuilder subqueryToBuild, String alias, String filter){
+        if(filter == null || filter.isEmpty()){
+            throw new RuntimeException("Filter is empty or null");
+        }
+        if(subqueryToBuild == null){
+            throw new RuntimeException("Subquery is null");
+        }
+        return fromFilter(subqueryToBuild.build(), alias, filter);
+    }
+    public RelReadQueryBuilder fromFilter(JoinQueryBuilder subqueryToBuild, String alias, String filter){
         if(filter == null || filter.isEmpty()){
             throw new RuntimeException("Filter is empty or null");
         }
@@ -163,20 +168,20 @@ public class ANewReadQueryBuilder {
         return fromFilter(subqueryToBuild.build(), alias, filter);
     }
 
-    public ANewReadQueryBuilder predicateSubquery(String alias, ReadQuery subquery){
+    public RelReadQueryBuilder predicateSubquery(String alias, ReadQuery subquery){
         predicateSubqueries.put(alias, subquery);
         return this;
     }
 
-    public ANewReadQueryBuilder having(String havingPredicate){
+    public RelReadQueryBuilder having(String havingPredicate){
         this.rawHavingPredicate = havingPredicate;
         return this;
     }
-    public ANewReadQueryBuilder distinct(){
+    public RelReadQueryBuilder distinct(){
         this.distinct = true;
         return this;
     }
-    public ANewReadQueryBuilder store(){
+    public RelReadQueryBuilder store(){
         this.isStored = true;
         return this;
     }
@@ -289,7 +294,7 @@ public class ANewReadQueryBuilder {
             }
         }
 
-        AnotherAggregateQuery query = new AnotherAggregateQuery()
+        AggregateQuery query = new AggregateQuery()
                 .setSourceName(this.sourceName)
                 .setSourceIsTable(this.sourceIsTable)
                 .setSourceSchema(this.sourceSchema)
@@ -318,7 +323,7 @@ public class ANewReadQueryBuilder {
                 operations.add(o -> o);
             }
         }
-        AnotherSimpleAggregateQuery query = new AnotherSimpleAggregateQuery()
+        SimpleAggregateQuery query = new SimpleAggregateQuery()
                 .setSourceName(this.sourceName)
                 .setSourceIsTable(this.sourceIsTable)
                 .setSourceSchema(this.sourceSchema)

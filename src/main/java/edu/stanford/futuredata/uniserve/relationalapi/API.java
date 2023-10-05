@@ -15,7 +15,7 @@ public class API {
 
     public CreateTableQuery createTable(String tableName){return new CreateTableQuery(tableName, broker);}
     public WriteQueryBuilder write(){return new WriteQueryBuilder(broker);}
-    public ANewReadQueryBuilder read(){return new ANewReadQueryBuilder(broker);}
+    public RelReadQueryBuilder read(){return new RelReadQueryBuilder(broker);}
     public DeleteQueryBuilder delete(){return new DeleteQueryBuilder(broker);}
     public JoinQueryBuilder join(){return new JoinQueryBuilder(broker);}
 }

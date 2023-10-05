@@ -1,6 +1,5 @@
 package edu.stanford.futuredata.uniserve.integration;
 
-import edu.stanford.futuredata.uniserve.awscloud.AWSDataStoreCloud;
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
@@ -9,7 +8,6 @@ import edu.stanford.futuredata.uniserve.coordinator.LoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.AnchoredReadQueryPlan;
 import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
-import edu.stanford.futuredata.uniserve.kvmockinterface.KVQueryEngine;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVRow;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShard;
 import edu.stanford.futuredata.uniserve.kvmockinterface.KVShardFactory;

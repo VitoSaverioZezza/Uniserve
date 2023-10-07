@@ -1,0 +1,20 @@
+1,Robert,Johnson,New York,123-456-7890,75000
+2,Emily,Smith,Los Angeles,234-567-8901,80000
+3,Michael,Williams,Chicago,345-678-9012,85000
+4,Susan,Brown,Houston,456-789-0123,90000
+5,David,Jones,Miami,567-890-1234,95000
+6,Linda,Davis,Boston,678-901-2345,100000
+7,John,Miller,Seattle,789-012-3456,85000
+8,Elizabeth,Clark,Austin,890-123-4567,90000
+9,James,Taylor,New York,901-234-5678,95000
+10,Jennifer,Moore,Los Angeles,123-456-7890,100000
+11,William,Anderson,Chicago,234-567-8901,105000
+12,Mary,Thomas,Houston,345-678-9012,110000
+13,Charles,Jackson,Miami,456-789-0123,115000
+14,Sarah,White,Boston,567-890-1234,120000
+15,Joseph,Harris,Seattle,678-901-2345,125000
+16,Patricia,Martin,Austin,789-012-3456,110000
+17,Christopher,Thompson,New York,890-123-4567,115000
+18,Ashley,Garcia,Los Angeles,901-234-5678,120000
+19,Matthew,Martinez,Chicago,123-456-7890,125000
+20,Jessica,Robinson,Houston,234-567-8901,130000

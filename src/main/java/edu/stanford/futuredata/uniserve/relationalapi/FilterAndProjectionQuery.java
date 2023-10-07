@@ -10,6 +10,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
 
+import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -37,7 +38,7 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
-    private List<SerializablePredicate> operations = new ArrayList<>();
+    private List<Serializable> operations = new ArrayList<>();
 
 
     public FilterAndProjectionQuery setSourceName(String sourceName) {
@@ -88,7 +89,7 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
         return this;
     }
     public FilterAndProjectionQuery setOperations(List<SerializablePredicate> operations) {
-        this.operations = operations;
+        this.operations.addAll(operations);
         return this;
     }
 
@@ -243,7 +244,7 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     }
     private ArrayList<RelRow> removeDuplicates(ArrayList<RelRow> data){
         ArrayList<RelRow> nonDuplicateRows = new ArrayList<>();
-        for(int i = 0; i < data.size()-1; i++){
+        for(int i = 0; i < data.size(); i++){
             List<RelRow> sublist = data.subList(i+1, data.size());
             if(!sublist.contains(data.get(i))){
                 nonDuplicateRows.add(data.get(i));
@@ -254,9 +255,13 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     private RelRow applyOperations(RelRow inputRow){
         List<Object> newRow = new ArrayList<>();
         for(int i = 0; i<inputRow.getSize(); i++){
-            SerializablePredicate lambda = operations.get(i);
-            newRow.add(lambda.run(inputRow.getField(i)));
+            newRow.add(applyOperation(inputRow.getField(i), operations.get(i)));
         }
         return new RelRow(newRow.toArray());
+    }
+
+    private Object applyOperation(Object o, Serializable pred){
+        SerializablePredicate predicate = (SerializablePredicate) pred;
+        return predicate.run(o);
     }
 }

@@ -159,10 +159,10 @@ public class RelTest {
         }
     }
     private void stopServers(){
-        coordinator.stopServing();
         for(DataStore dataStore:dataStores) {
             dataStore.shutDown();
         }
+        coordinator.stopServing();
         try {
             for(LocalDataStoreCloud ldsc: ldscList) {
                 ldsc.clear();
@@ -738,7 +738,11 @@ public class RelTest {
             }
             assertTrue(present);
         }
-        //assertEquals(distinctResults.getData().size(), filmRows.size()-1); //todo debug
+        printRowList(distinctResults.getData());
+        System.out.println();
+        printRowList(filmRows);
+        System.out.println(filmRows.size());
+        assertEquals(distinctResults.getData().size(), filmRows.size()-1); //todo debug
         assertEquals(distinctResults.getFieldNames(), Arrays.asList("Director", "Budget"));
         System.out.println("\tTEST ----- Distinct OK");
 

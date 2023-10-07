@@ -11,6 +11,7 @@ import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
 
+import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -32,7 +33,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
-    private List<SerializablePredicate> operations = new ArrayList<>();
+    private List<Serializable> operations = new ArrayList<>();
 
     public SimpleAggregateQuery setSourceName(String sourceName) {
         this.sourceName = sourceName;
@@ -82,7 +83,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
         return this;
     }
     public SimpleAggregateQuery setOperations(List<SerializablePredicate> operations) {
-        this.operations = operations;
+        this.operations.addAll(operations);
         return this;
     }
 
@@ -320,9 +321,13 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     private RelRow applyOperations(RelRow inputRow){
         List<Object> newRow = new ArrayList<>();
         for(int i = 0; i<inputRow.getSize(); i++){
-            SerializablePredicate lambda = operations.get(i);
-            newRow.add(lambda.run(inputRow.getField(i)));
+            newRow.add(applyOperation(inputRow.getField(i), operations.get(i)));
         }
         return new RelRow(newRow.toArray());
+    }
+
+    private Object applyOperation(Object o, Serializable pred){
+        SerializablePredicate predicate = (SerializablePredicate) pred;
+        return predicate.run(o);
     }
 }

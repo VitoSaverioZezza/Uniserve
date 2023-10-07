@@ -1,0 +1,15 @@
+Christopher Nolan,150000000
+Quentin Tarantino,80000000
+Steven Spielberg,200000000
+Martin Scorsese,120000000
+James Cameron,250000000
+Ridley Scott,110000000
+Greta Gerwig,40000000
+Jordan Peele,50000000
+Patty Jenkins,160000000
+Wes Anderson,75000000
+Denis Villeneuve,130000000
+Taika Waititi,70000000
+Sofia Coppola,35000000
+Ava DuVernay,90000000
+Guillermo del Toro,180000000

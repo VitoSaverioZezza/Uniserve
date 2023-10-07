@@ -1,6 +1,5 @@
 package edu.stanford.futuredata.uniserve.relational;
 
-import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 
@@ -13,7 +12,7 @@ import java.util.Optional;
 public class RelShard implements Shard {
     private final List<String> fieldNames = new ArrayList<>();
     private List<RelRow> data;
-    private Path shardPath;
+    private String shardPath;
 
     private List<RelRow> uncommittedRows = new ArrayList<>();
     private List<RelRow> rowsToRemove = new ArrayList<>();
@@ -31,7 +30,7 @@ public class RelShard implements Shard {
         } else {
             this.data = new ArrayList<>();
         }
-        this.shardPath = shardPath;
+        this.shardPath = shardPath.toString();
     }
 
     @Override
@@ -44,7 +43,7 @@ public class RelShard implements Shard {
 
     @Override
     public Optional<Path> shardToData() {
-        Path mapFile = Path.of(shardPath.toString(), "map.obj");
+        Path mapFile = Path.of(shardPath, "map.obj");
         try {
             FileOutputStream f = new FileOutputStream(mapFile.toFile());
             ObjectOutputStream o = new ObjectOutputStream(f);
@@ -54,7 +53,7 @@ public class RelShard implements Shard {
         } catch (IOException e) {
             return Optional.empty();
         }
-        return Optional.of(shardPath);
+        return Optional.of(Path.of(shardPath));
     }
     public List<RelRow> getData(){
         return data;

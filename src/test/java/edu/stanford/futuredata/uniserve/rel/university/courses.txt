@@ -1,0 +1,15 @@
+C101,Introduction to Computer Science,Computer Science,5,1,30
+M201,Advanced Mathematics,Mathematics,6,2,25
+PH301,Modern Physics,Physics,4,3,20
+ENG110,English Composition,English,3,4,15
+BIO202,Genetics and Evolution,Biology,5,5,28
+CHEM220,Organic Chemistry,Chemistry,5,6,22
+HIST150,World History,History,4,7,25,40
+PSYCH101,Introduction to Psychology,Psychology,3,8,35
+ARTS240,Contemporary Art,Art,3,9,18
+ECON310,Macroeconomics,Economics,6,11,30
+SOCIO220,Sociology of Culture,Sociology,5,13,25
+PHIL210,Ethics and Morality,Philosophy,4,16,20
+LANG201,Intermediate French,French,4,19,15
+MUSC160,Music Theory,Music,3,22,10
+GEOG330,Environmental Geography,Geography,5,24,22

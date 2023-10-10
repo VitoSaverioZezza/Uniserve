@@ -187,6 +187,10 @@ public class RelReadQueryBuilder {
     }
 
     public ReadQuery build(){
+        if((sourceName == null || sourceName.isEmpty()) && subquery.isEmpty()){
+            throw new RuntimeException("Unspecified source");
+        }
+
         for(Map.Entry<String, ReadQuery> entry: subquery.entrySet()){
             entry.getValue().setIsThisSubquery(true);
         }

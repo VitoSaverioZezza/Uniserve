@@ -29,9 +29,11 @@ public class DeleteQuery implements SimpleWriteQueryPlan<RelRow, RelShard> {
             for(RelRow storedRow: storedData){
                 boolean equal = true;
                 for(int i = 0; i< storedRow.getSize(); i++) {
-                    if (keyStructure[i] && !(storedRow.getField(i).equals(rowToDelete.getField(i)))){
-                        equal = false;
-                        break;
+                    if (keyStructure[i]) {
+                        if (storedRow.getField(i) != null && !(storedRow.getField(i).equals(rowToDelete.getField(i)))) {
+                            equal = false;
+                            break;
+                        }
                     }
                 }
                 if(equal){

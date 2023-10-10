@@ -139,6 +139,7 @@ public class ReadQuery implements Serializable {
             }
         }
         results.setFieldNames(resultSchema);
+        logger.info("Query completed, result schema: " + resultSchema);
         return results;
     }
     public RelReadQueryResults updateStoredResults(Broker broker){
@@ -253,6 +254,7 @@ public class ReadQuery implements Serializable {
             }
             return sourceTables;
         }else if(simpleAggregateQuery != null) {
+
             Set<String> sourceTables = new HashSet<>(simpleAggregateQuery.getQueriedTables());
             Map<String, ReadQuery> volatileSubqueries = simpleAggregateQuery.getVolatileSubqueries();
             Map<String, ReadQuery> concreteSubqueries = simpleAggregateQuery.getConcreteSubqueries();
@@ -277,6 +279,7 @@ public class ReadQuery implements Serializable {
             }
             return sourceTables;
         } else {
+
             Set<String> sourceTables = new HashSet<>(aggregateQuery.getQueriedTables());
             Map<String, ReadQuery> volatileSubqueries = aggregateQuery.getVolatileSubqueries();
             Map<String, ReadQuery> concreteSubqueries = aggregateQuery.getConcreteSubqueries();

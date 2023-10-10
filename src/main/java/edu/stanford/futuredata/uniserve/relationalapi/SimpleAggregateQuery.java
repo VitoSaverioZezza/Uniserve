@@ -131,7 +131,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
         List<RelRow> shardData = shard.getData();
         List<RelRow> filteredData = filter(shardData, concreteSubqueriesResults);
 
-        Integer aggregatingDSID = sourceName.hashCode() % numRepartitions;
+        Integer aggregatingDSID = sourceName == null ? 0 : sourceName.hashCode() % numRepartitions;
         if(aggregatingDSID < 0){
             aggregatingDSID = aggregatingDSID*-1;
         }
@@ -217,11 +217,14 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
             }
         }
 
-        JexlEngine jexl = new JexlBuilder().create();
-        JexlExpression expression = jexl.createExpression(filterPredicate);
-        JexlContext context = new MapContext(values);
-        Object result = expression.evaluate(context);
+        if(values.containsValue(null)){
+            return false;
+        }
         try{
+            JexlEngine jexl = new JexlBuilder().create();
+            JexlExpression expression = jexl.createExpression(filterPredicate);
+            JexlContext context = new MapContext(values);
+            Object result = expression.evaluate(context);
             if(!(result instanceof Boolean))
                 return false;
             else {
@@ -238,31 +241,44 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
             Integer aggregateCode = aggregate.getValue0();
             String aggregatedAttribute = aggregate.getValue1();
             if(aggregateCode.equals(RelReadQueryBuilder.AVG)){
-                Integer[] countSum = new Integer[2];
-                Arrays.fill(countSum, 0);
+                Double[] countSum = new Double[2];
+                Arrays.fill(countSum, 0D);
                 for(RelRow row: shardData){
-                    countSum[0]++;
-                    countSum[1] += (Integer) row.getField(sourceSchema.indexOf(aggregatedAttribute));
+                    Object val = row.getField(sourceSchema.indexOf(aggregatedAttribute));
+                    if(val != null){
+                        countSum[1] += ((Number) row.getField(sourceSchema.indexOf(aggregatedAttribute))).doubleValue();
+                        countSum[0]++;
+                    }
                 }
                 partialResults.add(countSum);
             } else if (aggregateCode.equals(RelReadQueryBuilder.MIN)) {
-                Integer min = Integer.MAX_VALUE;
+                Double min = Double.MAX_VALUE;
                 for (RelRow row: shardData){
-                    min = Integer.min(min, (Integer) row.getField(sourceSchema.indexOf(aggregatedAttribute)));
+                    Object val = row.getField(sourceSchema.indexOf(aggregatedAttribute));
+                    if(val != null){
+                        min = Double.min(min, ((Number) row.getField(sourceSchema.indexOf(aggregatedAttribute))).doubleValue());
+                    }
                 }
                 partialResults.add(min);
             } else if (aggregateCode.equals(RelReadQueryBuilder.MAX)) {
-                Integer max = Integer.MIN_VALUE;
+                Double max = Double.MIN_VALUE;
                 for (RelRow row: shardData){
-                    max = Integer.max(max, (Integer) row.getField(sourceSchema.indexOf(aggregatedAttribute)));
+                    Object val = row.getField(sourceSchema.indexOf(aggregatedAttribute));
+                    if(val != null){
+                        max = Double.max(max, ((Number) row.getField(sourceSchema.indexOf(aggregatedAttribute))).doubleValue());
+                    }
                 }
                 partialResults.add(max);
             } else if (aggregateCode.equals(RelReadQueryBuilder.COUNT)) {
-                partialResults.add(shardData.size());
+                Double cnt = 0D;
+                cnt += ((Number) shardData.size()).doubleValue();
+                partialResults.add(cnt);
             } else if (aggregateCode.equals(RelReadQueryBuilder.SUM)) {
-                Integer sum = 0;
+                Double sum = 0D;
                 for (RelRow row: shardData){
-                    sum += (Integer) row.getField(sourceSchema.indexOf(aggregatedAttribute));
+                    if(row.getField(sourceSchema.indexOf(aggregatedAttribute)) != null) {
+                        sum += ((Number) row.getField(sourceSchema.indexOf(aggregatedAttribute))).doubleValue();
+                    }
                 }
                 partialResults.add(sum);
             }
@@ -276,38 +292,55 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
         for(Pair<Integer, String> pair: aggregatesSpecification){
             Integer aggregateCode = pair.getValue0();
             if(aggregateCode.equals(RelReadQueryBuilder.AVG)){
-                Integer count = 0;
-                Integer sum = 0;
+                Double count = 0D;
+                Double sum = 0D;
                 for(RelRow row: partialResults){
-                    Integer[] countSum = (Integer[]) row.getField(aggregatesSpecification.indexOf(pair));
-                    count += countSum[0];
-                    sum += countSum[1];
+                    Object val = row.getField(aggregatesSpecification.indexOf(pair));
+                    if(val == null){
+                        count = 1D;
+                        sum = 0D;
+                    }else {
+                        Double[] countSum = (Double[]) row.getField(aggregatesSpecification.indexOf(pair));
+                        count += countSum[0];
+                        sum += countSum[1];
+                    }
                 }
-                if(count != 0) {
+                if(count != 0D) {
                     resultRow.add(sum / count);
+                }else{
+                    resultRow.add(count);
+
                 }
             } else if (aggregateCode.equals(RelReadQueryBuilder.MIN)) {
-                Integer min = Integer.MAX_VALUE;
-                for (RelRow row: partialResults){
-                    min = Integer.min(min, (Integer) row.getField(aggregatesSpecification.indexOf(pair)));
+                Double min = Double.MAX_VALUE;
+                for (RelRow row: partialResults) {
+                    if (row.getField(aggregatesSpecification.indexOf(pair)) != null) {
+                        min = Double.min(min, ((Number) row.getField(aggregatesSpecification.indexOf(pair))).doubleValue());
+                    }
                 }
                 resultRow.add(min);
             } else if (aggregateCode.equals(RelReadQueryBuilder.MAX)) {
-                Integer max = Integer.MIN_VALUE;
+                Double max = Double.MIN_VALUE;
                 for (RelRow row: partialResults){
-                    max = Integer.max(max, (Integer) row.getField(aggregatesSpecification.indexOf(pair)));
+                    if(row.getField(aggregatesSpecification.indexOf(pair)) != null) {
+                        max = Double.max(max, ((Number) row.getField(aggregatesSpecification.indexOf(pair))).doubleValue());
+                    }
                 }
                 resultRow.add(max);
             } else if (aggregateCode.equals(RelReadQueryBuilder.COUNT)) {
-                Integer count = 0;
+                Double count = 0D;
                 for(RelRow row: partialResults){
-                    count += (Integer) row.getField(aggregatesSpecification.indexOf(pair));
+                    if(row.getField(aggregatesSpecification.indexOf(pair)) !=null) {
+                        count += ((Number) row.getField(aggregatesSpecification.indexOf(pair))).doubleValue();
+                    }
                 }
                 resultRow.add(count);
             } else if (aggregateCode.equals(RelReadQueryBuilder.SUM)) {
-                Integer sum = 0;
+                Double sum = 0D;
                 for (RelRow row: partialResults){
-                    sum += (Integer) row.getField(aggregatesSpecification.indexOf(pair));
+                    if(row.getField(aggregatesSpecification.indexOf(pair)) !=null) {
+                        sum += ((Number) row.getField(aggregatesSpecification.indexOf(pair))).doubleValue();
+                    }
                 }
                 resultRow.add(sum);
             }

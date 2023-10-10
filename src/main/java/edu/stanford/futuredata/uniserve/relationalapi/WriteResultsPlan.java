@@ -48,15 +48,25 @@ public class WriteResultsPlan implements SimpleWriteQueryPlan<RelRow, RelShard> 
     }
 
     public RelRow getMatchingRow(List<RelRow> data, RelRow newRow) {
-        for (RelRow savedRow : data) {
+        for (RelRow oldRow : data) {
             boolean equal = true;
             for (int i = 0; i < keyStructure.length && equal; i++) {
-                if (keyStructure[i] && !savedRow.getField(i).equals(newRow.getField(i))) {
-                    equal = false;
+                Object newField = newRow.getField(i);
+                Object oldField = oldRow.getField(i);
+                if(keyStructure[i]){
+                    if(newField == null && oldField == null){
+                        continue;
+                    }else if(oldField == null){
+                        equal = false;
+                        break;
+                    }else if(!(oldRow.getField(i).equals(newRow.getField(i)))) {
+                        equal = false;
+                        break;
+                    }
                 }
             }
             if (equal) {
-                return savedRow;
+                return oldRow;
             }
         }
         return null;

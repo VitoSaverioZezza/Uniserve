@@ -646,19 +646,16 @@ public class Broker {
             TableInfo tableInfo = getTableInfo(tableName);
             int tableID = tableInfo.id;
             int numShards = tableInfo.numShards;
-            List<Integer> shardNums;
-            if (tablePartitionKeys.contains(-1)) {
-                // -1 is a wildcard--run on all shards.
-                shardNums = IntStream.range(tableID * SHARDS_PER_TABLE, tableID * SHARDS_PER_TABLE + numShards)
-                        .boxed().collect(Collectors.toList());
-                shardNums = tableInfo.getTableShardsIDs();
-
-            } else {
-                shardNums = tablePartitionKeys.stream().map(i -> keyToShard(tableID, numShards, i))
-                        .distinct().collect(Collectors.toList());
-            }
-            if(shardNums.contains(-1)){
-                shardNums.remove(Integer.valueOf(-1));
+            List<Integer> shardNums = new ArrayList<>();
+            shardNums = tableInfo.getTableShardsIDs();
+            try {
+                if((shardNums != null) && !shardNums.isEmpty() && shardNums.contains(-1)){
+                    shardNums.remove(Integer.valueOf(-1));
+                }
+            }catch (NullPointerException e){
+                System.err.println(e.getMessage());
+                System.err.println("Table: " + entry.getKey());
+                shardNums = new ArrayList<>();
             }
             targetShards.put(tableName, shardNums);
         }
@@ -1516,7 +1513,11 @@ public class Broker {
         TableInfoResponse r = coordinatorBlockingStub.tableInfo(TableInfoMessage.newBuilder().setTableName(tableName).build());
         assert(r.getReturnCode() == QUERY_SUCCESS);
         TableInfo t = new TableInfo(tableName, r.getId(), r.getNumShards());
-        Object[] attributeNamesArray = (Object[]) Utilities.byteStringToObject(r.getAttributeNames());
+        ByteString serializedAttributeNames = r.getAttributeNames();
+        Object[] attributeNamesArray = new Object[0];
+        if(serializedAttributeNames != null){
+            attributeNamesArray = (Object[]) Utilities.byteStringToObject(r.getAttributeNames());
+        }
         List<String> attributeNames = new ArrayList<>();
         for (Object o:attributeNamesArray){
             attributeNames.add((String) o);

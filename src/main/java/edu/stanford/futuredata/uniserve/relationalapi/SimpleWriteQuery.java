@@ -28,9 +28,18 @@ public class SimpleWriteQuery implements SimpleWriteQueryPlan<RelRow, RelShard> 
             for(RelRow oldRow: data){
                 boolean equal = true;
                 for(int i = 0; i<oldRow.getSize(); i++){
-                    if(keyStructure[i] && !(oldRow.getField(i).equals(newRow.getField(i)))){
-                        equal = false;
-                        break;
+                    Object newField = newRow.getField(i);
+                    Object oldField = oldRow.getField(i);
+                    if(keyStructure[i]){
+                        if(newField == null && oldField == null){
+                            continue;
+                        }else if(oldField == null){
+                            equal = false;
+                            break;
+                        }else if(!(oldRow.getField(i).equals(newRow.getField(i)))) {
+                            equal = false;
+                            break;
+                        }
                     }
                 }
                 if(equal){

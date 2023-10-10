@@ -146,10 +146,22 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         Map<Integer, List<ByteString>> returnedAssignment = new HashMap<>();
         List<String> joinAttributes = sourcesJoinAttributes.get(sourceName);
         List<String> sourceSchema = sourceSchemas.get(sourceName);
+
         for(RelRow row: filteredData){
             int key = 0;
             for(String joinAttribute: joinAttributes){
-                key += row.getField(sourceSchema.indexOf(joinAttribute)).hashCode();
+                Object val = row.getField(sourceSchema.indexOf(joinAttribute));
+                if(val == null) {
+                    key += 1;
+                }else{
+                    if(val instanceof Number) {
+                        val = ((Number) val).doubleValue();
+                    }
+                    key += val.hashCode();
+                }
+            }
+            if(numRepartitions == 0){
+                numRepartitions += 1;
             }
             key = key % numRepartitions;
             returnedAssignment.computeIfAbsent(key, k->new ArrayList<>()).add(Utilities.objectToByteString(row));
@@ -177,11 +189,20 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
                 boolean matching = true;
 
                 for(int i = 0; i < joinAttributesOne.size(); i++){
-                    if(!   (rowOne.getField(schemaSourceOne.indexOf(joinAttributesOne.get(i))).equals(
-                            rowTwo.getField(schemaSourceTwo.indexOf(joinAttributesTwo.get(i))))))
-                    {
+                    Object rowOneVal = rowOne.getField(schemaSourceOne.indexOf(joinAttributesOne.get(i)));
+                    Object rowTwoVal = rowTwo.getField(schemaSourceTwo.indexOf(joinAttributesTwo.get(i)));
+                    if(rowOneVal == null && rowTwoVal == null){
+                        ;
+                    } else if (rowOneVal == null || rowTwoVal == null) {
                         matching = false;
                         break;
+                    }else if(!rowOneVal.equals(rowTwoVal)) {
+                        if(rowOneVal instanceof Number && rowTwoVal instanceof Number &&
+                                (((Number) rowOneVal).doubleValue() == ((Number) rowTwoVal).doubleValue())){
+                        }else {
+                            matching = false;
+                            break;
+                        }
                     }
                 }
 
@@ -308,12 +329,14 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
                 values.put(attributeName, val);
             }
         }
-
-        JexlEngine jexl = new JexlBuilder().create();
-        JexlExpression expression = jexl.createExpression(filterPredicate);
-        JexlContext context = new MapContext(values);
-        Object result = expression.evaluate(context);
+        if(values.containsValue(null)){
+            return false;
+        }
         try{
+            JexlEngine jexl = new JexlBuilder().create();
+            JexlExpression expression = jexl.createExpression(filterPredicate);
+            JexlContext context = new MapContext(values);
+            Object result = expression.evaluate(context);
             if(!(result instanceof Boolean))
                 return false;
             else {

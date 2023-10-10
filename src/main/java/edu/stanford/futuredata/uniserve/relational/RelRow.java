@@ -21,9 +21,14 @@ public class RelRow implements Row {
             Arrays.fill(keyStructure, true);
         }
         int hashCodeKey = 0;
-        for(int i = 0; i<keyStructure.length; i++){
+        for(int i = 0; i<data.size() && i<keyStructure.length; i++){
             if(keyStructure[i] != null && keyStructure[i]){
-                hashCodeKey += data.get(i).hashCode();
+                Object val = data.get(i);
+                if(val == null){
+                    hashCodeKey += 0;
+                }else {
+                    hashCodeKey += data.get(i).hashCode();
+                }
             }
         }
         if(hashCodeKey<0){
@@ -46,6 +51,14 @@ public class RelRow implements Row {
             return false;
         }
         for(int i = 0; i<this.getSize(); i++){
+            Object thisField = this.getField(i);
+            Object inputField = inputRow.getField(i);
+            if(thisField == null && inputField == null){
+                return true;
+            }
+            if(thisField == null || inputField == null){
+                return false;
+            }
             if(!this.getField(i).equals(inputRow.getField(i))){
                 return false;
             }

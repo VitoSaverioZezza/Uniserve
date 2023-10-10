@@ -144,7 +144,12 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
         for(RelRow row: filteredData){
             int key = 0;
             for(String groupAttribute: systemSelectedFields){
-                key += row.getField(sourceSchema.indexOf(groupAttribute)).hashCode();
+                Object val = row.getField(sourceSchema.indexOf(groupAttribute));
+                if(val == null){
+                    key += 1;
+                }else {
+                    key += val.hashCode();
+                }
             }
             key = key % numRepartitions;
             ret.computeIfAbsent(key, k->new ArrayList<>()).add(Utilities.objectToByteString(row));
@@ -238,11 +243,12 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
             }
         }
 
-        JexlEngine jexl = new JexlBuilder().create();
-        JexlExpression expression = jexl.createExpression(filterPredicate);
-        JexlContext context = new MapContext(values);
-        Object result = expression.evaluate(context);
+
         try{
+            JexlEngine jexl = new JexlBuilder().create();
+            JexlExpression expression = jexl.createExpression(filterPredicate);
+            JexlContext context = new MapContext(values);
+            Object result = expression.evaluate(context);
             if(!(result instanceof Boolean))
                 return false;
             else {
@@ -269,11 +275,14 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
                 values.put(systemName, row.get(systemSelectedFields.indexOf(systemName))); //system names can be used only for the group attributes
             }
         }
-        JexlEngine jexl = new JexlBuilder().create();
-        JexlExpression expression = jexl.createExpression(predToTest);
-        JexlContext context = new MapContext(values);
-        Object result = expression.evaluate(context);
+        if(values.containsValue(null)){
+            return false;
+        }
         try{
+            JexlEngine jexl = new JexlBuilder().create();
+            JexlExpression expression = jexl.createExpression(predToTest);
+            JexlContext context = new MapContext(values);
+            Object result = expression.evaluate(context);
             if(!(result instanceof Boolean)) return false;
             else return (Boolean) result;
         }catch (Exception e ){
@@ -286,30 +295,52 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
         for (Pair<Integer, String> aggregate : aggregatesSpecification) {
             String attributeName = aggregate.getValue1();
             if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.AVG)) {
-                int count = 0, sum = 0;
+                Double count = 0D;
+                Double sum = 0D;
                 for (RelRow row : groupRows) {
-                    sum += (Integer)row.getField(sourceSchema.indexOf(attributeName));
-                    count++;
+                    Object val = row.getField(sourceSchema.indexOf(attributeName));
+                    if(val == null){
+                        sum += 0;
+                    }else{
+                        sum += (Double) ((Number)row.getField(sourceSchema.indexOf(attributeName))).doubleValue();
+                        count++;
+                    }
                 }
                 res.add(sum/count);
             } else if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.MIN)) {
-                int min = Integer.MAX_VALUE;
+                Double min = Double.MAX_VALUE;
                 for(RelRow row: groupRows){
-                    min = Integer.min(min, (Integer)row.getField(sourceSchema.indexOf(attributeName)));
+                    Object val = row.getField(sourceSchema.indexOf(attributeName));
+                    if(val != null){
+                        min = Double.min(min, ((Number)row.getField(sourceSchema.indexOf(attributeName))).doubleValue());
+                    }
                 }
                 res.add(min);
             } else if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.MAX)) {
-                int max = Integer.MIN_VALUE;
+                Double max = Double.MIN_VALUE;
                 for (RelRow row : groupRows) {
-                    max = Integer.max(max, (Integer) row.getField(sourceSchema.indexOf(attributeName)));
+                    Object val = row.getField(sourceSchema.indexOf(attributeName));
+                    if(val != null){
+                        max = Double.max(max, ((Number) row.getField(sourceSchema.indexOf(attributeName))).doubleValue());
+                    }
                 }
                 res.add(max);
             } else if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.COUNT)) {
-                res.add(groupRows.size());
-            }else if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.SUM)) {
-                int sum = 0;
+                Double count = 0D;
                 for(RelRow row: groupRows){
-                    sum += (Integer)row.getField(sourceSchema.indexOf(attributeName));
+                    Object val = row.getField(sourceSchema.indexOf(attributeName));
+                    if(val != null){
+                        count++;
+                    }
+                }
+                res.add(count);
+            }else if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.SUM)) {
+                Double sum = 0D;
+                for(RelRow row: groupRows){
+                    Object val = row.getField(sourceSchema.indexOf(attributeName));
+                    if(val != null){
+                        sum += ((Number) row.getField(sourceSchema.indexOf(attributeName))).doubleValue();
+                    }
                 }
                 res.add(sum);
             }else{

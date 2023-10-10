@@ -118,12 +118,12 @@ public class RelTest {
     List<DataStore<RelRow, RelShard>> dataStores = new ArrayList<>();
 
 
-    String filmFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/FilmTestFile.txt";
-    String actorFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/actorfilms/ActorTestFile.txt";
-    String coursesFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/courses.txt";
-    String examsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/exams.txt";
-    String professorsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/professors.txt";
-    String studentsFilePath = "/home/vsz/Scrivania/Uniserve/src/test/java/edu/stanford/futuredata/uniserve/rel/university/students.txt";
+    String filmFilePath = "C:\\Users\\saver\\Desktop\\Uniserve\\src\\test\\java\\edu\\stanford\\futuredata\\uniserve\\rel\\actorfilms\\FilmTestFile.txt";
+    String actorFilePath = "C:\\Users\\saver\\Desktop\\Uniserve\\src\\test\\java\\edu\\stanford\\futuredata\\uniserve\\rel\\actorfilms\\ActorTestFile.txt";
+    String coursesFilePath = "C:\\Users\\saver\\Desktop\\Uniserve\\src\\test\\java\\edu\\stanford\\futuredata\\uniserve\\rel\\university\\courses.txt";
+    String examsFilePath = "C:\\Users\\saver\\Desktop\\Uniserve\\src\\test\\java\\edu\\stanford\\futuredata\\uniserve\\rel\\university\\exams.txt";
+    String professorsFilePath = "C:\\Users\\saver\\Desktop\\Uniserve\\src\\test\\java\\edu\\stanford\\futuredata\\uniserve\\rel\\university\\professors.txt";
+    String studentsFilePath = "C:\\Users\\saver\\Desktop\\Uniserve\\src\\test\\java\\edu\\stanford\\futuredata\\uniserve\\rel\\university\\students.txt";
 
     List<String> studentsSchema = List.of("ID", "Name", "Surname", "Address", "City");
     List<String> professorsSchema = List.of("ID", "Name", "Surname", "City", "PhoneNumber", "Salary");
@@ -742,7 +742,7 @@ public class RelTest {
         System.out.println();
         printRowList(filmRows);
         System.out.println(filmRows.size());
-        assertEquals(distinctResults.getData().size(), filmRows.size()-1); //todo debug
+        assertEquals(distinctResults.getData().size(), filmRows.size()-1);
         assertEquals(distinctResults.getFieldNames(), Arrays.asList("Director", "Budget"));
         System.out.println("\tTEST ----- Distinct OK");
 
@@ -789,11 +789,11 @@ public class RelTest {
                 .max("Budget", "MaxBudget")
                 .min("Budget", "MinBudget")
                 .build().run(broker);
-        assertEquals(totFilmBudget, (int) (Integer) totBudget.getData().get(0).getField(0));
-        assertEquals(filmCount, (int) (Integer) totBudget.getData().get(0).getField(1));
-        assertEquals(avgFilmBudget, (int) (Integer) totBudget.getData().get(0).getField(2));
-        assertEquals(maxBudget, (int) (Integer) totBudget.getData().get(0).getField(3));
-        assertEquals(minBudget, (int) (Integer) totBudget.getData().get(0).getField(4));
+        assertEquals(totFilmBudget, (int) ((Number) totBudget.getData().get(0).getField(0)).doubleValue());
+        assertEquals(filmCount, (int) ((Number) totBudget.getData().get(0).getField(1)).doubleValue());
+        assertEquals(avgFilmBudget, (int) ((Number) totBudget.getData().get(0).getField(2)).doubleValue());
+        assertEquals(maxBudget, (int) ((Number) totBudget.getData().get(0).getField(3)).doubleValue());
+        assertEquals(minBudget, (int) ((Number) totBudget.getData().get(0).getField(4)).doubleValue());
         System.out.println("\t\tTEST ----- Simple Aggregate on table OK");
 
         System.out.println("\tTEST ----- Simple aggregate on filter and projection subquery");
@@ -818,11 +818,11 @@ public class RelTest {
             }
         }
         avg10 = sum10 / count10;
-        assertEquals(sum10, (int) (Integer) budgetFilmsIDMoreThan10.getData().get(0).getField(0));
-        assertEquals(count10, (int) (Integer) budgetFilmsIDMoreThan10.getData().get(0).getField(1));
-        assertEquals(avg10, (int) (Integer) budgetFilmsIDMoreThan10.getData().get(0).getField(2));
-        assertEquals(max10, (int) (Integer) budgetFilmsIDMoreThan10.getData().get(0).getField(3));
-        assertEquals(min10, (int) (Integer) budgetFilmsIDMoreThan10.getData().get(0).getField(4));
+        assertEquals(sum10,   (int) ((Number) budgetFilmsIDMoreThan10.getData().get(0).getField(0)).doubleValue());
+        assertEquals(count10, (int) ((Number) budgetFilmsIDMoreThan10.getData().get(0).getField(1)).doubleValue());
+        assertEquals(avg10, (int) ((Number) budgetFilmsIDMoreThan10.getData().get(0).getField(2)).doubleValue());
+        assertEquals(max10, (int) ((Number) budgetFilmsIDMoreThan10.getData().get(0).getField(3)).doubleValue());
+        assertEquals(min10, (int) ((Number) budgetFilmsIDMoreThan10.getData().get(0).getField(4)).doubleValue());
         System.out.println("\tTEST ----- Simple aggregate on filter and projection subquery");
 
 
@@ -862,7 +862,7 @@ public class RelTest {
         for (RelRow resRow : totalActorEarnings.getData()) {
             String directorName = (String) resRow.getField(0);
             if (counts.containsKey(directorName) && counts.get(directorName) > 1) {
-                assertEquals(sums.get(directorName), (Integer) resRow.getField(1));
+                assertEquals((Number)sums.get(directorName).doubleValue(), ((Number) resRow.getField(1)).doubleValue());
             }
         }
         System.out.println("\t\tTEST ----- Group and predicate OK");
@@ -1067,11 +1067,11 @@ public class RelTest {
         RelReadQueryResults allAggregatesSubq = api.read().select().from(allAggregates, "allAggregates").build().run(broker);
         assertEquals(allAggregatesSubq.getData().size(), 1);
         RelRow allAggregatesResultRow = allAggregatesSubq.getData().get(0);
-        assertEquals(avg, allAggregatesResultRow.getField(0));
-        assertEquals(max, allAggregatesResultRow.getField(1));
-        assertEquals(min, allAggregatesResultRow.getField(2));
-        assertEquals(count, allAggregatesResultRow.getField(3));
-        assertEquals(sum, allAggregatesResultRow.getField(4));
+        assertEquals(avg, ((Number)allAggregatesResultRow.getField(0)).intValue());
+        assertEquals(max, ((Number)allAggregatesResultRow.getField(1)).doubleValue());
+        assertEquals(min, ((Number)allAggregatesResultRow.getField(2)).doubleValue());
+        assertEquals(count, ((Number)allAggregatesResultRow.getField(3)).doubleValue());
+        assertEquals(sum,   ((Number)allAggregatesResultRow.getField(4)).doubleValue());
         System.out.println("\t\tTEST ----- Simple Aggregate subquery OK");
 
 
@@ -1085,11 +1085,11 @@ public class RelTest {
                 .sum("Grade", "sumGrades").build().run(broker);
         assertEquals(allAggregatesSubq.getData().size(), 1);
         allAggregatesResultRow = allAggregatesSubq.getData().get(0);
-        assertEquals(avg, allAggregatesResultRow.getField(0));
-        assertEquals(max, allAggregatesResultRow.getField(1));
-        assertEquals(min, allAggregatesResultRow.getField(2));
-        assertEquals(count, allAggregatesResultRow.getField(3));
-        assertEquals(sum, allAggregatesResultRow.getField(4));
+        assertEquals(avg,   ((Number)allAggregatesResultRow.getField(0)).intValue());
+        assertEquals(max,   ((Number)allAggregatesResultRow.getField(1)).intValue());
+        assertEquals(min,   ((Number)allAggregatesResultRow.getField(2)).intValue());
+        assertEquals(count, ((Number)allAggregatesResultRow.getField(3)).intValue());
+        assertEquals(sum,   ((Number)allAggregatesResultRow.getField(4)).intValue());
         System.out.println("\t\tTEST ----- Simple aggregate query on simple subquery OK");
 
 
@@ -1103,11 +1103,11 @@ public class RelTest {
                 .sum("Grade", "sumGrades").build().run(broker);
         assertEquals(allAggregatesSubq.getData().size(), 1);
         allAggregatesResultRow = allAggregatesSubq.getData().get(0);
-        assertEquals(avg, allAggregatesResultRow.getField(0));
-        assertEquals(max, allAggregatesResultRow.getField(1));
-        assertEquals(min, allAggregatesResultRow.getField(2));
-        assertEquals(count, allAggregatesResultRow.getField(3));
-        assertEquals(sum, allAggregatesResultRow.getField(4));
+        assertEquals(avg,   ((Number)allAggregatesResultRow.getField(0)).intValue());
+        assertEquals(max,   ((Number)allAggregatesResultRow.getField(1)).intValue());
+        assertEquals(min,   ((Number)allAggregatesResultRow.getField(2)).intValue());
+        assertEquals(count, ((Number)allAggregatesResultRow.getField(3)).intValue());
+        assertEquals(sum,   ((Number)allAggregatesResultRow.getField(4)).intValue());
         System.out.println("\t\tTEST ----- Simple aggregate on projection sub query OK");
 
         System.out.println("\tTEST ----- Simple aggregate on filter and projection sub query");
@@ -1132,11 +1132,11 @@ public class RelTest {
             }
         }
         avg18 = sum18 / count18;
-        assertEquals(avg18, allAggregatesResultRow.getField(0));
-        assertEquals(max18, allAggregatesResultRow.getField(1));
-        assertEquals(min18, allAggregatesResultRow.getField(2));
-        assertEquals(count18, allAggregatesResultRow.getField(3));
-        assertEquals(sum18, allAggregatesResultRow.getField(4));
+        assertEquals(avg18,   ((Number)allAggregatesResultRow.getField(0)).intValue());
+        assertEquals(max18,   ((Number)allAggregatesResultRow.getField(1)).intValue());
+        assertEquals(min18,   ((Number)allAggregatesResultRow.getField(2)).intValue());
+        assertEquals(count18, ((Number)allAggregatesResultRow.getField(3)).intValue());
+        assertEquals(sum18,   ((Number)allAggregatesResultRow.getField(4)).intValue());
         System.out.println("\t\tTEST ----- Simple aggregate on filter and projection sub query OK");
 
 
@@ -1170,7 +1170,7 @@ public class RelTest {
                 maxAVG = currentStudentAVG;
         }
         for(RelRow readRow: maxAvgGrade.getData()){
-            assertEquals(maxAVG, ((int) readRow.getField(0)));
+            assertEquals(maxAVG, ((Number) readRow.getField(0)).intValue());
         }
         System.out.println("\t\tTEST ----- Aggregate on aggregate subquery OK");
 

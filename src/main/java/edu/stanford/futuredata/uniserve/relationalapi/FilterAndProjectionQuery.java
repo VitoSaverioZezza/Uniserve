@@ -211,11 +211,14 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
             }
         }
 
-        JexlEngine jexl = new JexlBuilder().create();
-        JexlExpression expression = jexl.createExpression(filterPredicate);
-        JexlContext context = new MapContext(values);
-        Object result = expression.evaluate(context);
+        if(values.containsValue(null)){
+            return false;
+        }
         try{
+            JexlEngine jexl = new JexlBuilder().create();
+            JexlExpression expression = jexl.createExpression(filterPredicate);
+            JexlContext context = new MapContext(values);
+            Object result = expression.evaluate(context);
             if(!(result instanceof Boolean))
                 return false;
             else {

@@ -305,7 +305,6 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     private boolean evaluatePredicate(RelRow row, String sourceName, Map<String, RelReadQueryResults> subqueriesResults){
         Map<String, Object> values = new HashMap<>();
         List<String> sourceSchema = sourceSchemas.get(sourceName);
-        String sourceAlias = "";
         String filterPredicate = filterPredicates.get(sourceName);
 
         for(Map.Entry<String, RelReadQueryResults> subqRes: subqueriesResults.entrySet()){
@@ -313,19 +312,13 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
                 values.put(subqRes.getKey(), subqRes.getValue().getData().get(0).getField(0));
             }
         }
-        for(String attributeName: sourceSchema){
+        for (String attributeName : sourceSchema) {
             Object val = row.getField(sourceSchema.indexOf(attributeName));
-            String systemName = sourceName+"."+attributeName;
-            if(filterPredicate.contains(systemName)){
+            String systemName = sourceName + "." + attributeName;
+            if (filterPredicate.contains(systemName)) {
                 values.put(systemName, val);
             }
-            if(!sourceAlias.isEmpty() && filterPredicate.contains(sourceAlias)){
-                String aliasAttr = sourceAlias+"."+attributeName;
-                if(filterPredicate.contains(aliasAttr)){
-                    values.put(aliasAttr, val);
-                }
-            }
-            if(filterPredicate.contains(attributeName)){
+            if (filterPredicate.contains(attributeName)) {
                 values.put(attributeName, val);
             }
         }

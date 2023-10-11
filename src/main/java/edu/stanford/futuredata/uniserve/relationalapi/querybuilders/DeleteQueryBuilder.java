@@ -50,18 +50,20 @@ public class DeleteQueryBuilder {
 
 
     public DeleteQueryBuilder build(){
-        if(table.isEmpty()){
+        if(table == null || table.isEmpty()){
             throw new RuntimeException("No table is specified");
         }
         TableInfo tableInfo = broker.getTableInfo(table);
-        if(tableInfo == null){
-            throw new RuntimeException("Impossible to find the specified table");
+        if(tableInfo == null || tableInfo.equals(Broker.NIL_TABLE_INFO)){
+            throw new RuntimeException("Table " + table + " is not a valid table name");
         }
         if(data.isEmpty()){
-            throw new RuntimeException("No data to remove has been specified");
+            throw new RuntimeException("No data to be removed has been specified");
         }
         keyStructure = tableInfo.getKeyStructure();
-        assert (keyStructure != null);
+        if(keyStructure == null){
+            throw new RuntimeException("ERROR SEVERE: invalid keys defined for table " +table);
+        }
         return this;
     }
 

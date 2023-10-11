@@ -20,6 +20,8 @@ public class JoinQueryBuilder {
     private Map<String, List<String>> joinAttributes = new HashMap<>();
     private Map<String, String> filterPredicates = new HashMap<>();
 
+    private List<String> rawSelectArguments = new ArrayList<>();
+
     private List<String> resultUserSchema = new ArrayList<>();
     private List<String> resultSystemSchema = new ArrayList<>();
 
@@ -32,6 +34,12 @@ public class JoinQueryBuilder {
 
     public JoinQueryBuilder(Broker broker){
         this.broker = broker;
+    }
+
+
+    public JoinQueryBuilder select(String... selectArguments){
+        rawSelectArguments.addAll(Arrays.asList(selectArguments));
+        return this;
     }
 
     public JoinQueryBuilder sources(String tableOne, String tableTwo, String filterOne, String filterTwo, List<String> joinAttributesOne, List<String> joinAttributesTwo){
@@ -241,28 +249,63 @@ public class JoinQueryBuilder {
     }
 
     public ReadQuery build(){
-        List<String> systemSourceOneSchema = new ArrayList<>();
-        List<String> systemSourceTwoSchema = new ArrayList<>();
-        for(String att: sourcesSchemas.get(sourceOne)){
-            systemSourceOneSchema.add(sourceOne+"."+att);
-        }for(String att: sourcesSchemas.get(sourceTwo)){
-            systemSourceTwoSchema.add(sourceTwo+"."+att);
-        }
+        if(rawSelectArguments.isEmpty()) {
+            List<String> systemSourceOneSchema = new ArrayList<>();
+            List<String> systemSourceTwoSchema = new ArrayList<>();
+            for (String att : sourcesSchemas.get(sourceOne)) {
+                systemSourceOneSchema.add(sourceOne + "." + att);
+            }
+            for (String att : sourcesSchemas.get(sourceTwo)) {
+                systemSourceTwoSchema.add(sourceTwo + "." + att);
+            }
 
-        for(Map.Entry<String, ReadQuery> entry: subqueries.entrySet()){
-            entry.getValue().setIsThisSubquery(true);
-        }
+            for (Map.Entry<String, ReadQuery> entry : subqueries.entrySet()) {
+                entry.getValue().setIsThisSubquery(true);
+            }
 
-        resultSystemSchema.addAll(systemSourceOneSchema);
-        resultSystemSchema.addAll(systemSourceTwoSchema);
-        if(resultUserSchema.size() < resultSystemSchema.size()){
-            for(int i = resultUserSchema.size(); i < resultSystemSchema.size(); i++){
+            resultSystemSchema.addAll(systemSourceOneSchema);
+            resultSystemSchema.addAll(systemSourceTwoSchema);
+        }else{
+            //check validity of user-defined system result schema
+            for (String rawSelectArgument : rawSelectArguments) {
+                String[] split = rawSelectArgument.split("\\.");
+                if (split.length < 2) {
+                    throw new RuntimeException("Invalid select argument specification in join query");
+                }
+                String source = split[0];
+                if (source == null || source.isEmpty()) {
+                    throw new RuntimeException("Invalid select argument, unspecified source in dotted notation");
+                }
+                if (!(source.equals(sourceOne) || source.equals(sourceTwo))) {
+                    throw new RuntimeException("Specified source " + source + " is not a source in the join.");
+                }
+                StringBuilder stringBuilder = new StringBuilder();
+                for (int i = 1; i < split.length - 1; i++) {
+                    if (split[i] == null || split[i].isEmpty()) {
+                        throw new RuntimeException("Invalid select argument, malformed dotted notation");
+                    }
+                    stringBuilder.append(split[i]);
+                    stringBuilder.append(".");
+                }
+                stringBuilder.append(split[split.length - 1]);
+                String attributeName = stringBuilder.toString();
+                List<String> sourceSchema = sourcesSchemas.get(source);
+                if (sourceSchema == null) {
+                    throw new RuntimeException("Unavailable schema for source " + source);
+                }
+                if (!sourceSchema.contains(attributeName)) {
+                    throw new RuntimeException(attributeName + " is not an attribute of source " + source);
+                }
+                resultSystemSchema.add(source+"."+attributeName);
+            }
+        }
+        if (resultUserSchema.size() < resultSystemSchema.size()) {
+            for (int i = resultUserSchema.size(); i < resultSystemSchema.size(); i++) {
                 resultUserSchema.add(resultSystemSchema.get(i));
             }
         } else if (resultUserSchema.size() > resultSystemSchema.size()) {
             resultUserSchema.subList(resultSystemSchema.size(), resultUserSchema.size()).clear();
         }
-
         if(operations.size() < resultUserSchema.size()){
             for(int i = operations.size(); i<resultUserSchema.size(); i++){
                 operations.add(o -> o);

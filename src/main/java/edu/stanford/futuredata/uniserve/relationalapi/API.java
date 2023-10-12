@@ -18,4 +18,5 @@ public class API {
     public RelReadQueryBuilder read(){return new RelReadQueryBuilder(broker);}
     public DeleteQueryBuilder delete(){return new DeleteQueryBuilder(broker);}
     public JoinQueryBuilder join(){return new JoinQueryBuilder(broker);}
+    public UnionQueryBuilder union(){return new UnionQueryBuilder(broker);}
 }

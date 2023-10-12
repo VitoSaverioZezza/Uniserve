@@ -317,6 +317,51 @@ public class RelTest {
 
 
     @Test
+    public void unionTest(){
+        startServers();
+        Broker broker = new Broker(zkHost, zkPort);
+        API api = new API(broker);
+        loadActorsAndFilms();
+
+        System.out.println("----- UNION QUERY TESTING ------");
+        System.out.println("\tTEST ----- Creating table");
+
+        api.createTable("Actors").attributes(actorsSchema.toArray(new String[0])).shardNumber(20).keys("ID").build().run();
+        api.write().table("Actors").data(actorRows).build().run();
+
+
+
+        ReadQuery rq1 = api.read().select().fromFilter("Actors", "ID <= 20").build();
+        ReadQuery rq2 = api.read().select().fromFilter("Actors", "ID > 20 && ID <= 40").build();
+
+        printRowList(rq1.run(broker).getData());
+        printRowList(rq2.run(broker).getData());
+
+
+        ReadQuery union = api.union().sources(rq1, rq2, "rq1", "rq2").build();
+
+
+        RelReadQueryResults results = union.run(broker);
+        System.out.println("Size: "+ results.getData().size());
+
+        printRowList(results.getData());
+
+        for(int i = 0; i<=40; i++){
+            boolean present = false;
+            for(RelRow row: results.getData()){
+                Integer id = ((Number)row.getField(0)).intValue();
+                if(id == i){
+                    present = true;
+                    break;
+                }
+            }
+            assertTrue(present);
+        }
+        broker.shutdown();
+        stopServers();
+    }
+
+    @Test
     public void operationTests(){
         startServers();
         Broker broker = new Broker(zkHost, zkPort);
@@ -677,8 +722,7 @@ public class RelTest {
         System.out.println("\tTEST ----- Join");
         RelReadQueryResults joinResults = api.join()
                 .sources("Actors", "Films",
-                        "", "Director == \"Christopher Nolan\"",
-                        List.of("FilmID"), List.of("ID")).build()
+                        List.of("FilmID"), List.of("ID")).filters("", "Director == \"Christopher Nolan\"").build()
                 .run(broker);
         int joinSize = 0;
         for(RelRow actorWrittenRow: actorRows){
@@ -833,7 +877,7 @@ public class RelTest {
                 .sum("Actors.Salary", "TotalActorsEarnings")
                 .count("Actors.Salary", "NumFilms")
                 .from(
-                        api.join().sources("Actors", "Films",  null, null,
+                        api.join().sources("Actors", "Films",
                                 List.of("FilmID"), List.of("ID")).build(), "JoinedFilmsActors"
                 )
                 .having("NumFilms > 1")
@@ -1181,7 +1225,7 @@ public class RelTest {
                 api.join().sources(
                                 "Courses",
                                 api.read().select().max("CFUs", "maxCFU").from("Courses").build(),
-                                "C1", "", "",
+                                "C1",
                                 List.of("CFUs"), List.of("maxCFU")
                         ).build(), "Join")
                 .build().run(broker);
@@ -1252,7 +1296,7 @@ public class RelTest {
         RelReadQueryResults atLeast20 = api.read().select("Exams.CourseCode", "Students.ID", "Students.Name", "Students.Surname")
                 .alias("CourseCode", "StudentID", "Name", "Surname")
                 .from(
-                    api.join().sources("Exams", "Students", "Grade >= 20", "", List.of("StudentID"), List.of("ID")).build(), "J"
+                    api.join().sources("Exams", "Students", List.of("StudentID"), List.of("ID")).filters("Grade >= 20", "").build(), "J"
                 ).build().run(broker);
         System.out.println("\t\tExecution time: " + (System.currentTimeMillis() - tStart)+"ms.");
         int matchesSize = 0;
@@ -1286,7 +1330,6 @@ public class RelTest {
                 .fromFilter(
                         api.join().sources(
                                 "Exams", "Students",
-                                "", "",
                                 List.of("StudentID"), List.of("ID")).build(),
                         "J", "Exams.Grade >= 20"
                 ).build().run(broker);
@@ -1503,7 +1546,6 @@ public class RelTest {
                 .from(
                         api.join()
                                 .sources("Actors", "Films",
-                                        null, null,
                                         List.of("FilmID"), List.of("ID")
                                 ).build(), "Join")
                 .having("NumFilms > 1")

@@ -237,9 +237,35 @@ public class RelReadQueryBuilder {
             }
         }
 
+        List<Integer> indexesOfResultAttributes = new ArrayList<>();
+        for(String resultSystemAttribute: this.projectionAttributes){
+            int index = this.sourceSchema.indexOf(resultSystemAttribute);
+            if(index == -1){
+                throw new RuntimeException("Selected attribute " + resultSystemAttribute+" not in source schema");
+            }else{
+                indexesOfResultAttributes.add(index);
+            }
+        }
+
+
+        List<Pair<String, Integer>> predVarToIndex = new ArrayList<>();
+        if(this.sourceFilter != null && !this.sourceFilter.isEmpty()) {
+            for (String sourceAttributeName : sourceSchema) {
+                if (this.sourceFilter.contains(sourceAttributeName)) {
+                    predVarToIndex.add(new Pair<>(sourceAttributeName, sourceSchema.indexOf(sourceAttributeName)));
+                }
+            }
+
+            for (String userAlias : resultSchema) {
+                if (this.sourceFilter.contains(userAlias)) {
+                    predVarToIndex.add(new Pair<>(userAlias, sourceSchema.indexOf(this.projectionAttributes.get(resultSchema.indexOf(userAlias)))));
+                }
+            }
+        }
+
         FilterAndProjectionQuery query = new FilterAndProjectionQuery()
                 .setSourceName          (this.sourceName)
-                .setSourceSchema        (this.sourceSchema)
+                //.setSourceSchema        (this.sourceSchema)
                 .setResultSchema        (resultSchema)
                 .setSystemResultSchema  (this.projectionAttributes)
                 .setFilterPredicate     (this.sourceFilter)
@@ -247,6 +273,8 @@ public class RelReadQueryBuilder {
                 .setSourceSubqueries    (this.subquery)
                 .setPredicateSubqueries (this.predicateSubqueries)
                 .setOperations(this.operations)
+                .setResultSourceIndexes(indexesOfResultAttributes)
+                .setPredicateVarToIndexes(predVarToIndex)
                 ;
         if(this.distinct){
             query = query.setDistinct();
@@ -298,6 +326,36 @@ public class RelReadQueryBuilder {
             }
         }
 
+        List<Integer> groupAttributesIndexes = new ArrayList<>();
+        for(String groupAttribute: systemSelectFields){
+            int index = sourceSchema.indexOf(groupAttribute);
+            if(index != -1){
+                groupAttributesIndexes.add(index);
+            }else{
+                throw new RuntimeException("Group attribute " + groupAttribute + " is not in the source's schema");
+            }
+        }
+        List<Pair<Integer, Integer>> aggregatesOPsToIndexes = new ArrayList<>();
+        for(Pair<Integer, String> aggregate: this.aggregates){
+            int OP = aggregate.getValue0();
+            String name = aggregate.getValue1();
+            int index = sourceSchema.indexOf(name);
+            if(index != -1){
+                aggregatesOPsToIndexes.add(new Pair<>(OP, index));
+            }else{
+                throw new RuntimeException("Group attribute " + name + " is not in the source's schema");
+            }
+        }
+
+        List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
+        for(String attributeName: sourceSchema){
+            if(this.sourceFilter.contains(attributeName)){
+                int index = sourceSchema.indexOf(attributeName);
+                predicateVarToIndexes.add(new Pair<>(attributeName, index));
+            }
+        }
+
+
         AggregateQuery query = new AggregateQuery()
                 .setSourceName(this.sourceName)
                 .setSourceIsTable(this.sourceIsTable)
@@ -311,11 +369,14 @@ public class RelReadQueryBuilder {
                 .setHavingPredicate(this.rawHavingPredicate)
                 .setPredicateSubqueries(this.predicateSubqueries)
                 .setOperations(this.operations)
+                .setAggregatesOPToIndex(aggregatesOPsToIndexes)
+                .setGroupAttributesIndexes(groupAttributesIndexes)
+                .setPredicateVarToIndexes(predicateVarToIndexes)
                 ;
         if(this.isStored){
             query = query.setStored();
         }
-        ReadQuery readQuery = new ReadQuery().setAnotherAggregateQuery(query).setResultSchema(finalUserSchema);
+        ReadQuery readQuery = new ReadQuery().setAggregateQuery(query).setResultSchema(finalUserSchema);
         if(this.isStored){
             readQuery = readQuery.setStored();
         }
@@ -327,10 +388,31 @@ public class RelReadQueryBuilder {
                 operations.add(o -> o);
             }
         }
+
+        List<Pair<Integer, Integer>> aggregatesOPsToIndexes = new ArrayList<>();
+        for(Pair<Integer, String> operation: this.aggregates){
+            Integer op = operation.getValue0();
+            String attributeName = operation.getValue1();
+            int index = this.sourceSchema.indexOf(attributeName);
+            if(index != -1){
+                aggregatesOPsToIndexes.add(new Pair<>(op, index));
+            }else{
+                throw new RuntimeException("Attribute " + attributeName + " is not part of the schema of the source");
+            }
+        }
+
+        List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
+        for(String attributeName: sourceSchema){
+            if(this.sourceFilter.contains(attributeName)){
+                int index = sourceSchema.indexOf(attributeName);
+                predicateVarToIndexes.add(new Pair<>(attributeName, index));
+            }
+        }
+
         SimpleAggregateQuery query = new SimpleAggregateQuery()
                 .setSourceName(this.sourceName)
                 .setSourceIsTable(this.sourceIsTable)
-                .setSourceSchema(this.sourceSchema)
+                //.setSourceSchema(this.sourceSchema)
                 .setResultsSchema(aggregateUserAttributesNames)
                 .setAggregatesSpecification(this.aggregates)
                 .setFilterPredicate(this.sourceFilter)
@@ -338,11 +420,13 @@ public class RelReadQueryBuilder {
                 .setIsThisSubquery(false)
                 .setPredicateSubqueries(this.predicateSubqueries)
                 .setOperations(this.operations)
+                .setAggregatesOPsToIndexes(aggregatesOPsToIndexes)
+                .setPredicateVarToIndexes(predicateVarToIndexes)
                 ;
         if(this.isStored){
             query = query.setStored();
         }
-        ReadQuery readQuery = new ReadQuery().setResultSchema(aggregateUserAttributesNames).setAnotherSimpleAggregateQuery(query);
+        ReadQuery readQuery = new ReadQuery().setResultSchema(aggregateUserAttributesNames).setSimpleAggregateQuery(query);
         if(this.isStored){
             readQuery = readQuery.setStored();
         }

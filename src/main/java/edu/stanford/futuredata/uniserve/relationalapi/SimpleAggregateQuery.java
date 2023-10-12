@@ -23,7 +23,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
 
     private String sourceName = "";
     private boolean sourceIsTable = true;
-    private List<String> sourceSchema = new ArrayList<>();
+    //private List<String> sourceSchema = new ArrayList<>();
     private List<String> resultsSchema = new ArrayList<>();
     private List<Pair<Integer, String>> aggregatesSpecification = new ArrayList<>();
     private String filterPredicate = "";
@@ -34,6 +34,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
     private List<Serializable> operations = new ArrayList<>();
+    private List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
 
     public SimpleAggregateQuery setSourceName(String sourceName) {
         this.sourceName = sourceName;
@@ -43,10 +44,10 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
         this.sourceIsTable = sourceIsTable;
         return this;
     }
-    public SimpleAggregateQuery setSourceSchema(List<String> sourceSchema) {
+    /*public SimpleAggregateQuery setSourceSchema(List<String> sourceSchema) {
         this.sourceSchema = sourceSchema;
         return this;
-    }
+    }*/
     public SimpleAggregateQuery setResultsSchema(List<String> resultsSchema) {
         this.resultsSchema = resultsSchema;
         return this;
@@ -84,6 +85,10 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     }
     public SimpleAggregateQuery setOperations(List<SerializablePredicate> operations) {
         this.operations.addAll(operations);
+        return this;
+    }
+    public SimpleAggregateQuery setPredicateVarToIndexes(List<Pair<String, Integer>> predicateVarToIndexes) {
+        this.predicateVarToIndexes = predicateVarToIndexes;
         return this;
     }
 
@@ -185,6 +190,8 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
         return results;
     }
 
+
+
     private List<RelRow> filter(List<RelRow> data, Map<String, ReadQueryResults> subqRes) {
         if(filterPredicate.isEmpty()){
             return data;
@@ -209,11 +216,20 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
                 values.put(entry.getKey(), entry.getValue().getData().get(0).getField(0));
             }
         }
-
+/*
         for(String attributeName: sourceSchema){
             if(filterPredicate.contains(attributeName)){
                 Object val = row.getField(sourceSchema.indexOf(attributeName));
                 values.put(attributeName, val);
+            }
+        }
+*/
+        for(Pair<String, Integer> nameToVar: predicateVarToIndexes){
+            Object val = row.getField(nameToVar.getValue1());
+            if(val == null){
+                return false;
+            }else{
+                values.put(nameToVar.getValue0(), val);
             }
         }
 
@@ -235,7 +251,14 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
             return false;
         }
     }
+
+    List<Pair<Integer, Integer>> aggregatesOPsToIndexes = new ArrayList<>();
+    public SimpleAggregateQuery setAggregatesOPsToIndexes(List<Pair<Integer, Integer>> aggregatesOPsToIndexes){
+        this.aggregatesOPsToIndexes = aggregatesOPsToIndexes;
+        return this;
+    }
     private RelRow computePartialResults(List<RelRow> shardData){
+/*
         List<Object> partialResults = new ArrayList<>();
         for(Pair<Integer, String> aggregate: aggregatesSpecification){
             Integer aggregateCode = aggregate.getValue0();
@@ -283,12 +306,65 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
                 partialResults.add(sum);
             }
         }
+*/
+
+
+        List<Object> partialResults = new ArrayList<>();
+        for(Pair<Integer, Integer> aggregate: aggregatesOPsToIndexes){
+            Integer aggregateCode = aggregate.getValue0();
+            Integer index = aggregate.getValue1();
+            if(aggregateCode.equals(RelReadQueryBuilder.AVG)){
+                Double[] countSum = new Double[2];
+                Arrays.fill(countSum, 0D);
+                for(RelRow row: shardData){
+                    Object val = row.getField(index);
+                    if(val != null){
+                        countSum[1] += ((Number) val).doubleValue();
+                        countSum[0]++;
+                    }
+                }
+                partialResults.add(countSum);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.MIN)) {
+                Double min = Double.MAX_VALUE;
+                for (RelRow row: shardData){
+                    Object val = row.getField(index);
+                    if(val != null){
+                        min = Double.min(min, ((Number) val).doubleValue());
+                    }
+                }
+                partialResults.add(min);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.MAX)) {
+                Double max = Double.MIN_VALUE;
+                for (RelRow row: shardData){
+                    Object val = row.getField(index);
+                    if(val != null){
+                        max = Double.max(max, ((Number) val).doubleValue());
+                    }
+                }
+                partialResults.add(max);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.COUNT)) {
+                Double cnt = 0D;
+                cnt += ((Number) shardData.size()).doubleValue();
+                partialResults.add(cnt);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.SUM)) {
+                Double sum = 0D;
+                for (RelRow row: shardData){
+                    Object val = row.getField(index);
+                    if(val != null) {
+                        sum += ((Number) val).doubleValue();
+                    }
+                }
+                partialResults.add(sum);
+            }
+        }
+
 
 
         return new RelRow(partialResults.toArray());
     }
     private RelRow computeResults(List<RelRow> partialResults){
         List<Object> resultRow = new ArrayList<>();
+/*
         for(Pair<Integer, String> pair: aggregatesSpecification){
             Integer aggregateCode = pair.getValue0();
             if(aggregateCode.equals(RelReadQueryBuilder.AVG)){
@@ -345,6 +421,73 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
                 resultRow.add(sum);
             }
         }
+
+
+ */
+
+        for(int i = 0; i<aggregatesOPsToIndexes.size(); i++){
+            Integer aggregateCode = aggregatesOPsToIndexes.get(i).getValue0();
+            if(aggregateCode.equals(RelReadQueryBuilder.AVG)){
+                Double count = 0D;
+                Double sum = 0D;
+                for(RelRow row: partialResults){
+                    Object val = row.getField(i);
+                    if(val == null){
+                        count = 1D;
+                        sum = 0D;
+                    }else {
+                        Double[] countSum = (Double[]) row.getField(i);
+                        count += countSum[0];
+                        sum += countSum[1];
+                    }
+                }
+                if(count != 0D) {
+                    resultRow.add(sum / count);
+                }else{
+                    resultRow.add(count);
+
+                }
+            } else if (aggregateCode.equals(RelReadQueryBuilder.MIN)) {
+                Double min = Double.MAX_VALUE;
+                for (RelRow row: partialResults) {
+                    Object val = row.getField(i);
+                    if (val != null) {
+                        min = Double.min(min, ((Number) val).doubleValue());
+                    }
+                }
+                resultRow.add(min);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.MAX)) {
+                Double max = Double.MIN_VALUE;
+                for (RelRow row: partialResults){
+                    Object val = row.getField(i);
+                    if(val != null) {
+                        max = Double.max(max, ((Number) val).doubleValue());
+                    }
+                }
+                resultRow.add(max);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.COUNT)) {
+                Double count = 0D;
+                for(RelRow row: partialResults){
+                    Object val = row.getField(i);
+                    if(val !=null) {
+                        count += ((Number) val).doubleValue();
+                    }
+                }
+                resultRow.add(count);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.SUM)) {
+                Double sum = 0D;
+                for (RelRow row: partialResults){
+                    Object val = row.getField(i);
+                    if(val !=null) {
+                        sum += ((Number) val).doubleValue();
+                    }
+                }
+                resultRow.add(sum);
+            }
+        }
+
+
+
         if(operations.isEmpty()) {
             return new RelRow(resultRow.toArray());
         }else{

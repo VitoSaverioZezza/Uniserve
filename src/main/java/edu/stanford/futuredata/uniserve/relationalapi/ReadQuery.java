@@ -18,6 +18,7 @@ public class ReadQuery implements Serializable {
     private SimpleAggregateQuery simpleAggregateQuery = null;
     private JoinQuery joinQuery = null;
     private AggregateQuery aggregateQuery = null;
+    private UnionQuery unionQuery = null;
 
     private List<String> resultSchema = new ArrayList<>();
 
@@ -30,7 +31,7 @@ public class ReadQuery implements Serializable {
         this.filterAndProjectionQuery = filterAndProjectionQuery;
         return this;
     }
-    public ReadQuery setAnotherAggregateQuery(AggregateQuery aggregateQuery) {
+    public ReadQuery setAggregateQuery(AggregateQuery aggregateQuery) {
         this.aggregateQuery = aggregateQuery;
         return this;
     }
@@ -38,11 +39,14 @@ public class ReadQuery implements Serializable {
         this.joinQuery = query;
         return this;
     }
-    public ReadQuery setAnotherSimpleAggregateQuery(SimpleAggregateQuery simpleAggregateQuery) {
+    public ReadQuery setSimpleAggregateQuery(SimpleAggregateQuery simpleAggregateQuery) {
         this.simpleAggregateQuery = simpleAggregateQuery;
         return this;
     }
-
+    public ReadQuery setUnionQuery(UnionQuery unionQuery){
+        this.unionQuery = unionQuery;
+        return this;
+    }
     public ReadQuery setStored(){
         this.stored = true;
         return this;
@@ -55,12 +59,15 @@ public class ReadQuery implements Serializable {
             simpleAggregateQuery.setResultTableName(resultTableName);
         } else if (aggregateQuery != null) {
             aggregateQuery.setResultTableName(resultTableName);
-        } else {
+        } else if(joinQuery != null) {
             joinQuery.setResultTableName(resultTableName);
+        } else if (unionQuery != null) {
+            unionQuery.setResultTableName(resultTableName);
+        } else {
+            throw new RuntimeException("No valid query is defined");
         }
         return this;
     }
-
     public ReadQuery setIsThisSubquery(boolean isThisSubquery){
         if(filterAndProjectionQuery != null){
             filterAndProjectionQuery.setIsThisSubquery(isThisSubquery);
@@ -70,7 +77,9 @@ public class ReadQuery implements Serializable {
             aggregateQuery.setIsThisSubquery(isThisSubquery);
         } else if (joinQuery != null){
             joinQuery.setIsThisSubquery(isThisSubquery);
-        } else {
+        } else if (unionQuery != null) {
+            unionQuery.setIsThisSubquery(isThisSubquery);
+        }else{
             throw new RuntimeException("No valid query is defined");
         }
         return this;
@@ -89,9 +98,17 @@ public class ReadQuery implements Serializable {
     public Boolean[] getKeyStructure() {
         return keyStructure;
     }
+    public boolean getIsThisSubquery(){
+        if(simpleAggregateQuery != null) return simpleAggregateQuery.isThisSubquery();
+        else if (aggregateQuery != null) return aggregateQuery.isThisSubquery();
+        else if (filterAndProjectionQuery != null) return filterAndProjectionQuery.isThisSubquery();
+        else if (joinQuery != null) return joinQuery.isThisSubquery();
+        else if (unionQuery != null) return unionQuery.isThisSubquery();
+        else throw new RuntimeException("No valid query is defined");
+    }
 
     public RelReadQueryResults run(Broker broker){
-        if(filterAndProjectionQuery == null && joinQuery == null && aggregateQuery == null && simpleAggregateQuery == null){
+        if(filterAndProjectionQuery == null && joinQuery == null && aggregateQuery == null && simpleAggregateQuery == null && unionQuery == null){
             throw new RuntimeException("No valid query is defined");
         }
         RelReadQueryResults results = new RelReadQueryResults();
@@ -106,6 +123,8 @@ public class ReadQuery implements Serializable {
             } else if (aggregateQuery != null && aggregateQuery.isThisSubquery()) {
                 rq.setIsThisSubquery(true);
             } else if (joinQuery != null && joinQuery.isThisSubquery()) {
+                rq.setIsThisSubquery(true);
+            } else if (unionQuery != null && unionQuery.isThisSubquery()) {
                 rq.setIsThisSubquery(true);
             }
             results = rq.run(broker);
@@ -126,6 +145,18 @@ public class ReadQuery implements Serializable {
                 } else if (joinQuery != null) {
                     keyStructure = new Boolean[resultSchema.size()];
                     Arrays.fill(keyStructure, true);
+                } else if (unionQuery != null) {
+                    keyStructure = new Boolean[resultSchema.size()];
+                    Arrays.fill(keyStructure, false);
+                    List<String> srcs = unionQuery.getTableNames();
+                    for(String srcName: srcs){
+                        Boolean[] srcKey = broker.getTableInfo(srcName).getKeyStructure();
+                        for(int i = 0; i<srcKey.length && i<keyStructure.length; i++){
+                            keyStructure[i] = keyStructure[i] || srcKey[i];
+                        }
+                    }
+                }else{
+                    throw new RuntimeException("No valid stored query is defined");
                 }
             }
             if (filterAndProjectionQuery != null) {
@@ -134,8 +165,12 @@ public class ReadQuery implements Serializable {
                 results = broker.shuffleReadQuery(simpleAggregateQuery);
             } else if (aggregateQuery != null) {
                 results = broker.shuffleReadQuery(aggregateQuery);
-            } else {
+            } else if(joinQuery != null){
                 results = broker.shuffleReadQuery(joinQuery);
+            } else if (unionQuery != null)  {
+                results = broker.retrieveAndCombineReadQuery(unionQuery);
+            }else{
+                throw new RuntimeException("No valid query is defined for run");
             }
         }
         results.setFieldNames(resultSchema);
@@ -149,8 +184,12 @@ public class ReadQuery implements Serializable {
             broker.shuffleReadQuery(simpleAggregateQuery);
         } else if (aggregateQuery != null) {
             broker.shuffleReadQuery(aggregateQuery);
-        } else {
+        } else if(joinQuery != null){
             broker.shuffleReadQuery(joinQuery);
+        } else if (unionQuery != null) {
+            broker.retrieveAndCombineReadQuery(unionQuery);
+        }else {
+            throw new RuntimeException("No valid stored query is defined");
         }
         return null;
     }
@@ -278,7 +317,18 @@ public class ReadQuery implements Serializable {
                 sourceTables.addAll(subquery.getSourceTables());
             }
             return sourceTables;
-        } else {
+        } else if (unionQuery != null) {
+            Set<String> sourceTables = new HashSet<>(unionQuery.getTableNames());
+            Map<String, ReadQuery> volatileSubqueries = unionQuery.getVolatileSubqueries();
+            Map<String, ReadQuery> concreteSubqueries = unionQuery.getConcreteSubqueries();
+            for(ReadQuery subquery: volatileSubqueries.values()){
+                sourceTables.addAll(subquery.getSourceTables());
+            }
+            for(ReadQuery subquery: concreteSubqueries.values()){
+                sourceTables.addAll(subquery.getSourceTables());
+            }
+            return sourceTables;
+        } else if(aggregateQuery != null){
 
             Set<String> sourceTables = new HashSet<>(aggregateQuery.getQueriedTables());
             Map<String, ReadQuery> volatileSubqueries = aggregateQuery.getVolatileSubqueries();
@@ -291,6 +341,8 @@ public class ReadQuery implements Serializable {
                 sourceTables.addAll(subquery.getSourceTables());
             }
             return sourceTables;
+        }else{
+            throw new RuntimeException("no valid query is defined");
         }
     }
     public Map<String, ReadQuery> getVolatileSubqueries(){
@@ -301,8 +353,12 @@ public class ReadQuery implements Serializable {
             subqueries.putAll(simpleAggregateQuery.getVolatileSubqueries());
         }else if(aggregateQuery != null){
             subqueries.putAll(aggregateQuery.getVolatileSubqueries());
-        }else{
+        }else if(joinQuery != null){
             subqueries.putAll(joinQuery.getVolatileSubqueries());
+        } else if (unionQuery != null) {
+            subqueries.putAll(unionQuery.getVolatileSubqueries());
+        }else {
+            throw new RuntimeException("no valid query is defined");
         }
         return subqueries;
     }
@@ -314,8 +370,12 @@ public class ReadQuery implements Serializable {
             subqueries.putAll(simpleAggregateQuery.getConcreteSubqueries());
         }else if(aggregateQuery != null){
             subqueries.putAll(aggregateQuery.getConcreteSubqueries());
-        }else{
+        }else if(joinQuery != null){
             subqueries.putAll(joinQuery.getConcreteSubqueries());
+        } else if (unionQuery != null) {
+            subqueries.putAll(unionQuery.getConcreteSubqueries());
+        }else {
+            throw new RuntimeException("no valid query is defined");
         }
         return subqueries;
     }
@@ -337,7 +397,9 @@ public class ReadQuery implements Serializable {
             return aggregateQuery.getSystemSelectedFields();
         } else if (joinQuery != null) {
             return joinQuery.getSystemResultSchema();
-        }else{
+        } else if (unionQuery != null) {
+            return unionQuery.getSystemResultSchema();
+        } else{
             return new ArrayList<>();
         }
     }
@@ -348,8 +410,12 @@ public class ReadQuery implements Serializable {
             return simpleAggregateQuery.getPredicates();
         }else if(aggregateQuery != null){
             return aggregateQuery.getPredicates();
-        }else{
+        }else if(joinQuery!=null){
             return joinQuery.getPredicates();
+        }else if(unionQuery != null){
+            return unionQuery.getPredicates();
+        }else {
+            throw new RuntimeException("no valid query is defined");
         }
     }
 }

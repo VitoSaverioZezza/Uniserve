@@ -42,7 +42,7 @@ public class JoinQueryBuilder {
         return this;
     }
 
-    public JoinQueryBuilder sources(String tableOne, String tableTwo, String filterOne, String filterTwo, List<String> joinAttributesOne, List<String> joinAttributesTwo){
+    public JoinQueryBuilder sources(String tableOne, String tableTwo, List<String> joinAttributesOne, List<String> joinAttributesTwo){
         sourceOneTable = true;
         sourceTwoTable = true;
         if(tableOne == null || tableTwo == null){
@@ -71,15 +71,9 @@ public class JoinQueryBuilder {
         sourcesSchemas.put(tableTwo, schemaTwo);
         joinAttributes.put(tableOne, joinAttributesOne);
         joinAttributes.put(tableTwo, joinAttributesTwo);
-        if(filterOne != null && !filterOne.isEmpty()){
-            filterPredicates.put(tableOne, filterOne);
-        }
-        if(filterTwo != null && !filterTwo.isEmpty()){
-            filterPredicates.put(tableTwo, filterTwo);
-        }
         return this;
     }
-    public JoinQueryBuilder sources(ReadQuery subqueryOne, String tableTwo, String aliasOne, String filterOne, String filterTwo, List<String> joinAttributesOne, List<String> joinAttributesTwo){
+    public JoinQueryBuilder sources(ReadQuery subqueryOne, String tableTwo, String aliasOne, List<String> joinAttributesOne, List<String> joinAttributesTwo){
         sourceOneTable = false;
         sourceTwoTable = true;
         if(subqueryOne == null){
@@ -114,16 +108,10 @@ public class JoinQueryBuilder {
         sourcesSchemas.put(tableTwo, schemaTwo);
         joinAttributes.put(aliasOne, joinAttributesOne);
         joinAttributes.put(tableTwo, joinAttributesTwo);
-        if(filterOne != null && !filterOne.isEmpty()){
-            filterPredicates.put(aliasOne, filterOne);
-        }
-        if(filterTwo != null && !filterTwo.isEmpty()){
-            filterPredicates.put(tableTwo, filterTwo);
-        }
         subqueries.put(aliasOne, subqueryOne);
         return this;
     }
-    public JoinQueryBuilder sources(String tableOne, ReadQuery subqueryTwo, String aliasTwo, String filterOne, String filterTwo, List<String> joinAttributesOne, List<String> joinAttributesTwo){
+    public JoinQueryBuilder sources(String tableOne, ReadQuery subqueryTwo, String aliasTwo, List<String> joinAttributesOne, List<String> joinAttributesTwo){
         sourceOneTable = true;
         sourceTwoTable = false;
         if(subqueryTwo == null){
@@ -158,16 +146,10 @@ public class JoinQueryBuilder {
         sourcesSchemas.put(aliasTwo, schemaTwo);
         joinAttributes.put(tableOne, joinAttributesOne);
         joinAttributes.put(aliasTwo, joinAttributesTwo);
-        if(filterOne != null && !filterOne.isEmpty()){
-            filterPredicates.put(tableOne, filterOne);
-        }
-        if(filterTwo != null && !filterTwo.isEmpty()){
-            filterPredicates.put(aliasTwo, filterTwo);
-        }
         subqueries.put(aliasTwo, subqueryTwo);
         return this;
     }
-    public JoinQueryBuilder sources(ReadQuery subqueryOne, ReadQuery subqueryTwo, String aliasOne, String aliasTwo, String filterOne, String filterTwo, List<String> joinAttributesOne, List<String> joinAttributesTwo){
+    public JoinQueryBuilder sources(ReadQuery subqueryOne, ReadQuery subqueryTwo, String aliasOne, String aliasTwo, List<String> joinAttributesOne, List<String> joinAttributesTwo){
         sourceOneTable = false;
         sourceTwoTable = false;
         if(subqueryTwo == null || subqueryOne == null){
@@ -195,17 +177,24 @@ public class JoinQueryBuilder {
         sourcesSchemas.put(aliasTwo, schemaTwo);
         joinAttributes.put(aliasOne, joinAttributesOne);
         joinAttributes.put(aliasTwo, joinAttributesTwo);
-        if(filterOne != null && !filterOne.isEmpty()){
-            filterPredicates.put(aliasOne, filterOne);
-        }
-        if(filterTwo != null && !filterTwo.isEmpty()){
-            filterPredicates.put(aliasTwo, filterTwo);
-        }
         if(aliasTwo.equals(aliasOne)){
             throw new RuntimeException("Subqueries cannot have the same alias");
         }
         subqueries.put(aliasOne, subqueryOne);
         subqueries.put(aliasTwo, subqueryTwo);
+        return this;
+    }
+
+    public JoinQueryBuilder filters(String filterOne, String filterTwo){
+        if(sourceOne == null || sourceTwo == null || sourceOne.isEmpty() || sourceTwo.isEmpty()){
+            throw new RuntimeException("Sources are not well defined");
+        }
+        if(filterOne != null && !filterOne.isEmpty()){
+            filterPredicates.put(sourceOne, filterOne);
+        }
+        if(filterTwo != null && !filterTwo.isEmpty()){
+            filterPredicates.put(sourceTwo, filterTwo);
+        }
         return this;
     }
 

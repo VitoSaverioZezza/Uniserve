@@ -31,6 +31,7 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
     private List<Serializable> operations = new ArrayList<>();
+    private List<Pair<Integer, Integer>> aggregatesOPToIndex = new ArrayList<>();
 
 
     public AggregateQuery setSourceName(String sourceName) {
@@ -93,6 +94,11 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
         this.operations.addAll(operations);
         return this;
     }
+    public AggregateQuery setAggregatesOPToIndex(List<Pair<Integer, Integer>> aggregatesOPToIndex){
+        this.aggregatesOPToIndex = aggregatesOPToIndex;
+        return this;
+    }
+
 
     public List<Pair<Integer, String>> getAggregatesSpecification(){
         return this.aggregatesSpecification;
@@ -136,6 +142,12 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
         }
     }
 
+    List<Integer> groupAttributesIndexes = new ArrayList<>();
+    public AggregateQuery setGroupAttributesIndexes(List<Integer> groupAttributesIndexes){
+        this.groupAttributesIndexes =groupAttributesIndexes;
+        return this;
+    }
+
     @Override
     public Map<Integer, List<ByteString>> scatter(RelShard shard, int numRepartitions, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
         List<RelRow> data = shard.getData();
@@ -143,8 +155,13 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
         Map<Integer, List<ByteString>> ret = new HashMap<>();
         for(RelRow row: filteredData){
             int key = 0;
-            for(String groupAttribute: systemSelectedFields){
-                Object val = row.getField(sourceSchema.indexOf(groupAttribute));
+
+            //for(String groupAttribute: systemSelectedFields){
+            //    Object val = row.getField(sourceSchema.indexOf(groupAttribute));
+
+
+            for(Integer index: groupAttributesIndexes){
+                Object val = row.getField(index);
                 if(val == null){
                     key += 1;
                 }else {
@@ -227,6 +244,13 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
         }
         return filteredData;
     }
+
+    List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
+    public AggregateQuery setPredicateVarToIndexes(List<Pair<String, Integer>> predicateVarToIndexes) {
+        this.predicateVarToIndexes = predicateVarToIndexes;
+        return this;
+    }
+
     private boolean evaluatePredicate(RelRow row, Map<String, RelReadQueryResults> subqRes){
         Map<String, Object> values = new HashMap<>();
 
@@ -236,12 +260,24 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
             }
         }
 
+        /*
         for(String attributeName: sourceSchema){
             if(filterPredicate.contains(attributeName)){
                 Object val = row.getField(sourceSchema.indexOf(attributeName));
                 values.put(attributeName, val);
             }
         }
+        */
+
+        for(Pair<String, Integer> nameToVar: predicateVarToIndexes){
+            Object val = row.getField(nameToVar.getValue1());
+            if(val == null){
+                return false;
+            }else{
+                values.put(nameToVar.getValue0(), val);
+            }
+        }
+
 
 
         try{
@@ -291,6 +327,7 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
         }
     }
     private List<Object> computeAggregates(List<RelRow> groupRows) {
+/*
         List<Object> res = new ArrayList<>(aggregatesSpecification.size());
         for (Pair<Integer, String> aggregate : aggregatesSpecification) {
             String attributeName = aggregate.getValue1();
@@ -348,11 +385,74 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
             }
         }
         return res;
+*/
+        List<Object> res = new ArrayList<>(aggregatesOPToIndex.size());
+        for (Pair<Integer, Integer> aggregate : aggregatesOPToIndex) {
+            Integer index = aggregate.getValue1();
+            if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.AVG)) {
+                Double count = 0D;
+                Double sum = 0D;
+                for (RelRow row : groupRows) {
+                    Object val = row.getField(index);
+                    if(val == null){
+                        sum += 0;
+                    }else{
+                        sum += (Double) ((Number)row.getField(index)).doubleValue();
+                        count++;
+                    }
+                }
+                res.add(sum/count);
+            } else if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.MIN)) {
+                Double min = Double.MAX_VALUE;
+                for(RelRow row: groupRows){
+                    Object val = row.getField(index);
+                    if(val != null){
+                        min = Double.min(min, ((Number)row.getField(index)).doubleValue());
+                    }
+                }
+                res.add(min);
+            } else if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.MAX)) {
+                Double max = Double.MIN_VALUE;
+                for (RelRow row : groupRows) {
+                    Object val = row.getField(index);
+                    if(val != null){
+                        max = Double.max(max, ((Number) row.getField(index)).doubleValue());
+                    }
+                }
+                res.add(max);
+            } else if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.COUNT)) {
+                Double count = 0D;
+                for(RelRow row: groupRows){
+                    Object val = row.getField(index);
+                    if(val != null){
+                        count++;
+                    }
+                }
+                res.add(count);
+            }else if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.SUM)) {
+                Double sum = 0D;
+                for(RelRow row: groupRows){
+                    Object val = row.getField(index);
+                    if(val != null){
+                        sum += ((Number) row.getField(index)).doubleValue();
+                    }
+                }
+                res.add(sum);
+            }else{
+                throw new RuntimeException("AggregateError, undefined operator");
+            }
+        }
+        return res;
     }
     private List<Object> getGroup(RelRow row){
         List<Object> ret = new ArrayList<>();
+        /*
         for(String groupAttribute: systemSelectedFields){
             ret.add(row.getField(sourceSchema.indexOf(groupAttribute)));
+        }
+*/
+        for(Integer groupAttributeIndex: groupAttributesIndexes){
+            ret.add(row.getField(groupAttributeIndex));
         }
         return ret;
     }

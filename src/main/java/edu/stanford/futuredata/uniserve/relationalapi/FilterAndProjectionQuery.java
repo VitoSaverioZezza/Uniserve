@@ -27,7 +27,7 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
 
 
     private String sourceName = "";  //tableName or subquery alias
-    private List<String> sourceSchema = new ArrayList<>();
+    //private List<String> sourceSchema = new ArrayList<>();
     private List<String> resultSchema = new ArrayList<>();
     private List<String> systemResultSchema = new ArrayList<>();
     private String filterPredicate = "";
@@ -39,16 +39,17 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
     private List<Serializable> operations = new ArrayList<>();
-
+    private List<Integer> resultSourceIndexes = new ArrayList<>();
+    private List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
 
     public FilterAndProjectionQuery setSourceName(String sourceName) {
         this.sourceName = sourceName;
         return this;
     }
-    public FilterAndProjectionQuery setSourceSchema(List<String> sourceSchema) {
+    /*public FilterAndProjectionQuery setSourceSchema(List<String> sourceSchema) {
         this.sourceSchema = sourceSchema;
         return this;
-    }
+    }*/
     public FilterAndProjectionQuery setResultSchema(List<String> resultSchema) {
         this.resultSchema = resultSchema;
         return this;
@@ -90,6 +91,14 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     }
     public FilterAndProjectionQuery setOperations(List<SerializablePredicate> operations) {
         this.operations.addAll(operations);
+        return this;
+    }
+    public FilterAndProjectionQuery setResultSourceIndexes(List<Integer> resultSourceIndexes){
+        this.resultSourceIndexes = resultSourceIndexes;
+        return this;
+    }
+    public FilterAndProjectionQuery setPredicateVarToIndexes(List<Pair<String,Integer>> predicateVarToIndexes){
+        this.predicateVarToIndexes = predicateVarToIndexes;
         return this;
     }
 
@@ -158,7 +167,6 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
                 }
             }
             results.setIntermediateLocations(ret);
-            //List of Map<ShardID, dsID> to be converted in what is in the RelReadQueryResults
         }else {
             ArrayList<RelRow> ret = new ArrayList<>();
             for(ByteString serSubset: shardQueryResults){
@@ -172,7 +180,6 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
         }
         return results;
     }
-
 
 
     private List<RelRow> filter(List<RelRow> data, Map<String, ReadQueryResults> subqRes){
@@ -198,6 +205,7 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
                 values.put(entry.getKey(), entry.getValue().getData().get(0).getField(0));
             }
         }
+        /*
         for(String sourceAttributeName: sourceSchema){
             if(filterPredicate.contains(sourceAttributeName)){
                 Object val = row.getField(sourceSchema.indexOf(sourceAttributeName));
@@ -210,7 +218,15 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
                 values.put(userAlias, val);
             }
         }
-
+        */
+        for(Pair<String, Integer> nameToVar: predicateVarToIndexes){
+            Object val = row.getField(nameToVar.getValue1());
+            if(val == null){
+                return false;
+            }else{
+                values.put(nameToVar.getValue0(), val);
+            }
+        }
         if(values.containsValue(null)){
             return false;
         }
@@ -232,9 +248,21 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     private ArrayList<RelRow> project(List<RelRow> data){
         ArrayList<RelRow> projectionResults = new ArrayList<>();
         for(RelRow rawRow: data){
+            /*
             List<Object> rawNewRow = new ArrayList<>(systemResultSchema.size());
             for(String systemAttributeName: systemResultSchema){
                 rawNewRow.add(rawRow.getField(sourceSchema.indexOf(systemAttributeName)));
+            }
+            RelRow newRow = new RelRow(rawNewRow.toArray());
+            if(operations.isEmpty()) {
+                projectionResults.add(newRow);
+            }else{
+                projectionResults.add(applyOperations(newRow));
+            }
+            */
+            List<Object> rawNewRow = new ArrayList<>(resultSourceIndexes.size());
+            for(Integer index: resultSourceIndexes){
+                rawNewRow.add(rawRow.getField(index));
             }
             RelRow newRow = new RelRow(rawNewRow.toArray());
             if(operations.isEmpty()) {

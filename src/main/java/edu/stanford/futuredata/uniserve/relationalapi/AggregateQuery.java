@@ -181,6 +181,9 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
                 }
             }
             key = key % numRepartitions;
+            if(key < 0){
+                key = key * -1;
+            }
             ret.computeIfAbsent(key, k->new ArrayList<>()).add(Utilities.objectToByteString(row));
         }
         return ret;

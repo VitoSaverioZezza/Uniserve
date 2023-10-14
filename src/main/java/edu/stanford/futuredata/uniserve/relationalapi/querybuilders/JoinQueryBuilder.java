@@ -80,6 +80,7 @@ public class JoinQueryBuilder {
         if(subqueryOne == null){
             throw new RuntimeException("subquery is null");
         }
+        subqueryOne.setIsThisSubquery(true);
         if(tableTwo == null){
             throw new RuntimeException("Table name is null");
         }
@@ -118,6 +119,7 @@ public class JoinQueryBuilder {
         if(subqueryTwo == null){
             throw new RuntimeException("subquery is null");
         }
+        subqueryTwo.setIsThisSubquery(true);
         if(tableOne == null || tableOne.isEmpty()){
             throw new RuntimeException("Table name is null");
         }
@@ -156,6 +158,8 @@ public class JoinQueryBuilder {
         if(subqueryTwo == null || subqueryOne == null){
             throw new RuntimeException("subquery is null");
         }
+        subqueryOne.setIsThisSubquery(true);
+        subqueryTwo.setIsThisSubquery(true);
         if(aliasTwo == null || aliasTwo.isEmpty() || aliasOne == null || aliasOne.isEmpty()){
             throw new RuntimeException("Alias for subquery is not specified");
         }
@@ -203,6 +207,7 @@ public class JoinQueryBuilder {
         if(alias == null || alias.isEmpty() || subqueries.containsKey(alias) || sourceOne.equals(alias) || sourceTwo.equals(alias)){
             throw new RuntimeException("Invalid alias for predicate subquery");
         }
+        subquery.setIsThisSubquery(false);
         predicateSubqueries.put(alias, subquery);
         return this;
     }

@@ -5,6 +5,7 @@ import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
+import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
@@ -35,12 +36,12 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 
 import static edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud.deleteDirectoryRecursion;
-import static edu.stanford.futuredata.uniserve.rel.TestMethods.zkHost;
-import static edu.stanford.futuredata.uniserve.rel.TestMethods.zkPort;
+import static edu.stanford.futuredata.uniserve.rel.TestMethods.*;
 
-public class Q6Test {
+public class Q4Test {
     @BeforeAll
     static void startUpCleanUp() throws IOException {
         TestMethods.startUpCleanUp();
@@ -54,67 +55,70 @@ public class Q6Test {
     public void clean(){}
 
 
+
     @Test
-    public void Q6Test(){
+    public void Q4Test(){
         TestMethods tm = new TestMethods();
         tm.startServers();
         Broker broker = new Broker(zkHost, zkPort);
         API api = new API(broker);
         tm.loadDataInMem(broker, tablesToLoad);
-        ReadQuery catSalesToMarriedWomenWithSecondaryEd = api.join().sources("catalog_sales", "customer_demographics",
-                List.of("cs_bill_cdemo_sk"), List.of("cd_demo_sk")
-        ).filters("","cd_gender == 'F' && cd_marital_status == 'W' && cd_education_status == 'secondary'").build();
+        ReadQuery j1 = api.join().sources(
+                "inventory", "date_dim",
+                List.of("inv_date_sk"), List.of("d_date_sk")
+        ).filters("", "d_month_seq > 1205 && d_month_seq < 1205+11").build();
 
-        ReadQuery catSalesToMarriedWomenWithSecondaryEdIn2000 = api.join().sources(catSalesToMarriedWomenWithSecondaryEd, "date_dim", "q1",
-                List.of("catalog_sales.cs_sold_date_sk"), List.of("d_date_sk")
-        ).filters("", "d_year == 2000").build();
+        ReadQuery j1p = api.read().select(
+                "inventory.inv_quantity_on_hand",
+                "inventory.inv_item_sk",
+                "inventory.inv_warehouse_sk"
+        ).alias(
+                "inv_quantity_on_hand",
+                "inv_item_sk",
+                "inv_warehouse_sk"
+        ).from(j1, "j1").build();
 
-        ReadQuery csToMWSEdInPromotion = api.join().sources(catSalesToMarriedWomenWithSecondaryEdIn2000, "promotion", "csToMWSEd",
-                List.of("q1.catalog_sales.cs_promo_sk"), List.of("p_promo_sk")
-        ).filters(
-                "",
-                "p_channel_email == 'N' || p_channel_event == 'N'"
+        ReadQuery j2 = api.join().sources(
+                j1p, "warehouse", "j1p",
+                List.of("inv_warehouse_sk"), List.of("w_warehouse_sk")
         ).build();
 
-        ReadQuery finalJoin = api.join().select(
-                "item.i_item_id",
-                "cs.csToMWSEd.q1.catalog_sales.cs_quantity",
-                "cs.csToMWSEd.q1.catalog_sales.cs_list_price",
-                "cs.csToMWSEd.q1.catalog_sales.cs_coupon_amt",
-                "cs.csToMWSEd.q1.catalog_sales.cs_sales_price"
-        ).alias(
-                "i_item_id",
-                "cs_quantity",
-                "cs_list_price",
-                "cs_coupon_amt",
-                "cs_sales_price"
-        ).sources(csToMWSEdInPromotion, "item", "cs",
-                List.of("csToMWSEd.q1.catalog_sales.cs_item_sk"), List.of("i_item_sk")).build();
+        ReadQuery j3 = api.join().sources(
+                j2, "item", "j2",
+                List.of("j1p.inv_item_sk"), List.of("i_item_sk")
+        ).build();
 
         ReadQuery finalQuery = api.read()
-                .select("i_item_id")
-                .avg("cs_quantity",    "agg1")
-                .avg("cs_list_price",  "agg2")
-                .avg("cs_coupon_amt",  "agg3")
-                .avg("cs_sales_price", "agg4")
-                .from(finalJoin, "src")
-                .build();
+                .select(
+                        "item.i_product_name",
+                        "item.i_brand",
+                        "item.i_class",
+                        "item.i_category"
+                )
+                .avg("j2.j1p.inv_quantity_on_hand", "qoh")
+                .alias(
+                        "i_product_name",
+                        "i_brand",
+                        "i_class",
+                        "i_category"
+                )
+                .from(j3, "j3").build();
+
 
         RelReadQueryResults results = finalQuery.run(broker);
 
         System.out.println("RESULTS:");
-        TestMethods.printRowList(results.getData());
+        printRowList(results.getData());
 
         System.out.println("\nreturning...");
-        broker.shutdown();
         tm.stopServers();
     }
 
+
     public List<String> tablesToLoad = List.of(
-            "catalog_sales",
-            "customer_demographics",
+            "inventory",
             "date_dim",
             "item",
-            "promotion"
+            "warehouse"
     );
 }

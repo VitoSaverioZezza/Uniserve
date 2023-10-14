@@ -91,6 +91,7 @@ public class UnionQueryBuilder {
         if(alias == null || alias.isEmpty() || subqueries.containsKey(alias) || sourceOne.equals(alias) || sourceTwo.equals(alias)){
             throw new RuntimeException("Invalid alias for predicate subquery");
         }
+        subquery.setIsThisSubquery(false);
         predicateSubqueries.put(alias, subquery);
         return this;
     }

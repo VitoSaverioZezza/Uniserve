@@ -632,7 +632,6 @@ public class Broker {
         HashMap<String, List<Integer>> targetShards = new HashMap<>();
 
 
-
         Map<String, ReadQuery> concreteSubqueries = plan.getConcreteSubqueries();
         Map<String, ReadQueryResults> concreteSubqueriesResults = new HashMap<>();
         for(Map.Entry<String, ReadQuery> entry: concreteSubqueries.entrySet()){

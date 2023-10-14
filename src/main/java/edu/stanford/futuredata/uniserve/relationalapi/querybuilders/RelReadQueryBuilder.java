@@ -169,6 +169,10 @@ public class RelReadQueryBuilder {
     }
 
     public RelReadQueryBuilder predicateSubquery(String alias, ReadQuery subquery){
+        if(subquery == null || alias == null || alias.isEmpty()){
+            throw new RuntimeException("Invalid predicate subquery definition");
+        }
+        subquery.setIsThisSubquery(false);
         predicateSubqueries.put(alias, subquery);
         return this;
     }

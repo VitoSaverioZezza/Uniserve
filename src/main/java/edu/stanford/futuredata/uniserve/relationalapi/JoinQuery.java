@@ -18,6 +18,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryResults> {
+    private List<Serializable> customFilterFunctions = new ArrayList<>();
     private String sourceOne = ""; //either the name of the table or the alias of the subquery
     private String sourceTwo = "";
     private boolean sourceOneTable = true; //true if the source is a table
@@ -71,8 +72,12 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     public JoinQuery setFilterPredicates(Map<String, String> filterPredicates) {
         for(Map.Entry<String,String> p: filterPredicates.entrySet()){
             if(p.getValue() != null && !p.getValue().isEmpty()){
-                cachedFilterPredicates.put(p.getKey(), MVEL.compileExpression(p.getValue()));
-                this.filterPredicates.put(p.getKey(), p.getValue());
+                try {
+                    cachedFilterPredicates.put(p.getKey(), MVEL.compileExpression(p.getValue()));
+                    this.filterPredicates.put(p.getKey(), p.getValue());
+                }catch (Exception e){
+                    throw new RuntimeException("Impossible to compile predicate");
+                }
             }
             return this;
         }
@@ -182,6 +187,9 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
                         val = ((Number) val).doubleValue();
                     }
                     key += val.hashCode();
+                    if(key<0){
+                        key = key * -1;
+                    }
                 }
             }
             if(numRepartitions == 0){
@@ -399,7 +407,7 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
                 return (Boolean) result;
 
         }catch (Exception e ){
-            System.out.println(e.getMessage());
+            System.out.println("JQ.filter ----- "+e.getMessage());
             return false;
         }
     }

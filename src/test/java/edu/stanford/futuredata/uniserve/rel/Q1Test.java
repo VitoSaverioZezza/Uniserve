@@ -39,146 +39,89 @@ import java.util.List;
 import static edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud.deleteDirectoryRecursion;
 
 public class Q1Test {
-    private static final Logger logger = LoggerFactory.getLogger(Q1Test.class);
-
-    private static String zkHost = "127.0.0.1";
-    private static Integer zkPort = 2181;
-
-    public static void cleanUp(String zkHost, int zkPort) {
-        // Clean up ZooKeeper
-        String connectString = String.format("%s:%d", zkHost, zkPort);
-        RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
-        CuratorFramework cf = CuratorFrameworkFactory.newClient(connectString, retryPolicy);
-        cf.start();
-        try {
-            for (String child : cf.getChildren().forPath("/")) {
-                if (!child.equals("zookeeper")) {
-                    cf.delete().deletingChildrenIfNeeded().forPath("/" + child);
-                }
-            }
-        } catch (Exception e) {
-            logger.info("Zookeeper cleanup failed: {}", e.getMessage());
-        }
-        // Clean up directories.
-        try {
-            FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve"));
-            FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve0"));
-            FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve1"));
-            FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve2"));
-            FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve3"));
-        } catch (IOException e) {
-            logger.info("FS cleanup failed: {}", e.getMessage());
-        }
-    }
-
-    public static void a() throws IOException{
-        Path LDSC = Path.of("src/main/LocalCloud/");
-        if (Files.isDirectory(LDSC, LinkOption.NOFOLLOW_LINKS)) {
-            try (DirectoryStream<Path> entries = Files.newDirectoryStream(LDSC)) {
-                for (Path entry : entries) {
-                    deleteDirectoryRecursion(entry);
-                }
-            }
-        }
-    }
-
-
     @BeforeAll
     static void startUpCleanUp() throws IOException {
-        a();
-        cleanUp(zkHost, zkPort);
-
+        TestMethods.startUpCleanUp();
     }
-
     @AfterEach
     private void unitTestCleanUp() throws IOException {
-        a();
-        cleanUp(zkHost, zkPort);
+        TestMethods.unitTestCleanUp();
     }
     @Test
     public void clean(){}
 
 
-    private void printRowList(List<RelRow> data) {
-        for (RelRow row : data) {
-            StringBuilder rowBuilder = new StringBuilder();
-            rowBuilder.append("Row #" + data.indexOf(row) + " ");
-            for (int j = 0; j < row.getSize() - 1; j++) {
-                rowBuilder.append(row.getField(j) + ", ");
-            }
-            rowBuilder.append(row.getField(row.getSize() - 1));
-            System.out.println(rowBuilder.toString());
-        }
-    }
+    /*
+    SELECT Avg(ss_quantity),
+       Avg(ss_ext_sales_price),
+       Avg(ss_ext_wholesale_cost),
+       Sum(ss_ext_wholesale_cost)
+FROM   store_sales,
+       store,
+       customer_demographics,
+       household_demographics,
+       customer_address,
+       date_dim
+WHERE  s_store_sk = ss_store_sk
+       AND ss_sold_date_sk = d_date_sk
+       AND d_year = 2001
+       AND ( ( ss_hdemo_sk = hd_demo_sk
+               AND cd_demo_sk = ss_cdemo_sk
+               AND cd_marital_status = 'U'
+               AND cd_education_status = 'Advanced Degree'
+               AND ss_sales_price BETWEEN 100.00 AND 150.00
+               AND hd_dep_count = 3 )
+              OR ( ss_hdemo_sk = hd_demo_sk
+                   AND cd_demo_sk = ss_cdemo_sk
+                   AND cd_marital_status = 'M'
+                   AND cd_education_status = 'Primary'
+                   AND ss_sales_price BETWEEN 50.00 AND 100.00
+                   AND hd_dep_count = 1 )
+              OR ( ss_hdemo_sk = hd_demo_sk
+                   AND cd_demo_sk = ss_cdemo_sk
+                   AND cd_marital_status = 'D'
+                   AND cd_education_status = 'Secondary'
+                   AND ss_sales_price BETWEEN 150.00 AND 200.00
+                   AND hd_dep_count = 1 ) )
+       AND ( ( ss_addr_sk = ca_address_sk
+               AND ca_country = 'United States'
+               AND ca_state IN ( 'AZ', 'NE', 'IA' )
+               AND ss_net_profit BETWEEN 100 AND 200 )
+              OR ( ss_addr_sk = ca_address_sk
+                   AND ca_country = 'United States'
+                   AND ca_state IN ( 'MS', 'CA', 'NV' )
+                   AND ss_net_profit BETWEEN 150 AND 300 )
+              OR ( ss_addr_sk = ca_address_sk
+                   AND ca_country = 'United States'
+                   AND ca_state IN ( 'GA', 'TX', 'NJ' )
+                   AND ss_net_profit BETWEEN 50 AND 250 ) );
+         */
 
-    int numServers = 10;
-    Coordinator coordinator = null;
-    List<LocalDataStoreCloud> ldscList = new ArrayList<>();
-    List<DataStore<RelRow, RelShard>> dataStores = new ArrayList<>();
-    String rootPath = "C:\\Users\\saver\\Desktop\\db00_0625_clean";
 
-    private void startServers(){
-        coordinator = new Coordinator(
-                null,
-                new DefaultLoadBalancer(),
-                new DefaultAutoScaler(),
-                zkHost, zkPort,
-                "127.0.0.1", 7777);
-        coordinator.runLoadBalancerDaemon = false;
-        coordinator.startServing();
-
-        ldscList = new ArrayList<>();
-        dataStores = new ArrayList<>();
-        for(int i = 0; i<numServers; i++) {
-            ldscList.add(new LocalDataStoreCloud());
-            DataStore<RelRow, RelShard> dataStore = new DataStore<>(ldscList.get(i),
-                    new RelShardFactory(),
-                    Path.of("/var/tmp/RelUniserve"),
-                    zkHost, zkPort,
-                    "127.0.0.1", 8000 + i,
-                    -1,
-                    false
-            );
-            dataStore.startServing();
-            dataStores.add(dataStore);
-        }
-    }
-    private void stopServers(){
-        for(DataStore dataStore:dataStores) {
-            dataStore.shutDown();
-        }
-        coordinator.stopServing();
-        try {
-            for(LocalDataStoreCloud ldsc: ldscList) {
-                ldsc.clear();
-            }
-        } catch (Exception e) {
-            ;
-        }
-    }
     @Test
     public void Q1Test(){
-        startServers();
-        Broker broker = new Broker(zkHost, zkPort);
+        TestMethods tm = new TestMethods();
+        tm.startServers();
+        Broker broker = new Broker(TestMethods.zkHost, TestMethods.zkPort);
         API api = new API(broker);
-        loadDataInMem(broker);
+        tm.loadDataInMem(broker, tablesToLoad);
 
-        ReadQuery j_ss_d = api.join()
+        ReadQuery salesSubsetSoldIn2001 = api.join()
                 .sources("store_sales", "date_dim", List.of("ss_sold_date_sk"), List.of("d_date_sk"))
                 .filters("(ss_sales_price >= 50 && ss_sales_price <=200) && ss_net_profit >= 50 && ss_net_profit <=300"
                         , "d_year == 2001")
                 .build();
 
 
-        ReadQuery j_ss_s_d = api.join().select(
-                        "j_ss_d.store_sales.ss_net_profit",
-                        "j_ss_d.store_sales.ss_cdemo_sk",
-                        "j_ss_d.store_sales.ss_hdemo_sk",
-                        "j_ss_d.store_sales.ss_sales_price",
-                        "j_ss_d.store_sales.ss_addr_sk",
-                        "j_ss_d.store_sales.ss_quantity",
-                        "j_ss_d.store_sales.ss_ext_sales_price",
-                        "j_ss_d.store_sales.ss_ext_wholesale_cost"
+        ReadQuery salesSubsetSoldIn2001StoreInfo = api.join().select(
+                        "salesSubsetSoldIn2001.store_sales.ss_net_profit",
+                        "salesSubsetSoldIn2001.store_sales.ss_cdemo_sk",
+                        "salesSubsetSoldIn2001.store_sales.ss_hdemo_sk",
+                        "salesSubsetSoldIn2001.store_sales.ss_sales_price",
+                        "salesSubsetSoldIn2001.store_sales.ss_addr_sk",
+                        "salesSubsetSoldIn2001.store_sales.ss_quantity",
+                        "salesSubsetSoldIn2001.store_sales.ss_ext_sales_price",
+                        "salesSubsetSoldIn2001.store_sales.ss_ext_wholesale_cost"
                 ).alias(
                         "ss_net_profit",
                         "ss_cdemo_sk",
@@ -188,11 +131,11 @@ public class Q1Test {
                         "ss_quantity",
                         "ss_ext_sales_price",
                         "ss_ext_wholesale_cost"
-                ).sources("store", j_ss_d, "j_ss_d", List.of("s_store_sk"), List.of("store_sales.ss_store_sk"))
+                ).sources("store", salesSubsetSoldIn2001, "salesSubsetSoldIn2001", List.of("s_store_sk"), List.of("store_sales.ss_store_sk"))
                 .build();
 
         ReadQuery j_cd = api.join().sources(
-                        j_ss_s_d, "customer_demographics", "j_ss_s_d",
+                        salesSubsetSoldIn2001StoreInfo, "customer_demographics", "j_ss_s_d",
                         List.of("ss_cdemo_sk"), List.of("cd_demo_sk"))
                 .filters("",
                         "(cd_marital_status == \"U\" && cd_education_status == \"Advanced Degree\") || " +
@@ -253,10 +196,10 @@ public class Q1Test {
                 ).build();
 
         RelReadQueryResults results = q1.run(broker);
-        printRowList(results.getData());
-
         broker.shutdown();
-        stopServers();
+        tm.stopServers();
+        System.out.println("\n\nResults:\n");
+        TestMethods.printRowList(results.getData());
     }
     public List<String> tablesToLoad = List.of(
             "store_sales",
@@ -266,123 +209,4 @@ public class Q1Test {
             "household_demographics",
             "customer_address"
     );
-
-    public void loadDataInMem(Broker broker) {
-        API api = new API(broker);
-        boolean res = true;
-        for (int i = 0; i < TPC_DS_Inv.numberOfTables; i++) {
-            if(!tablesToLoad.contains(TPC_DS_Inv.names.get(i))){
-                continue;
-            }else{
-                System.out.println("Loading data for table " + TPC_DS_Inv.names.get(i));
-            }
-            List<RelRow> memBuffer = new ArrayList<>();
-            MemoryLoader memoryLoader = new MemoryLoader(i, memBuffer);
-            if(!memoryLoader.run()){
-                return;
-            }
-            int shardNum = Math.min(Math.max(memBuffer.size() / 1000, 1), Broker.SHARDS_PER_TABLE);
-            res = api.createTable(TPC_DS_Inv.names.get(i))
-                    .attributes(TPC_DS_Inv.schemas.get(i).toArray(new String[0]))
-                    .keys(TPC_DS_Inv.schemas.get(i).toArray(new String[0]))
-                    .shardNumber(shardNum)
-                    .build().run();
-            res = api.write().table(TPC_DS_Inv.names.get(i)).data(memBuffer.toArray(new RelRow[0])).build().run();
-            memBuffer.clear();
-            if(!res){
-                broker.shutdown();
-                throw new RuntimeException("Write error for table "+TPC_DS_Inv.names.get(i));
-            }
-        }
-    }
-
-    int rowCount = 0;
-
-    private class MemoryLoader{
-        private final int index;
-        private final List<RelRow> sink;
-        public MemoryLoader(int index, List<RelRow> sink){
-            this.sink = sink;
-            this.index = index;
-        }
-        public boolean run(){
-            String path = rootPath + TPC_DS_Inv.paths.get(index);
-            List<Integer> types = TPC_DS_Inv.types.get(index);
-
-            rowCount = 0;
-
-            try (BufferedReader br = new BufferedReader(new FileReader(path))) {
-                String line;
-                while ((line = br.readLine()) != null && rowCount < 150000) {
-                    if(rowCount % 10000 == 0){
-                        System.out.println("Row count: " + rowCount);
-                    }
-                    String[] parts = line.split("\\|");
-                    List<Object> parsedRow = new ArrayList<>(types.size());
-                    if (parts.length == types.size()) {
-                        for(int i = 0; i<parts.length; i++){
-                            parsedRow.add(parseField(parts[i],types.get(i)));
-                        }
-                    }
-                    if(parsedRow.size() == TPC_DS_Inv.schemas.get(index).size()){
-                        sink.add(new RelRow(parsedRow.toArray()));
-                        rowCount++;
-                    }
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-                return false;
-            }
-            return true;
-        }
-
-        private Object parseField(String rawField, Integer type) throws IOException {
-            if(rawField.isEmpty()){
-                if(type.equals(TPC_DS_Inv.id__t)){
-                    return -1;
-                } else if (type.equals(TPC_DS_Inv.string__t)) {
-                    return "";
-                } else if (type.equals(TPC_DS_Inv.int__t)) {
-                    return 0;
-                } else if (type.equals(TPC_DS_Inv.dec__t)) {
-                    return 0D;
-                } else if (type.equals(TPC_DS_Inv.date__t)) {
-                    try{
-                        SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd");
-                        return simpleDateFormat.parse("0000-00-00");
-                    }catch (ParseException e){
-                        throw new IOException("null date is not a valid date so it seems");
-                    }
-                }else {
-                    throw new IOException("Unsupported type definition");
-                }
-            }
-            if(type.equals(TPC_DS_Inv.id__t)){
-                return Integer.valueOf(rawField);
-            } else if (type.equals(TPC_DS_Inv.string__t)) {
-                return rawField;
-            } else if (type.equals(TPC_DS_Inv.int__t)) {
-                try {
-                    return Integer.valueOf(rawField);
-                }catch (NumberFormatException e){
-                    throw new IOException("Raw field cannot be parsed as an Integer.\n" + e.getMessage());
-                }
-            } else if (type.equals(TPC_DS_Inv.dec__t)) {
-                try {
-                    return Double.valueOf(rawField);
-                }catch (NumberFormatException e){
-                    throw new IOException("Raw field cannot be parsed as a Double.\n" + e.getMessage());
-                }
-            } else if (type.equals(TPC_DS_Inv.date__t)) {
-                try{
-                    SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd");
-                    return simpleDateFormat.parse(rawField);
-                }catch (ParseException e){
-                    throw new IOException("Raw field cannot be parsed as Date.\n" + e.getMessage());
-                }
-            }else {
-                throw new IOException("Unsupported type definition");
-            }
-        }
-    }
 }

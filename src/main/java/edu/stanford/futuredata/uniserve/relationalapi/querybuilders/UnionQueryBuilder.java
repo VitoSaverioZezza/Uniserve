@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.SerializablePredicate;
 import edu.stanford.futuredata.uniserve.relationalapi.UnionQuery;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
+import org.javatuples.Pair;
 
 import java.lang.reflect.Array;
 import java.util.*;
@@ -148,7 +149,61 @@ public class UnionQueryBuilder {
             }
         }
 
+        List<Pair<String, Integer>> predVarToIndexOne = new ArrayList<>();
+        List<Pair<String, Integer>> predVarToIndexTwo = new ArrayList<>();
 
+        if(filterPredicateOne != null && !filterPredicateOne.isEmpty()){
+            List<String> schemaOne = schemaSourceOne;
+            for(String attrName: schemaOne){
+                if(filterPredicateOne.contains(sourceOne+"."+attrName)){
+                    filterPredicateOne = filterPredicateOne.replace(sourceOne+"."+attrName, sourceOne+(attrName.replace(".", "")));
+                    predVarToIndexOne.add(new Pair<>((sourceOne+(attrName.replace(".", ""))), schemaOne.indexOf(attrName)));
+                }
+                if(filterPredicateOne.contains(attrName)){
+                    if(attrName.contains(".")){
+                        filterPredicateOne = filterPredicateOne.replace(attrName, attrName.replace(".", ""));
+                        predVarToIndexOne.add(new Pair<>(attrName.replace(".", ""), schemaOne.indexOf(attrName)));
+                    }else{
+                        predVarToIndexOne.add(new Pair<>(attrName, schemaOne.indexOf(attrName)));
+                    }
+                }
+            }
+            for(String userAlias: finalUserSchema){
+                if(filterPredicateOne.contains(userAlias)){
+                    int index = finalUserSchema.indexOf(userAlias);
+                    if(index == -1){
+                        throw new RuntimeException("FATAL ERROR");
+                    }
+                    predVarToIndexTwo.add(new Pair<>(userAlias, index));
+                }
+            }
+        }
+        if(filterPredicateTwo != null && !filterPredicateTwo.isEmpty()) {
+            List<String> schemaTwo = schemaSourceTwo;
+            for (String attrName : schemaTwo) {
+                if (filterPredicateTwo.contains(sourceTwo + "." + attrName)) {
+                    filterPredicateTwo = filterPredicateTwo.replace(sourceTwo + "." + attrName, sourceTwo + (attrName.replace(".", "")));
+                    predVarToIndexTwo.add(new Pair<>((sourceTwo + (attrName.replace(".", ""))), schemaTwo.indexOf(attrName)));
+                }
+                if (filterPredicateTwo.contains(attrName)) {
+                    if (attrName.contains(".")) {
+                        filterPredicateTwo = filterPredicateTwo.replace(attrName, attrName.replace(".", ""));
+                        predVarToIndexTwo.add(new Pair<>(attrName.replace(".", ""), schemaTwo.indexOf(attrName)));
+                    } else {
+                        predVarToIndexTwo.add(new Pair<>(attrName, schemaTwo.indexOf(attrName)));
+                    }
+                }
+            }
+            for(String userAlias: finalUserSchema){
+                if(filterPredicateTwo.contains(userAlias)){
+                    int index = finalUserSchema.indexOf(userAlias);
+                    if(index == -1){
+                        throw new RuntimeException("FATAL ERROR");
+                    }
+                    predVarToIndexTwo.add(new Pair<>(userAlias, index));
+                }
+            }
+        }
 
 
         UnionQuery resultQuery = new UnionQuery()

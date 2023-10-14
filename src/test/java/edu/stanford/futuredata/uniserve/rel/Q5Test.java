@@ -5,7 +5,6 @@ import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
@@ -36,11 +35,10 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 
 import static edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud.deleteDirectoryRecursion;
 
-public class Q2Test {
+public class Q5Test {
     private static final Logger logger = LoggerFactory.getLogger(Q2Test.class);
 
     private static String zkHost = "127.0.0.1";
@@ -63,6 +61,7 @@ public class Q2Test {
         }
         // Clean up directories.
         try {
+            FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve"));
             FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve0"));
             FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve1"));
             FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve2"));
@@ -116,7 +115,7 @@ public class Q2Test {
     Coordinator coordinator = null;
     List<LocalDataStoreCloud> ldscList = new ArrayList<>();
     List<DataStore<RelRow, RelShard>> dataStores = new ArrayList<>();
-    String rootPath = "C:\\Users\\saver\\Desktop\\db00_0625";
+    String rootPath = "C:\\Users\\saver\\Desktop\\db00_0625_clean";
 
     private void startServers(){
         coordinator = new Coordinator(
@@ -157,143 +156,192 @@ public class Q2Test {
             ;
         }
     }
-
-    int filmCount = 0;
-    int actorCount = 0;
-    int coursesCount = 0;
-    int examsCount = 0;
-    int professorsCount = 0;
-    int studentsCount = 0;
-
-    List<RelRow> filmRows = new ArrayList<>();
-    List<RelRow> actorRows = new ArrayList<>();
-    List<RelRow> coursesRows = new ArrayList<>();
-    List<RelRow> examsRows = new ArrayList<>();
-    List<RelRow> studentsRows = new ArrayList<>();
-    List<RelRow> professorsRows = new ArrayList<>();
-
-
     @Test
-    public void Q2Test(){
+    public void Q5Test(){
         startServers();
-
         Broker broker = new Broker(zkHost, zkPort);
-        loadDataInMem(broker);
         API api = new API(broker);
-        List<String> cs_c_join_schema = new ArrayList<>();
-        cs_c_join_schema.addAll(TPC_DS_Inv.Catalog_sales_schema);
-        cs_c_join_schema.addAll(TPC_DS_Inv.Customer_schema);
-        List<String> cs_c_ca_join_schema = new ArrayList<>();
-        cs_c_ca_join_schema.addAll(cs_c_join_schema);
-        cs_c_ca_join_schema.addAll(TPC_DS_Inv.Customer_address_schema);
-        List<String> final_schema = new ArrayList<>();
-        final_schema.addAll(cs_c_ca_join_schema);
-        final_schema.addAll(TPC_DS_Inv.Date_dim_schema);
-
-        ReadQuery cs_c_join = api.join().sources("catalog_sales", "customer",
-                         List.of("cs_bill_customer_sk"), List.of("c_customer_sk"))
-                .alias(cs_c_join_schema.toArray(new String[0])).build();
-
-        ReadQuery cs_c_ca_join = api.join().sources(cs_c_join, "customer_address", "cs_c_join",
-                         List.of("c_current_addr_sk"), List.of("ca_address_sk"))
-                .alias(cs_c_ca_join_schema.toArray(new String[0])).build();
+        loadDataInMem(broker);
 
 
-        ReadQuery final_src = api.join().sources(cs_c_ca_join, "date_dim", "cs_c_ca_join"
-                        , List.of("cs_sold_date_sk"), List.of("d_date_sk"))
-                .filters(
-                        "((ca_zip =~ '85669|86197|88274|83405|86475|85392|85460|80348|81792') || " +
-                                "[\"CA\", \"WA\", \"GA\"].contains(ca_state) || cs_sales_price > 500) && ca_zip != \"\"",
-                        "d_qoy == 1 && d_year == 1998")
-                .alias(final_schema.toArray(new String[0])).build();
-        ReadQuery res = api.read().select("ca_zip").sum("cs_sales_price", "sum_cs_sales_price").
-                from(final_src, "src").build();
-        RelReadQueryResults results = res.run(broker);
-
-        RelReadQueryResults catalog_sales_all = api.read().select().from("catalog_sales").build().run(broker);
-        RelReadQueryResults customer_all = api.read().select().from("customer").build().run(broker);
-        RelReadQueryResults customer_address_all = api.read().select().from("customer_address").build().run(broker);
-        RelReadQueryResults date_dim_all = api.read().select().from("date_dim").build().run(broker);
-
-        System.out.println("\n\nALL CATALOG SALES");
-        printRowList(catalog_sales_all.getData());
-        System.out.println("\n\nALL CUSTOMERS");
-        printRowList(customer_all.getData());
-        System.out.println("\n\nALL CUSTOMER ADDRESS");
-        printRowList(customer_address_all.getData());
-        System.out.println("\n\nALL DATE DIM");
-        printRowList(date_dim_all.getData());
-
-        List<RelRow> j1Res = new ArrayList<>();
-        for (RelRow csRow : catalog_sales_all.getData()){
-            for (RelRow cRow: customer_all.getData()){
-                if(csRow.getField(TPC_DS_Inv.Catalog_sales_schema.indexOf("cs_bill_customer_sk")).equals(cRow.getField(TPC_DS_Inv.Customer_schema.indexOf("c_customer_sk")))){
-                   System.out.println("\t\t---matching value: " + cRow.getField(0));
-                   List<Object> rawNew = new ArrayList<>();
-                   for(int i = 0; i<csRow.getSize(); i++){
-                       rawNew.add(csRow.getField(i));
-                   }
-                   for(int i = 0; i<cRow.getSize(); i++){
-                       rawNew.add(cRow.getField(i));
-                   }
-                   j1Res.add(new RelRow(rawNew.toArray()));
-                }
-            }
-        }
+        ReadQuery storeSalesInApril2001 = api.join().select(
+                "store_sales.ss_customer_sk",
+                "store_sales.ss_item_sk",
+                "store_sales.ss_ticket_number",
+                "store_sales.ss_net_profit",
+                "store_sales.ss_store_sk"
+        ).alias(
+                "ss_customer_sk",
+                "ss_item_sk",
+                "ss_ticket_number",
+                "ss_net_profit",
+                "ss_store_sk"
+        ).sources(
+                "store_sales", "date_dim",
+                List.of("ss_sold_date_sk"), List.of("d_date_sk")
+        ).filters(
+                "", "d_moy == 4 && d_year == 2001"
+        ).build();
 
 
-        cs_c_join.setIsThisSubquery(false);
-        RelReadQueryResults c_cs_join_res = cs_c_join.run(broker);
-        System.out.println("\n\nC CS JOIN RESULTS");
-        printRowList(c_cs_join_res.getData());
-        System.out.println("\n\nEXPECTED C CS JOIN RESULTS");
-        printRowList(j1Res);
+        ReadQuery storeReturnsIn2001AfterApril = api.join().select(
+                "store_returns.sr_customer_sk",
+                "store_returns.sr_item_sk",
+                "store_returns.sr_ticket_number",
+                "store_returns.sr_net_loss"
+        ).alias(
+                "sr_customer_sk",
+                "sr_item_sk",
+                "sr_ticket_number",
+                "sr_net_loss"
+        ).sources(
+                "store_returns", "date_dim",
+                List.of("sr_returned_date_sk"), List.of("d_date_sk")
+        ).filters("", "d_moy >= 4 && d_moy <= 12 && d_year == 2001").build();
 
 
-        List<RelRow> j2Res = new ArrayList<>();
-        for (RelRow caRow : customer_address_all.getData()){
-            for (RelRow j1Row: j1Res){
-                if(j1Row.getField(cs_c_join_schema.indexOf("c_current_addr_sk")).equals(caRow.getField(TPC_DS_Inv.Customer_address_schema.indexOf("ca_address_sk")))){
-                    System.out.println("\t\t---matching value: " + caRow.getField(TPC_DS_Inv.Customer_address_schema.indexOf("ca_address_sk")));
-                    List<Object> rawNew = new ArrayList<>();
-                    for(int i = 0; i<j1Row.getSize(); i++){
-                        rawNew.add(j1Row.getField(i));
-                    }
-                    for(int i = 0; i<caRow.getSize(); i++){
-                        rawNew.add(caRow.getField(i));
-                    }
-                    j2Res.add(new RelRow(rawNew.toArray()));
-                }else{
-                    System.out.println("\t\tvj1: " + j1Row.getField(cs_c_join_schema.indexOf("c_current_addr_sk")) +
-                            " vJ2: " + caRow.getField(TPC_DS_Inv.Customer_address_schema.indexOf("ca_address_sk")));
-                }
-            }
-        }
+        ReadQuery catalogSalesIn2001AfterApril = api.join().select(
+                "catalog_sales.cs_bill_customer_sk",
+                "catalog_sales.cs_item_sk",
+                "catalog_sales.cs_net_profit"
+        ).alias(
+                "cs_bill_customer_sk",
+                "cs_item_sk",
+                "cs_net_profit"
+        ).sources(
+                "catalog_sales", "date_dim",
+                List.of("cs_sold_date_sk"), List.of("d_date_sk")
+        ).filters("", "d_moy >= 4 && d_moy <= 12 && d_year == 2001").build();
 
-        cs_c_ca_join.setIsThisSubquery(false);
-        RelReadQueryResults cs_c_ca_join_res = cs_c_ca_join.run(broker);
-        System.out.println("\n\nC CS CA JOIN RESULTS");
-        printRowList(cs_c_ca_join_res.getData());
-        System.out.println(customer_address_all.getData().size());
-        System.out.println(j1Res.size());
-        System.out.println("\n\nEXPECTED C CS CA JOIN RESULTS");
-        printRowList(j2Res);
+        ReadQuery returnedStoreAprilSales = api.join().select(
+                "sales.ss_net_profit",
+                "sales.ss_item_sk",
+                "sales.ss_store_sk",
+                "sales.ss_customer_sk",
+                "returns.sr_net_loss"
+        ).alias(
+                "ss_net_profit",
+                "ss_item_sk",
+                "ss_store_sk",
+                "ss_customer_sk",
+                "sr_net_loss"
+        ).sources(
+                storeSalesInApril2001, storeReturnsIn2001AfterApril, "sales", "returns",
+                List.of(
+                        "ss_customer_sk",
+                        "ss_item_sk",
+                        "ss_ticket_number"),
+                List.of(
+                        "sr_customer_sk",
+                        "sr_item_sk",
+                        "sr_ticket_number"
+                )
+                ).build();
 
-        System.out.println("\n\n\n\n\n");
+        ReadQuery returnedStoreSalesInAprilWhoLaterBoughtOnCatalog = api.join().select(
+                "rsasp.ss_item_sk",
+                "rsasp.ss_store_sk",
+                "csaa.cs_net_profit",
+                "rsasp.ss_net_profit",
+                "rsasp.sr_net_loss"
+        ).alias(
+                "ss_item_sk",
+                "ss_store_sk",
+                "cs_net_profit",
+                "ss_net_profit",
+                "sr_net_loss"
+        ).sources(
+                returnedStoreAprilSales, catalogSalesIn2001AfterApril, "rsasp", "csaa",
+                List.of("ss_customer_sk",
+                        "ss_item_sk"),
+                List.of(
+                        "cs_bill_customer_sk",
+                        "cs_item_sk")
+        ).build();
+
+        ReadQuery joinItem = api.join().select(
+                "penultimateJoin.ss_store_sk",
+                "item.i_item_id",
+                "item.i_item_desc",
+                "penultimateJoin.cs_net_profit",
+                "penultimateJoin.ss_net_profit",
+                "penultimateJoin.sr_net_loss"
+        ).alias(
+                "ss_store_sk",
+                "i_item_id",
+                "i_item_desc",
+                "cs_net_profit",
+                "ss_net_profit",
+                "sr_net_loss"
+        ).sources(
+                returnedStoreSalesInAprilWhoLaterBoughtOnCatalog, "item", "penultimateJoin",
+                List.of("ss_item_sk"), List.of("i_item_sk")
+        ).build();
+
+        ReadQuery joinStore = api.join().select(
+                "j1.i_item_id",
+                "j1.i_item_desc",
+                "store.s_store_id",
+                "store.s_store_name",
+                "j1.cs_net_profit",
+                "j1.ss_net_profit",
+                "j1.sr_net_loss"
+        ).alias(
+                "i_item_id",
+                "i_item_desc",
+                "s_store_id",
+                "s_store_name",
+                "cs_net_profit",
+                "ss_net_profit",
+                "sr_net_loss"
+        ).sources(
+                joinItem, "store", "j1",
+                List.of("ss_store_sk"), List.of("s_store_sk")
+        ).build();
+
+
+        ReadQuery finalQuery = api.read().select("i_item_id",
+                        "i_item_desc",
+                        "s_store_id",
+                        "s_store_name"
+                )
+                .max("ss_net_profit", "store_sales_profit")
+                .max("sr_net_loss", "store_returns_loss")
+                .max("cs_net_profit", "catalog_sales_profit")
+                .from(joinStore, "src")
+                .build();
+
+
+        RelReadQueryResults results = finalQuery.run(broker);
+
+        System.out.println("RESULTS:");
         printRowList(results.getData());
-        System.out.println("-----\n\n\n\n\n");
 
+        System.out.println("\nreturning...");
         stopServers();
     }
 
 
+    public List<String> tablesToLoad = List.of(
+            "store_sales",
+            "store_returns",
+            "catalog_sales",
+            "date_dim",
+            "store",
+            "item"
+    );
 
     public void loadDataInMem(Broker broker) {
         API api = new API(broker);
         boolean res = true;
         for (int i = 0; i < TPC_DS_Inv.numberOfTables; i++) {
+            if(!tablesToLoad.contains(TPC_DS_Inv.names.get(i))){
+                continue;
+            }else{
+                System.out.println("Loading data for table " + TPC_DS_Inv.names.get(i));
+            }
             List<RelRow> memBuffer = new ArrayList<>();
-            MemoryLoader memoryLoader = new MemoryLoader(i, memBuffer, broker);
+            MemoryLoader memoryLoader = new MemoryLoader(i, memBuffer);
             if(!memoryLoader.run()){
                 return;
             }
@@ -303,12 +351,7 @@ public class Q2Test {
                     .keys(TPC_DS_Inv.schemas.get(i).toArray(new String[0]))
                     .shardNumber(shardNum)
                     .build().run();
-            if(!res){
-                System.out.println("Failed to create table " + TPC_DS_Inv.names.get(i) + "\nTable may be already registered");
-            }
-            System.out.println("Table " + TPC_DS_Inv.names.get(i) + " created");
             res = api.write().table(TPC_DS_Inv.names.get(i)).data(memBuffer.toArray(new RelRow[0])).build().run();
-            System.out.println("Table " + TPC_DS_Inv.names.get(i) + " written");
             memBuffer.clear();
             if(!res){
                 broker.shutdown();
@@ -320,12 +363,9 @@ public class Q2Test {
     private class MemoryLoader{
         private final int index;
         private final List<RelRow> sink;
-
-        private final Broker broker;
-        public MemoryLoader(int index, List<RelRow> sink, Broker broker){
+        public MemoryLoader(int index, List<RelRow> sink){
             this.sink = sink;
             this.index = index;
-            this.broker = broker;
         }
         public boolean run(){
             String path = rootPath + TPC_DS_Inv.paths.get(index);
@@ -335,7 +375,10 @@ public class Q2Test {
 
             try (BufferedReader br = new BufferedReader(new FileReader(path))) {
                 String line;
-                while ((line = br.readLine()) != null && rowCount<100) {
+                while ((line = br.readLine()) != null) {
+                    if(rowCount % 10000 == 0){
+                        System.out.println("Row count: " + rowCount);
+                    }
                     String[] parts = line.split("\\|");
                     List<Object> parsedRow = new ArrayList<>(types.size());
                     if (parts.length == types.size()) {
@@ -349,12 +392,9 @@ public class Q2Test {
                     }
                 }
             } catch (IOException e) {
-                broker.shutdown();
                 e.printStackTrace();
                 return false;
             }
-            System.out.println("Data for table " + TPC_DS_Inv.names.get(index) + " loaded successfully");
-            System.out.println("Number of rows: " + sink.size());
             return true;
         }
 

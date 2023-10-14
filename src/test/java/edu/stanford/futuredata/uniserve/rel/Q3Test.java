@@ -41,7 +41,7 @@ import java.util.Random;
 import static edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud.deleteDirectoryRecursion;
 
 public class Q3Test {
-    private static final Logger logger = LoggerFactory.getLogger(Q2Test.class);
+    private static final Logger logger = LoggerFactory.getLogger(Q3Test.class);
 
     private static String zkHost = "127.0.0.1";
     private static Integer zkPort = 2181;
@@ -200,6 +200,7 @@ public class Q3Test {
                 "customer.c_current_addr_sk",
                 "j2.pj1.ss_ext_sales_price",
                 "j2.pj1.ss_store_sk",
+                "j2.item.i_brand",
                 "j2.item.i_brand_id",
                 "j2.item.i_manufact_id",
                 "j2.item.i_manufact"
@@ -207,6 +208,7 @@ public class Q3Test {
                 "c_current_addr_sk",
                 "ss_ext_sales_price",
                 "ss_store_sk",
+                "i_brand",
                 "i_brand_id",
                 "i_manufact_id",
                 "i_manufact"
@@ -220,6 +222,7 @@ public class Q3Test {
         ReadQuery pj4 = api.read().select(
                 "pj3.ss_ext_sales_price",
                 "pj3.ss_store_sk",
+                "pj3.i_brand",
                 "pj3.i_brand_id",
                 "pj3.i_manufact_id",
                 "pj3.i_manufact",
@@ -227,6 +230,7 @@ public class Q3Test {
         ).alias(
                 "ss_ext_sales_price",
                 "ss_store_sk",
+                "i_brand",
                 "i_brand_id",
                 "i_manufact_id",
                 "i_manufact",
@@ -240,6 +244,7 @@ public class Q3Test {
 
         ReadQuery fpj5 = api.read().select(
                 "pj4.i_brand_id",
+                "pj4.i_brand",
                 "pj4.i_manufact_id",
                 "pj4.i_manufact"
         ).alias(
@@ -284,7 +289,7 @@ public class Q3Test {
             if(!memoryLoader.run()){
                 return;
             }
-            int shardNum = Math.min(Math.max(memBuffer.size(), 1), Broker.SHARDS_PER_TABLE);
+            int shardNum = Math.min(Math.max(memBuffer.size()/1000, 1), Broker.SHARDS_PER_TABLE);
             res = api.createTable(TPC_DS_Inv.names.get(i))
                     .attributes(TPC_DS_Inv.schemas.get(i).toArray(new String[0]))
                     .keys(TPC_DS_Inv.schemas.get(i).toArray(new String[0]))
@@ -314,7 +319,7 @@ public class Q3Test {
 
             try (BufferedReader br = new BufferedReader(new FileReader(path))) {
                 String line;
-                while ((line = br.readLine()) != null && rowCount < 10000) {
+                while ((line = br.readLine()) != null) {
                     if(rowCount % 10000 == 0){
                         System.out.println("Row count: " + rowCount);
                     }

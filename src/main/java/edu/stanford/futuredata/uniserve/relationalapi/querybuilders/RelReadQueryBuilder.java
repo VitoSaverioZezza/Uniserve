@@ -249,16 +249,28 @@ public class RelReadQueryBuilder {
 
 
         List<Pair<String, Integer>> predVarToIndex = new ArrayList<>();
-        if(this.sourceFilter != null && !this.sourceFilter.isEmpty()) {
-            for (String sourceAttributeName : sourceSchema) {
-                if (this.sourceFilter.contains(sourceAttributeName)) {
-                    predVarToIndex.add(new Pair<>(sourceAttributeName, sourceSchema.indexOf(sourceAttributeName)));
+        if(sourceFilter != null && !sourceFilter.isEmpty()){
+            for(String attrName: sourceSchema){
+                if(sourceFilter.contains(sourceName+"."+attrName)){
+                    sourceFilter = sourceFilter.replace(sourceName+"."+attrName, sourceName+(attrName.replace(".", "")));
+                    predVarToIndex.add(new Pair<>((sourceName+(attrName.replace(".", ""))), sourceName.indexOf(attrName)));
+                }
+                if(sourceFilter.contains(attrName)){
+                    if(attrName.contains(".")){
+                        sourceFilter = sourceFilter.replace(attrName, attrName.replace(".", ""));
+                        predVarToIndex.add(new Pair<>(attrName.replace(".", ""), sourceSchema.indexOf(attrName)));
+                    }else{
+                        predVarToIndex.add(new Pair<>(attrName, sourceSchema.indexOf(attrName)));
+                    }
                 }
             }
-
-            for (String userAlias : resultSchema) {
-                if (this.sourceFilter.contains(userAlias)) {
-                    predVarToIndex.add(new Pair<>(userAlias, sourceSchema.indexOf(this.projectionAttributes.get(resultSchema.indexOf(userAlias)))));
+            for(String userAlias: resultSchema){
+                if (sourceFilter.contains(userAlias)){
+                    int index = this.sourceSchema.indexOf(this.projectionAttributes.get(resultSchema.indexOf(userAlias)));
+                    if(index == -1){
+                        throw new RuntimeException("ERROR: FATAL");
+                    }
+                    predVarToIndex.add(new Pair<>(userAlias, index));
                 }
             }
         }
@@ -347,11 +359,31 @@ public class RelReadQueryBuilder {
             }
         }
 
+
         List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
-        for(String attributeName: sourceSchema){
-            if(this.sourceFilter.contains(attributeName)){
-                int index = sourceSchema.indexOf(attributeName);
-                predicateVarToIndexes.add(new Pair<>(attributeName, index));
+        if(sourceFilter != null && !sourceFilter.isEmpty()){
+            for(String attrName: sourceSchema){
+                if(sourceFilter.contains(sourceName+"."+attrName)){
+                    sourceFilter = sourceFilter.replace(sourceName+"."+attrName, sourceName+(attrName.replace(".", "")));
+                    predicateVarToIndexes.add(new Pair<>((sourceName+(attrName.replace(".", ""))), sourceName.indexOf(attrName)));
+                }
+                if(sourceFilter.contains(attrName)){
+                    if(attrName.contains(".")){
+                        sourceFilter = sourceFilter.replace(attrName, attrName.replace(".", ""));
+                        predicateVarToIndexes.add(new Pair<>(attrName.replace(".", ""), sourceSchema.indexOf(attrName)));
+                    }else{
+                        predicateVarToIndexes.add(new Pair<>(attrName, sourceSchema.indexOf(attrName)));
+                    }
+                }
+            }
+            for(String userAlias: userResultsSchema){
+                if (sourceFilter.contains(userAlias)){
+                    int index = this.sourceSchema.indexOf(this.projectionAttributes.get(userResultsSchema.indexOf(userAlias)));
+                    if(index == -1){
+                        throw new RuntimeException("ERROR: FATAL");
+                    }
+                    predicateVarToIndexes.add(new Pair<>(userAlias, index));
+                }
             }
         }
 
@@ -402,10 +434,29 @@ public class RelReadQueryBuilder {
         }
 
         List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
-        for(String attributeName: sourceSchema){
-            if(this.sourceFilter.contains(attributeName)){
-                int index = sourceSchema.indexOf(attributeName);
-                predicateVarToIndexes.add(new Pair<>(attributeName, index));
+        if(sourceFilter != null && !sourceFilter.isEmpty()){
+            for(String attrName: sourceSchema){
+                if(sourceFilter.contains(sourceName+"."+attrName)){
+                    sourceFilter = sourceFilter.replace(sourceName+"."+attrName, sourceName+(attrName.replace(".", "")));
+                    predicateVarToIndexes.add(new Pair<>((sourceName+(attrName.replace(".", ""))), sourceName.indexOf(attrName)));
+                }
+                if(sourceFilter.contains(attrName)){
+                    if(attrName.contains(".")){
+                        sourceFilter = sourceFilter.replace(attrName, attrName.replace(".", ""));
+                        predicateVarToIndexes.add(new Pair<>(attrName.replace(".", ""), sourceSchema.indexOf(attrName)));
+                    }else{
+                        predicateVarToIndexes.add(new Pair<>(attrName, sourceSchema.indexOf(attrName)));
+                    }
+                }
+            }
+            for(String userAlias: userResultsSchema){
+                if (sourceFilter.contains(userAlias)){
+                    int index = this.sourceSchema.indexOf(this.projectionAttributes.get(userResultsSchema.indexOf(userAlias)));
+                    if(index == -1){
+                        throw new RuntimeException("ERROR: FATAL");
+                    }
+                    predicateVarToIndexes.add(new Pair<>(userAlias, index));
+                }
             }
         }
 

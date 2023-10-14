@@ -9,6 +9,7 @@ import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
+import org.mvel2.MVEL;
 
 import java.io.Serializable;
 import java.util.*;
@@ -31,6 +32,7 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     private List<String> resultSchema = new ArrayList<>();
     private List<String> systemResultSchema = new ArrayList<>();
     private String filterPredicate = "";
+    private Serializable cachedFilterPredicate = "";
     private boolean stored = false;
     private boolean isThisSubquery = false;
     private boolean isDistinct = false;
@@ -59,6 +61,11 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
         return this;
     }
     public FilterAndProjectionQuery setFilterPredicate(String filterPredicate) {
+        if(filterPredicate != null && !filterPredicate.isEmpty()){
+            this.cachedFilterPredicate = MVEL.compileExpression(filterPredicate);
+            this.filterPredicate = filterPredicate;
+            return this;
+        }
         this.filterPredicate = filterPredicate;
         return this;
     }
@@ -231,6 +238,7 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
             return false;
         }
         try{
+            /*
             JexlEngine jexl = new JexlBuilder().create();
             JexlExpression expression = jexl.createExpression(filterPredicate);
             JexlContext context = new MapContext(values);
@@ -240,6 +248,14 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
             else {
                 return (Boolean) result;
             }
+            */
+            //Serializable compiled = MVEL.compileExpression(filterPredicate);
+            Object result = MVEL.executeExpression(cachedFilterPredicate, values);
+            if(!(result instanceof Boolean))
+                return false;
+            else
+                return (Boolean) result;
+
         }catch (Exception e ){
             System.out.println(e.getMessage());
             return false;

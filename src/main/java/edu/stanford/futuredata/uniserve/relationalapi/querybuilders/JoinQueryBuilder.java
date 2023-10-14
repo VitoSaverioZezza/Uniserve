@@ -5,6 +5,7 @@ import edu.stanford.futuredata.uniserve.relationalapi.JoinQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.SerializablePredicate;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
+import org.javatuples.Pair;
 
 import java.util.*;
 
@@ -301,6 +302,87 @@ public class JoinQueryBuilder {
             }
         }
 
+        List<Pair<String, Integer>> predVarToIndexOne = new ArrayList<>();
+        List<Pair<String, Integer>> predVarToIndexTwo = new ArrayList<>();
+
+        String predOne = filterPredicates.get(sourceOne);
+        String predTwo = filterPredicates.get(sourceTwo);
+
+        if(predOne != null && !predOne.isEmpty()){
+            List<String> schemaOne = sourcesSchemas.get(sourceOne);
+            for(String attrName: schemaOne){
+                if(predOne.contains(sourceOne+"."+attrName)){
+                    predOne = predOne.replace(sourceOne+"."+attrName, sourceOne+(attrName.replace(".", "")));
+                    predVarToIndexOne.add(new Pair<>((sourceOne+(attrName.replace(".", ""))), schemaOne.indexOf(attrName)));
+                }
+                if(predOne.contains(attrName)){
+                    if(attrName.contains(".")){
+                        predOne = predOne.replace(attrName, attrName.replace(".", ""));
+                        predVarToIndexOne.add(new Pair<>(attrName.replace(".", ""), schemaOne.indexOf(attrName)));
+                    }else{
+                        predVarToIndexOne.add(new Pair<>(attrName, schemaOne.indexOf(attrName)));
+                    }
+                }
+            }
+            for(String userAlias: resultUserSchema){
+                if(predOne.contains(userAlias)){
+                    String correspondingSystemName = resultSystemSchema.get(resultUserSchema.indexOf(userAlias));
+                    String[] split = correspondingSystemName.split("\\.");
+                    StringBuilder sb = new StringBuilder();
+                    for(int i = 1; i<split.length-1;i++){
+                        sb.append(split[i]);
+                        sb.append(".");
+                    }
+                    String correspondingAttributeName = sb.toString() + split[split.length-1];
+                    int index = sourcesSchemas.get(sourceOne).indexOf(correspondingAttributeName);
+                    if(!split[0].equals(sourceOne) || index == -1){
+                        throw new RuntimeException("filter predicate of source one contains alias of " +
+                                "an attribute that doesn't match source one in the prefix of the corresponding" +
+                                "attribute name");
+                    }
+                    predVarToIndexOne.add(new Pair<>(userAlias, index));
+                }
+            }
+            filterPredicates.put(sourceOne, predOne);
+        }
+        if(predTwo != null && !predTwo.isEmpty()){
+            List<String> schemaTwo = sourcesSchemas.get(sourceTwo);
+            for(String attrName: schemaTwo){
+                if(predTwo.contains(sourceTwo+"."+attrName)){
+                    predTwo = predTwo.replace(sourceTwo+"."+attrName, sourceTwo+(attrName.replace(".", "")));
+                    predVarToIndexTwo.add(new Pair<>((sourceTwo+(attrName.replace(".", ""))), schemaTwo.indexOf(attrName)));
+                }
+                if(predTwo.contains(attrName)){
+                    if(attrName.contains(".")){
+                        predTwo = predTwo.replace(attrName, attrName.replace(".", ""));
+                        predVarToIndexTwo.add(new Pair<>(attrName.replace(".", ""), schemaTwo.indexOf(attrName)));
+                    }else{
+                        predVarToIndexTwo.add(new Pair<>(attrName, schemaTwo.indexOf(attrName)));
+                    }
+                }
+            }
+            for(String userAlias: resultUserSchema){
+                if(predTwo.contains(userAlias)){
+                    String correspondingSystemName = resultSystemSchema.get(resultUserSchema.indexOf(userAlias));
+                    String[] split = correspondingSystemName.split("\\.");
+                    StringBuilder sb = new StringBuilder();
+                    for(int i = 1; i<split.length-1;i++){
+                        sb.append(split[i]);
+                        sb.append(".");
+                    }
+                    String correspondingAttributeName = sb.toString() + split[split.length-1];
+                    int index = sourcesSchemas.get(sourceTwo).indexOf(correspondingAttributeName);
+                    if(!split[0].equals(sourceTwo) || index == -1){
+                        throw new RuntimeException("filter predicate of source two contains alias of " +
+                                "an attribute that doesn't match source one in the prefix of the corresponding" +
+                                "attribute name");
+                    }
+                    predVarToIndexTwo.add(new Pair<>(userAlias, index));
+                }
+            }
+            filterPredicates.put(sourceTwo, predTwo);
+        }
+
         JoinQuery query = new JoinQuery()
                 .setSourceOne(sourceOne)
                 .setSourceTwo(sourceTwo)
@@ -313,6 +395,8 @@ public class JoinQueryBuilder {
                 .setSourceSubqueries(subqueries)
                 .setIsThisSubquery(false)
                 .setPredicateSubqueries(predicateSubqueries)
+                .setPredicateVarToIndexesOne(predVarToIndexOne)
+                .setPredicateVarToIndexesTwo(predVarToIndexTwo)
                 ;
         if(this.distinct){
             query = query.setDistinct();

@@ -10,6 +10,7 @@ import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.RelReadQuery
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
+import org.mvel2.MVEL;
 
 import java.io.Serializable;
 import java.util.*;
@@ -27,6 +28,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     private List<String> resultsSchema = new ArrayList<>();
     private List<Pair<Integer, String>> aggregatesSpecification = new ArrayList<>();
     private String filterPredicate = "";
+    private Serializable cachedFilterPredicate = "";
     private Map<String, ReadQuery> sourceSubqueries = new HashMap<>();
     private boolean stored;
     private boolean isThisSubquery = false;
@@ -35,6 +37,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     private WriteResultsPlan writeResultsPlan = null;
     private List<Serializable> operations = new ArrayList<>();
     private List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
+    private List<Pair<Integer, Integer>> aggregatesOPsToIndexes = new ArrayList<>();
 
     public SimpleAggregateQuery setSourceName(String sourceName) {
         this.sourceName = sourceName;
@@ -57,6 +60,11 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
         return this;
     }
     public SimpleAggregateQuery setFilterPredicate(String filterPredicate) {
+        if(filterPredicate != null && !filterPredicate.isEmpty()){
+            this.cachedFilterPredicate = MVEL.compileExpression(filterPredicate);
+            this.filterPredicate = filterPredicate;
+            return this;
+        }
         this.filterPredicate = filterPredicate;
         return this;
     }
@@ -89,6 +97,10 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     }
     public SimpleAggregateQuery setPredicateVarToIndexes(List<Pair<String, Integer>> predicateVarToIndexes) {
         this.predicateVarToIndexes = predicateVarToIndexes;
+        return this;
+    }
+    public SimpleAggregateQuery setAggregatesOPsToIndexes(List<Pair<Integer, Integer>> aggregatesOPsToIndexes){
+        this.aggregatesOPsToIndexes = aggregatesOPsToIndexes;
         return this;
     }
 
@@ -193,7 +205,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
 
 
     private List<RelRow> filter(List<RelRow> data, Map<String, ReadQueryResults> subqRes) {
-        if(filterPredicate.isEmpty()){
+        if(filterPredicate == null || filterPredicate.isEmpty()){
             return data;
         }
         List<RelRow> filteredRows = new ArrayList<>();
@@ -237,6 +249,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
             return false;
         }
         try{
+            /*
             JexlEngine jexl = new JexlBuilder().create();
             JexlExpression expression = jexl.createExpression(filterPredicate);
             JexlContext context = new MapContext(values);
@@ -246,17 +259,22 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
             else {
                 return (Boolean) result;
             }
+
+             */
+            //Serializable compiled = MVEL.compileExpression(filterPredicate);
+            Object result = MVEL.executeExpression(cachedFilterPredicate, values);
+            if(!(result instanceof Boolean))
+                return false;
+            else
+                return (Boolean) result;
+
         }catch (Exception e ){
             System.out.println(e.getMessage());
             return false;
         }
     }
 
-    List<Pair<Integer, Integer>> aggregatesOPsToIndexes = new ArrayList<>();
-    public SimpleAggregateQuery setAggregatesOPsToIndexes(List<Pair<Integer, Integer>> aggregatesOPsToIndexes){
-        this.aggregatesOPsToIndexes = aggregatesOPsToIndexes;
-        return this;
-    }
+
     private RelRow computePartialResults(List<RelRow> shardData){
 /*
         List<Object> partialResults = new ArrayList<>();

@@ -21,7 +21,7 @@ import java.util.jar.JarFile;
 import java.util.stream.Collectors;
 
 public class Utilities {
-    public static boolean logger_flag = true;
+    public static boolean logger_flag = false;
     public static String null_name = "__null__unready__";
     private static final Logger logger = LoggerFactory.getLogger(Utilities.class);
 

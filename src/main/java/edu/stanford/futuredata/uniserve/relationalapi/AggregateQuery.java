@@ -10,6 +10,7 @@ import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.RelReadQuery
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
+import org.mvel2.MVEL;
 
 import java.io.Serializable;
 import java.util.*;
@@ -23,6 +24,7 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
     private List<String> systemSelectedFields = new ArrayList<>();
     private List<Pair<Integer, String>> aggregatesSpecification = new ArrayList<>();
     private String filterPredicate = "";
+    private Serializable cachedFilterPredicate = null;
     private Map<String, ReadQuery> sourceSubqueries = new HashMap<>();
     private String havingPredicate = "";
     private boolean stored = false;
@@ -32,6 +34,7 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
     private WriteResultsPlan writeResultsPlan = null;
     private List<Serializable> operations = new ArrayList<>();
     private List<Pair<Integer, Integer>> aggregatesOPToIndex = new ArrayList<>();
+    private List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
 
 
     public AggregateQuery setSourceName(String sourceName) {
@@ -59,6 +62,11 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
         return this;
     }
     public AggregateQuery setFilterPredicate(String filterPredicate) {
+        if(filterPredicate != null && !filterPredicate.isEmpty()){
+            this.cachedFilterPredicate = MVEL.compileExpression(filterPredicate);
+            this.filterPredicate = filterPredicate;
+            return this;
+        }
         this.filterPredicate = filterPredicate;
         return this;
     }
@@ -96,6 +104,10 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
     }
     public AggregateQuery setAggregatesOPToIndex(List<Pair<Integer, Integer>> aggregatesOPToIndex){
         this.aggregatesOPToIndex = aggregatesOPToIndex;
+        return this;
+    }
+    public AggregateQuery setPredicateVarToIndexes(List<Pair<String, Integer>> predicateVarToIndexes) {
+        this.predicateVarToIndexes = predicateVarToIndexes;
         return this;
     }
 
@@ -245,11 +257,7 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
         return filteredData;
     }
 
-    List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
-    public AggregateQuery setPredicateVarToIndexes(List<Pair<String, Integer>> predicateVarToIndexes) {
-        this.predicateVarToIndexes = predicateVarToIndexes;
-        return this;
-    }
+
 
     private boolean evaluatePredicate(RelRow row, Map<String, RelReadQueryResults> subqRes){
         Map<String, Object> values = new HashMap<>();
@@ -281,6 +289,8 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
 
 
         try{
+
+            /*
             JexlEngine jexl = new JexlBuilder().create();
             JexlExpression expression = jexl.createExpression(filterPredicate);
             JexlContext context = new MapContext(values);
@@ -290,6 +300,14 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
             else {
                 return (Boolean) result;
             }
+             */
+            //Serializable compiled = MVEL.compileExpression(filterPredicate);
+            Object result = MVEL.executeExpression(cachedFilterPredicate, values);
+            if(!(result instanceof Boolean))
+                return false;
+            else
+                return (Boolean) result;
+
         }catch (Exception e ){
             System.out.println(e.getMessage());
             return false;

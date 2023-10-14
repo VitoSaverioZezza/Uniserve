@@ -10,6 +10,8 @@ import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
+import org.mvel2.MVEL;
+import org.mvel2.compiler.CompiledExpression;
 
 import java.io.Serializable;
 import java.util.*;
@@ -25,6 +27,7 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     private List<String> systemResultSchema = new ArrayList<>(); //system final schema, this is in dotted notation!
     private Map<String, List<String>> sourcesJoinAttributes = new HashMap<>();
     private Map<String, String> filterPredicates = new HashMap<>(); //filters for both sources
+    private Map<String, Serializable> cachedFilterPredicates = new HashMap<>();
     private Map<String, ReadQuery> sourceSubqueries = new HashMap<>(); //map from subquery alias to subquery
     private boolean stored = false;
     private boolean isThisSubquery = false;
@@ -33,7 +36,8 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
     private List<Serializable> operations = new ArrayList<>();
-
+    private List<Pair<String, Integer>> predicateVarToIndexesOne = new ArrayList<>();
+    private List<Pair<String, Integer>> predicateVarToIndexesTwo = new ArrayList<>();
 
     public JoinQuery setSourceOne(String sourceOne) {
         this.sourceOne = sourceOne;
@@ -65,6 +69,13 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         return this;
     }
     public JoinQuery setFilterPredicates(Map<String, String> filterPredicates) {
+        for(Map.Entry<String,String> p: filterPredicates.entrySet()){
+            if(p.getValue() != null && !p.getValue().isEmpty()){
+                cachedFilterPredicates.put(p.getKey(), MVEL.compileExpression(p.getValue()));
+                this.filterPredicates.put(p.getKey(), p.getValue());
+            }
+            return this;
+        }
         this.filterPredicates = filterPredicates;
         return this;
     }
@@ -97,6 +108,14 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     }
     public JoinQuery setOperations(List<SerializablePredicate> operations) {
         this.operations.addAll(operations);
+        return this;
+    }
+    public JoinQuery setPredicateVarToIndexesOne(List<Pair<String, Integer>> predicateVarToIndexes) {
+        this.predicateVarToIndexesOne = predicateVarToIndexes;
+        return this;
+    }
+    public JoinQuery setPredicateVarToIndexesTwo(List<Pair<String, Integer>> predicateVarToIndexes) {
+        this.predicateVarToIndexesTwo = predicateVarToIndexes;
         return this;
     }
 
@@ -141,8 +160,13 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     @Override
     public Map<Integer, List<ByteString>> scatter(RelShard shard, int numRepartitions, String sourceName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
         List<RelRow> data = shard.getData();
+        if(data.isEmpty()){
+            return new HashMap<>();
+        }
         List<RelRow> filteredData = filter(data, sourceName, concreteSubqueriesResults);
-
+        if(filteredData.isEmpty()){
+            return new HashMap<>();
+        }
         Map<Integer, List<ByteString>> returnedAssignment = new HashMap<>();
         List<String> joinAttributes = sourcesJoinAttributes.get(sourceName);
         List<String> sourceSchema = sourceSchemas.get(sourceName);
@@ -272,6 +296,8 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     }
 
 
+
+
     private ArrayList<RelRow> checkDistinct(ArrayList<RelRow> data){
         if(!isDistinct){
             return data;
@@ -312,20 +338,46 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
                 values.put(subqRes.getKey(), subqRes.getValue().getData().get(0).getField(0));
             }
         }
+        /*
         for (String attributeName : sourceSchema) {
             Object val = row.getField(sourceSchema.indexOf(attributeName));
             String systemName = sourceName + "." + attributeName;
             if (filterPredicate.contains(systemName)) {
-                values.put(systemName, val);
+                filterPredicate = filterPredicate.replace(systemName, "'"+systemName+"'");
+                values.put("'"+systemName+"'", val);
             }
             if (filterPredicate.contains(attributeName)) {
                 values.put(attributeName, val);
+            }
+        }
+        */
+
+
+        if(sourceName.equals(sourceOne)) {
+            for (Pair<String, Integer> nameToVar : predicateVarToIndexesOne) {
+                Object val = row.getField(nameToVar.getValue1());
+                if (val == null) {
+                    return false;
+                } else {
+                    values.put(nameToVar.getValue0(), val);
+                }
+            }
+        }else{
+            for (Pair<String, Integer> nameToVar : predicateVarToIndexesTwo) {
+                Object val = row.getField(nameToVar.getValue1());
+                if (val == null) {
+                    return false;
+                } else {
+                    values.put(nameToVar.getValue0(), val);
+                }
             }
         }
         if(values.containsValue(null)){
             return false;
         }
         try{
+            /*
+
             JexlEngine jexl = new JexlBuilder().create();
             JexlExpression expression = jexl.createExpression(filterPredicate);
             JexlContext context = new MapContext(values);
@@ -335,6 +387,17 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
             else {
                 return (Boolean) result;
             }
+
+            */
+
+            //Serializable compiled = MVEL.compileExpression(filterPredicate);
+            Serializable compiled = cachedFilterPredicates.get(sourceName);
+            Object result = MVEL.executeExpression(compiled, values);
+            if(!(result instanceof Boolean))
+                return false;
+            else
+                return (Boolean) result;
+
         }catch (Exception e ){
             System.out.println(e.getMessage());
             return false;

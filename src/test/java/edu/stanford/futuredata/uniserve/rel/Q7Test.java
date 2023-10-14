@@ -5,7 +5,6 @@ import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
@@ -36,7 +35,6 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 
 import static edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud.deleteDirectoryRecursion;
 
@@ -159,160 +157,54 @@ public class Q7Test {
         }
     }
     @Test
-    public void Q7Test(){
+    public void Q8Test(){
         startServers();
         Broker broker = new Broker(zkHost, zkPort);
         API api = new API(broker);
         loadDataInMem(broker);
 
+        ReadQuery ssMarch99 = api.join().sources(
+                "store_sales", "date_dim", List.of("ss_sold_date_sk"), List.of("d_date_sk")
+        ).filters("", "d_year == 1999 && d_month == 3").build();
 
-        ReadQuery storeSalesInApril2001 = api.join().select(
-                "store_sales.ss_customer_sk",
-                "store_sales.ss_item_sk",
-                "store_sales.ss_ticket_number",
-                "store_sales.ss_net_profit",
-                "store_sales.ss_store_sk"
-        ).alias(
-                "ss_customer_sk",
-                "ss_item_sk",
-                "ss_ticket_number",
-                "ss_net_profit",
-                "ss_store_sk"
-        ).sources(
-                "store_sales", "date_dim",
-                List.of("ss_sold_date_sk"), List.of("d_date_sk")
-        ).filters(
-                "", "d_moy == 4 && d_year == 2001"
-        ).build();
+        ReadQuery booksSoldInStoreMarch99 = api.join().sources("item", ssMarch99, "ssMarch99", List.of("i_item_sk"), List.of("store_sales.ss_item_sk"))
+                .filters("i_category == 'Books'", "").build();
 
+        ReadQuery ssSrc = api.join().select("books.ssMarch99.store_sales.ss_ext_sales_price", "books.item.i_manufact_id").alias("ss_ext_sales_price", "i_manufact_id")
+                .sources(booksSoldInStoreMarch99, "customer_address", "books", List.of("ssMarch99.store_sales.ss_addr_sk"), List.of("ca_address_sk"))
+                .filters("", "ca_gmt_offset == -5").build();
 
-        ReadQuery storeReturnsIn2001AfterApril = api.join().select(
-                "store_returns.sr_customer_sk",
-                "store_returns.sr_item_sk",
-                "store_returns.sr_ticket_number",
-                "store_returns.sr_net_loss"
-        ).alias(
-                "sr_customer_sk",
-                "sr_item_sk",
-                "sr_ticket_number",
-                "sr_net_loss"
-        ).sources(
-                "store_returns", "date_dim",
-                List.of("sr_returned_date_sk"), List.of("d_date_sk")
-        ).filters("", "d_moy >= 4 && d_moy <= 12 && d_year == 2001").build();
+        ReadQuery ss = api.read().select("i_manufact_id").sum("ss_ext_sales_price", "total_sales").from(ssSrc, "ssSrc").build();
 
+        ReadQuery csMarch99 = api.join().sources(
+                "catalog_sales", "date_dim", List.of("cs_sold_date_sk"), List.of("d_date_sk")
+        ).filters("", "d_year == 1999 && d_month == 3").build();
 
-        ReadQuery catalogSalesIn2001AfterApril = api.join().select(
-                "catalog_sales.cs_bill_customer_sk",
-                "catalog_sales.cs_item_sk",
-                "catalog_sales.cs_net_profit"
-        ).alias(
-                "cs_bill_customer_sk",
-                "cs_item_sk",
-                "cs_net_profit"
-        ).sources(
-                "catalog_sales", "date_dim",
-                List.of("cs_sold_date_sk"), List.of("d_date_sk")
-        ).filters("", "d_moy >= 4 && d_moy <= 12 && d_year == 2001").build();
+        ReadQuery booksSoldInCatalogMarch99 = api.join().sources("item", csMarch99, "csMarch99", List.of("i_item_sk"), List.of("catalog_sales.cs_item_sk"))
+                .filters("i_category == 'Books'", "").build();
 
-        ReadQuery returnedStoreAprilSales = api.join().select(
-                "sales.ss_net_profit",
-                "sales.ss_item_sk",
-                "sales.ss_store_sk",
-                "sales.ss_customer_sk",
-                "returns.sr_net_loss"
-        ).alias(
-                "ss_net_profit",
-                "ss_item_sk",
-                "ss_store_sk",
-                "ss_customer_sk",
-                "sr_net_loss"
-        ).sources(
-                storeSalesInApril2001, storeReturnsIn2001AfterApril, "sales", "returns",
-                List.of(
-                        "ss_customer_sk",
-                        "ss_item_sk",
-                        "ss_ticket_number"),
-                List.of(
-                        "sr_customer_sk",
-                        "sr_item_sk",
-                        "sr_ticket_number"
-                )
-                ).build();
+        ReadQuery csSrc = api.join().select("books.csMarch99.catalog_sales.cs_ext_sales_price", "books.item.i_manufact_id").alias("cs_ext_sales_price", "i_manufact_id")
+                .sources(booksSoldInCatalogMarch99, "customer_address", "books", List.of("csMarch99.catalog_sales.cs_bill_addr_sk"), List.of("ca_address_sk"))
+                .filters("", "ca_gmt_offset == -5").build();
 
-        ReadQuery returnedStoreSalesInAprilWhoLaterBoughtOnCatalog = api.join().select(
-                "rsasp.ss_item_sk",
-                "rsasp.ss_store_sk",
-                "csaa.cs_net_profit",
-                "rsasp.ss_net_profit",
-                "rsasp.sr_net_loss"
-        ).alias(
-                "ss_item_sk",
-                "ss_store_sk",
-                "cs_net_profit",
-                "ss_net_profit",
-                "sr_net_loss"
-        ).sources(
-                returnedStoreAprilSales, catalogSalesIn2001AfterApril, "rsasp", "csaa",
-                List.of("ss_customer_sk",
-                        "ss_item_sk"),
-                List.of(
-                        "cs_bill_customer_sk",
-                        "cs_item_sk")
-        ).build();
+        ReadQuery cs = api.read().select("i_manufact_id").sum("cs_ext_sales_price", "total_sales").from(csSrc, "csSrc").build();
 
-        ReadQuery joinItem = api.join().select(
-                "penultimateJoin.ss_store_sk",
-                "item.i_item_id",
-                "item.i_item_desc",
-                "penultimateJoin.cs_net_profit",
-                "penultimateJoin.ss_net_profit",
-                "penultimateJoin.sr_net_loss"
-        ).alias(
-                "ss_store_sk",
-                "i_item_id",
-                "i_item_desc",
-                "cs_net_profit",
-                "ss_net_profit",
-                "sr_net_loss"
-        ).sources(
-                returnedStoreSalesInAprilWhoLaterBoughtOnCatalog, "item", "penultimateJoin",
-                List.of("ss_item_sk"), List.of("i_item_sk")
-        ).build();
+        ReadQuery wsMarch99 = api.join().sources(
+                "web_sales", "date_dim", List.of("ws_sold_date_sk"), List.of("d_date_sk")
+        ).filters("", "d_year == 1999 && d_month == 3").build();
 
-        ReadQuery joinStore = api.join().select(
-                "j1.i_item_id",
-                "j1.i_item_desc",
-                "store.s_store_id",
-                "store.s_store_name",
-                "j1.cs_net_profit",
-                "j1.ss_net_profit",
-                "j1.sr_net_loss"
-        ).alias(
-                "i_item_id",
-                "i_item_desc",
-                "s_store_id",
-                "s_store_name",
-                "cs_net_profit",
-                "ss_net_profit",
-                "sr_net_loss"
-        ).sources(
-                joinItem, "store", "j1",
-                List.of("ss_store_sk"), List.of("s_store_sk")
-        ).build();
+        ReadQuery booksSoldOnlineMarch99 = api.join().sources("item", wsMarch99, "wsMarch99", List.of("i_item_sk"), List.of("web_sales.ws_item_sk"))
+                .filters("i_category == 'Books'", "").build();
 
+        ReadQuery wsSrc = api.join().select("books.wsMarch99.web_sales.ws_ext_sales_price", "books.item.i_manufact_id").alias("ws_ext_sales_price", "i_manufact_id")
+                .sources(booksSoldOnlineMarch99, "customer_address", "books", List.of("wsMarch99.web_sales.ws_bill_addr_sk"), List.of("ca_address_sk"))
+                .filters("", "ca_gmt_offset == -5").build();
 
-        ReadQuery finalQuery = api.read().select("i_item_id",
-                        "i_item_desc",
-                        "s_store_id",
-                        "s_store_name"
-                )
-                .max("ss_net_profit", "store_sales_profit")
-                .max("sr_net_loss", "store_returns_loss")
-                .max("cs_net_profit", "catalog_sales_profit")
-                .from(joinStore, "src")
-                .build();
+        ReadQuery ws = api.read().select("i_manufact_id").sum("ws_ext_sales_price", "total_sales").from(wsSrc, "csSrc").build();
 
+        ReadQuery unionCsSs = api.union().sources(ss, cs, "ss", "ws").build();
+        ReadQuery finalSrc = api.union().sources(unionCsSs, ws, "ss_cs", "ws").build();
+        ReadQuery finalQuery = api.read().select("i_manufact_id").sum("total_sales", "total_sales").from(finalSrc, "src").build();
 
         RelReadQueryResults results = finalQuery.run(broker);
 
@@ -320,17 +212,92 @@ public class Q7Test {
         printRowList(results.getData());
 
         System.out.println("\nreturning...");
+        broker.shutdown();
         stopServers();
     }
+    /*-- start query 33 in stream 0 using template query33.tpl
+WITH ss
+     AS (SELECT i_manufact_id,
+                Sum(ss_ext_sales_price) total_sales
+         FROM   store_sales,
+                date_dim,
+                customer_address,
+                item
+         WHERE  i_manufact_id IN (SELECT i_manufact_id
+                                  FROM   item
+                                  WHERE  i_category IN ( 'Books' ))
+                AND ss_item_sk = i_item_sk
+                AND ss_sold_date_sk = d_date_sk
+                AND d_year = 1999
+                AND d_moy = 3
+                AND ss_addr_sk = ca_address_sk
+                AND ca_gmt_offset = -5
+         GROUP  BY i_manufact_id),
+*//*
+     cs
+     AS (SELECT i_manufact_id,
+                Sum(cs_ext_sales_price) total_sales
+         FROM   catalog_sales,
+                date_dim,
+                customer_address,
+                item
+         WHERE  i_manufact_id IN (SELECT i_manufact_id
+                                  FROM   item
+                                  WHERE  i_category IN ( 'Books' ))
+                AND cs_item_sk = i_item_sk
+                AND cs_sold_date_sk = d_date_sk
+                AND d_year = 1999
+                AND d_moy = 3
+                AND cs_bill_addr_sk = ca_address_sk
+                AND ca_gmt_offset = -5
+         GROUP  BY i_manufact_id),
+         *//*
+     ws
+     AS (SELECT i_manufact_id,
+                Sum(ws_ext_sales_price) total_sales
+         FROM   web_sales,
+                date_dim,
+                customer_address,
+                item
+         WHERE  i_manufact_id IN (SELECT i_manufact_id
+                                  FROM   item
+                                  WHERE  i_category IN ( 'Books' ))
+                AND ws_item_sk = i_item_sk
+                AND ws_sold_date_sk = d_date_sk
+                AND d_year = 1999
+                AND d_moy = 3
+                AND ws_bill_addr_sk = ca_address_sk
+                AND ca_gmt_offset = -5
+         GROUP  BY i_manufact_id)
+         */
+    /*
+SELECT i_manufact_id,
+               Sum(total_sales) total_sales
+FROM   (SELECT *
+        FROM   ss
+        UNION ALL
+        SELECT *
+        FROM   cs
+        UNION ALL
+        SELECT *
+        FROM   ws) tmp1
+GROUP  BY i_manufact_id
+ */
+
+
+
+
+
+
 
 
     public List<String> tablesToLoad = List.of(
-            "store_sales",
-            "store_returns",
             "catalog_sales",
+            "web_sales",
+            "store_sales",
             "date_dim",
-            "store",
-            "item"
+            "item",
+            "customer_address"
     );
 
     public void loadDataInMem(Broker broker) {
@@ -377,7 +344,7 @@ public class Q7Test {
 
             try (BufferedReader br = new BufferedReader(new FileReader(path))) {
                 String line;
-                while ((line = br.readLine()) != null && rowCount < 100) {
+                while ((line = br.readLine()) != null) {
                     if(rowCount % 10000 == 0){
                         System.out.println("Row count: " + rowCount);
                     }

@@ -11,6 +11,7 @@ import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
+import org.mvel2.MVEL;
 
 import java.io.Serializable;
 import java.util.*;
@@ -25,6 +26,7 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
     private List<String> resultSchema = new ArrayList<>(); //user final schema
     private List<String> systemResultSchema = new ArrayList<>(); //system final schema, this is in dotted notation!
     private Map<String, String> filterPredicates = new HashMap<>(); //filters for both sources
+    private Map<String, Serializable> cachedFilterPredicates = new HashMap<>();
     private Map<String, ReadQuery> sourceSubqueries = new HashMap<>(); //map from subquery alias to subquery
     private boolean stored = false;
     private boolean isThisSubquery = false;
@@ -33,6 +35,8 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
     private List<Serializable> operations = new ArrayList<>();
+    private List<Pair<String, Integer>> predicateVarToIndexesOne = new ArrayList<>();
+    private List<Pair<String, Integer>> predicateVarToIndexesTwo = new ArrayList<>();
 
 
     public UnionQuery setSourceOne(String sourceOne) {
@@ -61,6 +65,13 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
         return this;
     }
     public UnionQuery setFilterPredicates(Map<String, String> filterPredicates) {
+        for(Map.Entry<String,String> p: filterPredicates.entrySet()){
+            if(p.getValue() != null && !p.getValue().isEmpty()){
+                cachedFilterPredicates.put(p.getKey(), MVEL.compileExpression(p.getValue()));
+                this.filterPredicates.put(p.getKey(), p.getValue());
+            }
+            return this;
+        }
         this.filterPredicates = filterPredicates;
         return this;
     }
@@ -93,6 +104,14 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
     }
     public UnionQuery setOperations(List<SerializablePredicate> operations) {
         this.operations.addAll(operations);
+        return this;
+    }
+    public UnionQuery setPredicateVarToIndexesOne(List<Pair<String, Integer>> predicateVarToIndexes) {
+        this.predicateVarToIndexesOne = predicateVarToIndexes;
+        return this;
+    }
+    public UnionQuery setPredicateVarToIndexesTwo(List<Pair<String, Integer>> predicateVarToIndexes) {
+        this.predicateVarToIndexesTwo = predicateVarToIndexes;
         return this;
     }
 
@@ -240,7 +259,7 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
     }
     private boolean evaluatePredicate(RelRow row, String sourceName, Map<String, RelReadQueryResults> subqueriesResults){
         Map<String, Object> values = new HashMap<>();
-        List<String> sourceSchema = sourceSchemas.get(sourceName);
+        //List<String> sourceSchema = sourceSchemas.get(sourceName);
         String filterPredicate = filterPredicates.get(sourceName);
 
         for(Map.Entry<String, RelReadQueryResults> subqRes: subqueriesResults.entrySet()){
@@ -248,6 +267,7 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
                 values.put(subqRes.getKey(), subqRes.getValue().getData().get(0).getField(0));
             }
         }
+        /*
         for (String attributeName : sourceSchema) {
             Object val = row.getField(sourceSchema.indexOf(attributeName));
             String systemName = sourceName + "." + attributeName;
@@ -258,10 +278,36 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
                 values.put(attributeName, val);
             }
         }
+
+         */
+
+
+        if(sourceName.equals(sourceOne)) {
+            for (Pair<String, Integer> nameToVar : predicateVarToIndexesOne) {
+                Object val = row.getField(nameToVar.getValue1());
+                if (val == null) {
+                    return false;
+                } else {
+                    values.put(nameToVar.getValue0(), val);
+                }
+            }
+        }else{
+            for (Pair<String, Integer> nameToVar : predicateVarToIndexesTwo) {
+                Object val = row.getField(nameToVar.getValue1());
+                if (val == null) {
+                    return false;
+                } else {
+                    values.put(nameToVar.getValue0(), val);
+                }
+            }
+        }
+
+
         if(values.containsValue(null)){
             return false;
         }
         try{
+            /*
             JexlEngine jexl = new JexlBuilder().create();
             JexlExpression expression = jexl.createExpression(filterPredicate);
             JexlContext context = new MapContext(values);
@@ -271,6 +317,17 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
             else {
                 return (Boolean) result;
             }
+
+             */
+
+            //Serializable compiled = MVEL.compileExpression(filterPredicate);
+            Serializable compiled = cachedFilterPredicates.get(sourceName);
+            Object result = MVEL.executeExpression(compiled, values);
+            if(!(result instanceof Boolean))
+                return false;
+            else
+                return (Boolean) result;
+
         }catch (Exception e ){
             System.out.println(e.getMessage());
             return false;

@@ -7,7 +7,7 @@ import java.util.Arrays;
 import java.util.List;
 
 public class RelRow implements Row {
-    private List<Object> data = new ArrayList<>();
+    private final List<Object> data = new ArrayList<>();
 
     public RelRow(Object... fields){
         data.addAll(Arrays.asList(fields));

@@ -27,7 +27,6 @@ public class KVShardFactory implements ShardFactory<KVShard> {
             return Optional.of(new KVShard(shardPath, true));
         } catch (IOException | ClassNotFoundException e) {
             logger.warn("Shard creation from directory failed: {}: {}", shardPath.toString(), e.getMessage());
-            e.printStackTrace();
             return Optional.empty();
         }
     }

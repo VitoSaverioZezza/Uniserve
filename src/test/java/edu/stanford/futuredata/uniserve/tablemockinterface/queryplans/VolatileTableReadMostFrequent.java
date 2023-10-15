@@ -111,9 +111,7 @@ public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<I
     }
 
     @Override
-    public void setTableName(String tableName) {
-        ;
-    }
+    public void setTableName(String tableName) {}
 
     @Override
     public boolean write(Shard s, List<Row> data) {

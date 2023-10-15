@@ -263,10 +263,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             int shardNum;
             long txID;
             SimpleWriteQueryPlan<R, S> writeQueryPlan;
-            List<R[]> rowArrayList = new ArrayList<>();
+            final List<R[]> rowArrayList = new ArrayList<>();
             int lastState = DataStore.COLLECT;
             List<R> rows;
-            List<StreamObserver<ReplicaWriteMessage>> replicaObservers = new ArrayList<>();
+            final List<StreamObserver<ReplicaWriteMessage>> replicaObservers = new ArrayList<>();
 
             @Override
             public void onNext(WriteQueryMessage writeQueryMessage) {

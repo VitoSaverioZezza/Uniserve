@@ -50,7 +50,7 @@ public class CreateTableQuery {
                 for(String a: attributeNames){
                     attrNamesBuilder.append(a);
                 }
-                throw new RuntimeException("Attribute " + keyAttribute + " is not defined for table " + tableName + "\nAttributes names are: " + attrNamesBuilder.toString());
+                throw new RuntimeException("Attribute " + keyAttribute + " is not defined for table " + tableName + "\nAttributes names are: " + attrNamesBuilder);
             }else{
                 keyStructure[index] = true;
             }

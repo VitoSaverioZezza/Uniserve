@@ -15,9 +15,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class AWSCoordinatorCloud implements CoordinatorCloud {
     private final String ami;
-    private String launchDataStoreScript;
+    private final String launchDataStoreScript;
     private final InstanceType instanceType;
-    private AtomicInteger cloudID = new AtomicInteger(0);
+    private final AtomicInteger cloudID = new AtomicInteger(0);
     private final Map<Integer, String> cloudIDToInstanceID = new ConcurrentHashMap<>();
 
     public AWSCoordinatorCloud(String ami, String launchDataStoreScript, InstanceType instanceType) {

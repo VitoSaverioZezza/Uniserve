@@ -46,15 +46,35 @@ public class Q9Test {
     }
 
     @AfterEach
-    private void unitTestCleanUp() throws IOException {
+    public void unitTestCleanUp() throws IOException {
         TestMethods.unitTestCleanUp();
     }
     @Test
     public void clean(){}
 
 
-    String rootPath = "C:\\Users\\saver\\Desktop\\db00_0625_clean";
-
+    /*
+    * query 42 of the TPC DS benchmark
+SELECT dt.d_year,
+               item.i_category_id,
+               item.i_category,
+               Sum(ss_ext_sales_price)
+FROM   date_dim dt,
+       store_sales,
+       item
+WHERE  dt.d_date_sk = store_sales.ss_sold_date_sk
+       AND store_sales.ss_item_sk = item.i_item_sk
+       AND item.i_manager_id = 1
+       AND dt.d_moy = 12
+       AND dt.d_year = 2000
+GROUP  BY dt.d_year,
+          item.i_category_id,
+          item.i_category
+ORDER  BY Sum(ss_ext_sales_price) DESC,
+          dt.d_year,
+          item.i_category_id,
+          item.i_category
+LIMIT 100; */
     @Test
     public void Q9Test(){
         TestMethods tm = new TestMethods();
@@ -80,7 +100,7 @@ public class Q9Test {
 
 
         System.out.println("RESULTS:");
-        tm.printRowList(results.getData());
+        TestMethods.printRowList(results.getData());
 
         System.out.println("\nreturning...");
         broker.shutdown();

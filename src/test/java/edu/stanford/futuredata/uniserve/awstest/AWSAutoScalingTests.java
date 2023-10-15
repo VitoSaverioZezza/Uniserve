@@ -24,8 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class AWSAutoScalingTests {
     private static final Logger logger = LoggerFactory.getLogger(AWSAutoScalingTests.class);
 
-    private static String zkHost = "127.0.0.1";
-    private static Integer zkPort = 2181;
+    private static final String zkHost = "127.0.0.1";
+    private static final Integer zkPort = 2181;
 
     @BeforeAll
     static void startUpCleanUp() {
@@ -33,7 +33,7 @@ public class AWSAutoScalingTests {
     }
 
     @AfterEach
-    private void unitTestCleanUp() {
+    public void unitTestCleanUp() {
         cleanUp(zkHost, zkPort);
     }
 

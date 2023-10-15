@@ -18,7 +18,6 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryResults> {
-    private List<Serializable> customFilterFunctions = new ArrayList<>();
     private String sourceOne = ""; //either the name of the table or the alias of the subquery
     private String sourceTwo = "";
     private boolean sourceOneTable = true; //true if the source is a table
@@ -28,7 +27,7 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     private List<String> systemResultSchema = new ArrayList<>(); //system final schema, this is in dotted notation!
     private Map<String, List<String>> sourcesJoinAttributes = new HashMap<>();
     private Map<String, String> filterPredicates = new HashMap<>(); //filters for both sources
-    private Map<String, Serializable> cachedFilterPredicates = new HashMap<>();
+    private final  Map<String, Serializable> cachedFilterPredicates = new HashMap<>();
     private Map<String, ReadQuery> sourceSubqueries = new HashMap<>(); //map from subquery alias to subquery
     private boolean stored = false;
     private boolean isThisSubquery = false;
@@ -36,7 +35,7 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
-    private List<Serializable> operations = new ArrayList<>();
+    private final List<Serializable> operations = new ArrayList<>();
     private List<Pair<String, Integer>> predicateVarToIndexesOne = new ArrayList<>();
     private List<Pair<String, Integer>> predicateVarToIndexesTwo = new ArrayList<>();
 
@@ -224,7 +223,7 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
                     Object rowOneVal = rowOne.getField(schemaSourceOne.indexOf(joinAttributesOne.get(i)));
                     Object rowTwoVal = rowTwo.getField(schemaSourceTwo.indexOf(joinAttributesTwo.get(i)));
                     if(rowOneVal == null && rowTwoVal == null){
-                        ;
+
                     } else if (rowOneVal == null || rowTwoVal == null) {
                         matching = false;
                         break;

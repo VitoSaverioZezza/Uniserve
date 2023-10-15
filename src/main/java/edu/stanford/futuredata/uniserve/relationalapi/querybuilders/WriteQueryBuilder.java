@@ -14,7 +14,7 @@ import java.util.List;
 public class WriteQueryBuilder {
     private final Broker broker;
     private String tableName;
-    private List<RelRow> data = new ArrayList<>();
+    private final List<RelRow> data = new ArrayList<>();
     private boolean consistent = false;
     private SimpleWriteQuery simpleWriteQuery = null;
 

@@ -40,7 +40,7 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
-    private List<Serializable> operations = new ArrayList<>();
+    private final List<Serializable> operations = new ArrayList<>();
     private List<Integer> resultSourceIndexes = new ArrayList<>();
     private List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
 

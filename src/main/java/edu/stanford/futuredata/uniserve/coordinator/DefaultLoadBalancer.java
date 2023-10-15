@@ -35,7 +35,7 @@ public class DefaultLoadBalancer implements LoadBalancer {
 
         double averageLoad = shardLoads.values().stream().mapToDouble(i -> i).sum() / serverLoads.size();
         double epsilon = averageLoad / epsilonRatio;
-        while (serverMaxQueue.size() > 0 && serverLoads.get(serverMaxQueue.peek()) > averageLoad + epsilon) {
+        while (!serverMaxQueue.isEmpty() && serverLoads.get(serverMaxQueue.peek()) > averageLoad + epsilon) {
             Integer overLoadedServer = serverMaxQueue.remove();
             while (serverToShards.get(overLoadedServer).stream().anyMatch(i -> shardLoads.get(i) > 0)
                     && serverLoads.get(overLoadedServer) > averageLoad + epsilon) {

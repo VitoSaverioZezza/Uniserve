@@ -32,8 +32,8 @@ import static org.junit.jupiter.api.Assertions.*;
 public class LoadBalancerTests {
     private static final Logger logger = LoggerFactory.getLogger(LoadBalancerTests.class);
 
-    private static String zkHost = "127.0.0.1";
-    private static Integer zkPort = 2181;
+    private static final String zkHost = "127.0.0.1";
+    private static final Integer zkPort = 2181;
 
     @BeforeAll
     static void startUpCleanUp() {
@@ -41,7 +41,7 @@ public class LoadBalancerTests {
     }
 
     @AfterEach
-    private void unitTestCleanUp() {
+    public void unitTestCleanUp() {
         cleanUp(zkHost, zkPort);
     }
 

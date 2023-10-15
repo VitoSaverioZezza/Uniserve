@@ -32,7 +32,7 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
-    private List<Serializable> operations = new ArrayList<>();
+    private final List<Serializable> operations = new ArrayList<>();
     private List<Pair<Integer, Integer>> aggregatesOPToIndex = new ArrayList<>();
     private List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
 
@@ -416,13 +416,19 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
                 for (RelRow row : groupRows) {
                     Object val = row.getField(index);
                     if(val == null){
-                        sum += 0;
+                        //sum += 0;
+                        //count++;
+                        continue;
                     }else{
                         sum += (Double) ((Number)row.getField(index)).doubleValue();
                         count++;
                     }
                 }
-                res.add(sum/count);
+                if(count != 0) {
+                    res.add(sum / count);
+                }else{
+                    res.add(null);
+                }
             } else if (Objects.equals(aggregate.getValue0(), RelReadQueryBuilder.MIN)) {
                 Double min = Double.MAX_VALUE;
                 for(RelRow row: groupRows){

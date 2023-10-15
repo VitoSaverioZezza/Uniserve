@@ -41,7 +41,7 @@ public class Utilities {
             out.flush();
         } catch (IOException e) {
             e.printStackTrace();
-            logger.error("Serialization Failed {} {}", obj, e);
+            logger.error("Serialization Failed {} {}", obj, e.getMessage());
             assert(false);
         }
         return ByteString.copyFrom(bos.toByteArray());

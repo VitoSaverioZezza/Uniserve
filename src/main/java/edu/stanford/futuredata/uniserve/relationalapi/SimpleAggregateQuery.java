@@ -35,7 +35,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
-    private List<Serializable> operations = new ArrayList<>();
+    private final List<Serializable> operations = new ArrayList<>();
     private List<Pair<String, Integer>> predicateVarToIndexes = new ArrayList<>();
     private List<Pair<Integer, Integer>> aggregatesOPsToIndexes = new ArrayList<>();
 
@@ -338,8 +338,8 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
                     Object val = row.getField(index);
                     if(val != null){
                         countSum[1] += ((Number) val).doubleValue();
-                        countSum[0]++;
                     }
+                    countSum[0]++;
                 }
                 partialResults.add(countSum);
             } else if (aggregateCode.equals(RelReadQueryBuilder.MIN)) {
@@ -451,8 +451,8 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
                 for(RelRow row: partialResults){
                     Object val = row.getField(i);
                     if(val == null){
-                        count = 1D;
-                        sum = 0D;
+                        count += 1D;
+                        sum += 0D;
                     }else {
                         Double[] countSum = (Double[]) row.getField(i);
                         count += countSum[0];

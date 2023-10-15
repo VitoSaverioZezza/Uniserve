@@ -92,7 +92,7 @@ public class LocalDataStoreCloud implements DataStoreCloud {
                             throw new RuntimeException(ex);
                         }
                     }catch (IOException e){
-                        e.printStackTrace();
+                        logger.warn("Directory copy failed: {}", e.getMessage());
                     }
                 });
     }

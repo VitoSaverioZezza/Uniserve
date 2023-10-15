@@ -76,7 +76,7 @@ class DataStoreCurator {
         } catch (Exception e) {
             logger.error("ZK Failure {}", e.getMessage());
             assert(false);
-            return null;
+            return Optional.empty();
         }
     }
 

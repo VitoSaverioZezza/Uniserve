@@ -48,16 +48,38 @@ public class Q4Test {
     }
 
     @AfterEach
-    private void unitTestCleanUp() throws IOException {
+    public void unitTestCleanUp() throws IOException {
         TestMethods.unitTestCleanUp();
     }
     @Test
     public void clean(){}
 
+    public List<String> tablesToLoad = List.of(
+            "inventory",
+            "date_dim",
+            "item",
+            "warehouse"
+    );
 
-
+    /*
+Query 22 of the TPC DS benchmark
+SELECT i_product_name,
+               i_brand,
+               i_class,
+               i_category,
+               Avg(inv_quantity_on_hand) qoh
+FROM   inventory,
+       date_dim,
+       item,
+       warehouse
+WHERE  inv_date_sk = d_date_sk
+       AND inv_item_sk = i_item_sk
+       AND inv_warehouse_sk = w_warehouse_sk
+       AND d_month_seq BETWEEN 1205 AND 1205 + 11
+GROUP  i_product_name, i_brand, i_class, i_category
+     */
     @Test
-    public void Q4Test(){
+    public void Q4Test() throws IOException {
         TestMethods tm = new TestMethods();
         tm.startServers();
         Broker broker = new Broker(zkHost, zkPort);
@@ -66,7 +88,7 @@ public class Q4Test {
         ReadQuery j1 = api.join().sources(
                 "inventory", "date_dim",
                 List.of("inv_date_sk"), List.of("d_date_sk")
-        ).filters("", "d_month_seq > 1205 && d_month_seq < 1205+11").build();
+        ).filters("", "d_month_seq >= 1205 && d_month_seq <= 1216").build();
 
         ReadQuery j1p = api.read().select(
                 "inventory.inv_quantity_on_hand",
@@ -104,21 +126,12 @@ public class Q4Test {
                 )
                 .from(j3, "j3").build();
 
-
-        RelReadQueryResults results = finalQuery.run(broker);
-
         System.out.println("RESULTS:");
+        RelReadQueryResults results = finalQuery.run(broker);
         printRowList(results.getData());
+        //tm.printOnFile(results.getData(), List.of("a","b","c","d","e"));
 
         System.out.println("\nreturning...");
         tm.stopServers();
     }
-
-
-    public List<String> tablesToLoad = List.of(
-            "inventory",
-            "date_dim",
-            "item",
-            "warehouse"
-    );
 }

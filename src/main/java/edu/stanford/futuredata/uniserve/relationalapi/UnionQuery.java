@@ -22,11 +22,11 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
     private String sourceTwo = "";
     private boolean sourceOneTable = true; //true if the source is a table
     private boolean sourceTwoTable = true;
-    private Map<String, List<String>> sourceSchemas = new HashMap<>(); //schemas of both sources
+    //private Map<String, List<String>> sourceSchemas = new HashMap<>(); //schemas of both sources
     private List<String> resultSchema = new ArrayList<>(); //user final schema
     private List<String> systemResultSchema = new ArrayList<>(); //system final schema, this is in dotted notation!
     private Map<String, String> filterPredicates = new HashMap<>(); //filters for both sources
-    private Map<String, Serializable> cachedFilterPredicates = new HashMap<>();
+    private final Map<String, Serializable> cachedFilterPredicates = new HashMap<>();
     private Map<String, ReadQuery> sourceSubqueries = new HashMap<>(); //map from subquery alias to subquery
     private boolean stored = false;
     private boolean isThisSubquery = false;
@@ -34,7 +34,7 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
     private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
     private String resultTableName = "";
     private WriteResultsPlan writeResultsPlan = null;
-    private List<Serializable> operations = new ArrayList<>();
+    private final List<Serializable> operations = new ArrayList<>();
     private List<Pair<String, Integer>> predicateVarToIndexesOne = new ArrayList<>();
     private List<Pair<String, Integer>> predicateVarToIndexesTwo = new ArrayList<>();
 
@@ -52,10 +52,10 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
         sourceTwoTable = isSourceTwoTable;
         return this;
     }
-    public UnionQuery setSourceSchemas(Map<String, List<String>> sourceSchemas) {
-        this.sourceSchemas = sourceSchemas;
-        return this;
-    }
+    //public UnionQuery setSourceSchemas(Map<String, List<String>> sourceSchemas) {
+    //    this.sourceSchemas = sourceSchemas;
+    //    return this;
+    //}
     public UnionQuery setResultSchema(List<String> resultSchema) {
         this.resultSchema = resultSchema;
         return this;

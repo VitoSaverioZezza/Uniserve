@@ -263,7 +263,7 @@ public class Coordinator {
         long numActiveDataStores = dataStoresMap.keySet().stream()
                 .filter(i -> dataStoresMap.get(i).status.get() == DataStoreDescription.ALIVE)
                 .count();
-        if (numActiveDataStores > 1 && removeableDSIDs.size() > 0) {
+        if (numActiveDataStores > 1 && !removeableDSIDs.isEmpty()) {
             Integer removedDSID = removeableDSIDs.get(ThreadLocalRandom.current().nextInt(removeableDSIDs.size()));
             Integer cloudID = dsIDToCloudID.get(removedDSID);
             logger.info("Removing DataStore DS{} CloudID {}", removedDSID, cloudID);
@@ -372,7 +372,7 @@ public class Coordinator {
                 Map<Integer, Integer> memoryUsages = load.getValue1();
                 logger.info("Collected QPS Load: {}", qpsLoad);
                 logger.info("Collected memory usages: {}", memoryUsages);
-                if (qpsLoad.size() > 0) {
+                if (!qpsLoad.isEmpty()) {
                     consistentHashLock.lock();
                     cachedQPSLoad = qpsLoad;
                     rebalanceConsistentHash(qpsLoad);

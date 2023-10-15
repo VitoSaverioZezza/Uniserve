@@ -83,8 +83,7 @@ public class KVVolatileAverage implements VolatileShuffleQueryPlan< Integer, Sha
             sum = sum + row.getValue();
         }
         Pair<Integer, Integer> countSum = new Pair<>(count, sum);
-        ByteString serializedResult = Utilities.objectToByteString(countSum);
-        return serializedResult;
+        return Utilities.objectToByteString(countSum);
     }
 
     @Override
@@ -98,8 +97,10 @@ public class KVVolatileAverage implements VolatileShuffleQueryPlan< Integer, Sha
             totalSum = totalSum + deserializedItem.getValue1();
             totalCount = totalCount + deserializedItem.getValue0();
         }
-        int average = totalSum / totalCount;
-        return average;
+        if(totalCount == 0){
+            return 0;
+        }
+        return totalSum / totalCount;
     }
 
     @Override

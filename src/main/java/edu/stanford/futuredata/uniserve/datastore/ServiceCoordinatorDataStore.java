@@ -143,7 +143,7 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         dataStore.shardLockMap.get(shardNum).writerLockLock();
         List<ReplicaDescription> shardReplicaDescriptions = dataStore.replicaDescriptionsMap.get(shardNum);
         List<ReplicaDescription> matchingDescriptions = shardReplicaDescriptions.stream().filter(i -> i.dsID == dsID).collect(Collectors.toList());
-        if (matchingDescriptions.size() > 0) {
+        if (!matchingDescriptions.isEmpty()) {
             assert(matchingDescriptions.size() == 1);
             matchingDescriptions.get(0).channel.shutdown();
             shardReplicaDescriptions.remove(matchingDescriptions.get(0));

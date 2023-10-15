@@ -10,11 +10,10 @@ import java.util.List;
 import java.util.Optional;
 
 public class RelShard implements Shard {
-    private final List<String> fieldNames = new ArrayList<>();
-    private List<RelRow> data;
-    private String shardPath;
+    private final List<RelRow> data;
+    private final String shardPath;
 
-    private List<RelRow> uncommittedRows = new ArrayList<>();
+    private final List<RelRow> uncommittedRows = new ArrayList<>();
     private List<RelRow> rowsToRemove = new ArrayList<>();
 
 

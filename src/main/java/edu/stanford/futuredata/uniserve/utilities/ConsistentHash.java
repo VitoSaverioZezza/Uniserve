@@ -54,7 +54,7 @@ public class ConsistentHash implements Serializable {
         for (Map.Entry<Integer, List<Integer>> e: reassignmentMap.entrySet()) {
             List<Integer> replicasList = e.getValue();
             replicasList.remove(bucketNum);
-            if (replicasList.size() == 0) {
+            if (replicasList.isEmpty()) {
                 toRemove.add(e.getKey());
             }
         }

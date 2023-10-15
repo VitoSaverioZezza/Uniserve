@@ -21,12 +21,12 @@ public class UnionQueryBuilder {
     private final HashMap<String, ReadQuery> subqueries = new HashMap<>();
     private String filterPredicateOne = "";
     private String filterPredicateTwo = "";
-    private ArrayList<String> finalSystemSchema = new ArrayList<>();
-    private ArrayList<String> finalUserSchema = new ArrayList<>();
+    //private ArrayList<String> finalSystemSchema = new ArrayList<>();
+    private final ArrayList<String> finalUserSchema = new ArrayList<>();
     private boolean stored = false;
     private boolean distinct = false;
-    private ArrayList<SerializablePredicate> operations = new ArrayList<>();
-    private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
+    private final ArrayList<SerializablePredicate> operations = new ArrayList<>();
+    private final Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
 
     public UnionQueryBuilder sources(String tableOne, String tableTwo){
         this.sourceOneTable = true;
@@ -154,18 +154,17 @@ public class UnionQueryBuilder {
         List<Pair<String, Integer>> predVarToIndexTwo = new ArrayList<>();
 
         if(filterPredicateOne != null && !filterPredicateOne.isEmpty()){
-            List<String> schemaOne = schemaSourceOne;
-            for(String attrName: schemaOne){
+            for(String attrName: schemaSourceOne){
                 if(filterPredicateOne.contains(sourceOne+"."+attrName)){
                     filterPredicateOne = filterPredicateOne.replace(sourceOne+"."+attrName, sourceOne+(attrName.replace(".", "")));
-                    predVarToIndexOne.add(new Pair<>((sourceOne+(attrName.replace(".", ""))), schemaOne.indexOf(attrName)));
+                    predVarToIndexOne.add(new Pair<>((sourceOne+(attrName.replace(".", ""))), schemaSourceOne.indexOf(attrName)));
                 }
                 if(filterPredicateOne.contains(attrName)){
                     if(attrName.contains(".")){
                         filterPredicateOne = filterPredicateOne.replace(attrName, attrName.replace(".", ""));
-                        predVarToIndexOne.add(new Pair<>(attrName.replace(".", ""), schemaOne.indexOf(attrName)));
+                        predVarToIndexOne.add(new Pair<>(attrName.replace(".", ""), schemaSourceOne.indexOf(attrName)));
                     }else{
-                        predVarToIndexOne.add(new Pair<>(attrName, schemaOne.indexOf(attrName)));
+                        predVarToIndexOne.add(new Pair<>(attrName, schemaSourceOne.indexOf(attrName)));
                     }
                 }
             }
@@ -180,18 +179,17 @@ public class UnionQueryBuilder {
             }
         }
         if(filterPredicateTwo != null && !filterPredicateTwo.isEmpty()) {
-            List<String> schemaTwo = schemaSourceTwo;
-            for (String attrName : schemaTwo) {
+            for (String attrName : schemaSourceTwo) {
                 if (filterPredicateTwo.contains(sourceTwo + "." + attrName)) {
                     filterPredicateTwo = filterPredicateTwo.replace(sourceTwo + "." + attrName, sourceTwo + (attrName.replace(".", "")));
-                    predVarToIndexTwo.add(new Pair<>((sourceTwo + (attrName.replace(".", ""))), schemaTwo.indexOf(attrName)));
+                    predVarToIndexTwo.add(new Pair<>((sourceTwo + (attrName.replace(".", ""))), schemaSourceTwo.indexOf(attrName)));
                 }
                 if (filterPredicateTwo.contains(attrName)) {
                     if (attrName.contains(".")) {
                         filterPredicateTwo = filterPredicateTwo.replace(attrName, attrName.replace(".", ""));
-                        predVarToIndexTwo.add(new Pair<>(attrName.replace(".", ""), schemaTwo.indexOf(attrName)));
+                        predVarToIndexTwo.add(new Pair<>(attrName.replace(".", ""), schemaSourceTwo.indexOf(attrName)));
                     } else {
-                        predVarToIndexTwo.add(new Pair<>(attrName, schemaTwo.indexOf(attrName)));
+                        predVarToIndexTwo.add(new Pair<>(attrName, schemaSourceTwo.indexOf(attrName)));
                     }
                 }
             }
@@ -211,7 +209,7 @@ public class UnionQueryBuilder {
                 .setSourceOne(sourceOne)
                 .setSourceTwo(sourceTwo)
                 .setTableFlags(sourceOneTable, sourceTwoTable)
-                .setSourceSchemas(Map.of(sourceOne, schemaSourceOne, sourceTwo, schemaSourceTwo))
+                //.setSourceSchemas(Map.of(sourceOne, schemaSourceOne, sourceTwo, schemaSourceTwo))
                 .setResultSchema(parsedUserFinalSchema)
                 .setSystemResultSchema(schemaSourceOne)
                 .setFilterPredicates(Map.of(sourceOne, filterPredicateOne, sourceTwo, filterPredicateTwo))

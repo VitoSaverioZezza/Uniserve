@@ -45,7 +45,7 @@ public class Q7Test {
     }
 
     @AfterEach
-    private void unitTestCleanUp() throws IOException {
+    public void unitTestCleanUp() throws IOException {
         TestMethods.unitTestCleanUp();
     }
     @Test
@@ -61,22 +61,44 @@ public class Q7Test {
     );
 
     @Test
-    public void Q7Test(){
+    public void Q7Test() throws IOException {
         TestMethods tm = new TestMethods();
         tm.startServers();
-        Broker broker = new Broker(tm.zkHost, tm.zkPort);
+        Broker broker = new Broker(TestMethods.zkHost, TestMethods.zkPort);
         API api = new API(broker);
         tm.loadDataInMem(broker, tablesToLoad);
 
-        ReadQuery ssMarch99 = api.join().sources(
+        ReadQuery ssMarch99 = api.join()
+                .select("store_sales.ss_item_sk",
+                        "store_sales.ss_addr_sk",
+                        "store_sales.ss_ext_sales_price")
+                .alias("ss_item_sk",
+                        "ss_addr_sk",
+                        "ss_ext_sales_price")
+                .sources(
                 "store_sales", "date_dim", List.of("ss_sold_date_sk"), List.of("d_date_sk")
         ).filters("", "d_year == 1999 && d_moy == 3").build();
 
-        ReadQuery booksSoldInStoreMarch99 = api.join().sources("item", ssMarch99, "ssMarch99", List.of("i_item_sk"), List.of("store_sales.ss_item_sk"))
+        //SIZE OK
+
+        ReadQuery booksSoldInStoreMarch99 = api.join()
+                .select("item.i_manufact_id",
+                        "ssMarch99.ss_addr_sk",
+                        "ssMarch99.ss_ext_sales_price")
+                .alias("i_manufact_id",
+                        "ss_addr_sk",
+                        "ss_ext_sales_price")
+                .sources("item", ssMarch99, "ssMarch99",
+                        List.of("i_item_sk"), List.of("ss_item_sk"))
                 .filters("i_category == 'Books'", "").build();
 
-        ReadQuery ssSrc = api.join().select("books.ssMarch99.store_sales.ss_ext_sales_price", "books.item.i_manufact_id").alias("ss_ext_sales_price", "i_manufact_id")
-                .sources(booksSoldInStoreMarch99, "customer_address", "books", List.of("ssMarch99.store_sales.ss_addr_sk"), List.of("ca_address_sk"))
+        //SIZE OK
+
+        ReadQuery ssSrc = api.join()
+                .select("books.ss_ext_sales_price", "books.i_manufact_id")
+                .alias("ss_ext_sales_price", "i_manufact_id")
+                .sources(booksSoldInStoreMarch99, "customer_address", "books",
+                        List.of("ss_addr_sk"), List.of("ca_address_sk"))
                 .filters("", "ca_gmt_offset == -5").build();
 
         ReadQuery ss = api.read().select("i_manufact_id").sum("ss_ext_sales_price", "total_sales").from(ssSrc, "ssSrc").build();
@@ -115,12 +137,13 @@ public class Q7Test {
 
         System.out.println("RESULTS:");
         TestMethods.printRowList(results.getData());
+        tm.printOnFile(results.getData(), List.of("a", "b"));
 
         System.out.println("\nreturning...");
         broker.shutdown();
         tm.stopServers();
     }
-    /*-- start query 33 in stream 0 using template query33.tpl
+    /*query 33 of the TPC DS benchmark
 WITH ss
      AS (SELECT i_manufact_id,
                 Sum(ss_ext_sales_price) total_sales

@@ -42,8 +42,8 @@ public class KVStoreTests {
 
     private static final Logger logger = LoggerFactory.getLogger(KVStoreTests.class);
 
-    private static String zkHost = "127.0.0.1";
-    private static Integer zkPort = 2181;
+    private static final String zkHost = "127.0.0.1";
+    private static final Integer zkPort = 2181;
 
     public static void cleanUp(String zkHost, int zkPort) {
         // Clean up ZooKeeper
@@ -78,7 +78,7 @@ public class KVStoreTests {
     }
 
     @AfterEach
-    private void unitTestCleanUp() throws IOException {
+    public void unitTestCleanUp() throws IOException {
         a();
         cleanUp(zkHost, zkPort);
     }
@@ -822,9 +822,8 @@ public class KVStoreTests {
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
-        int numDatastores = numShards;
         List<LocalDataStoreCloud> localDataStoreClouds = new ArrayList<>();
-        for (int i = 0; i < numDatastores; i++) {
+        for (int i = 0; i < numShards; i++) {
             localDataStoreClouds.add(i, new LocalDataStoreCloud());
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(localDataStoreClouds.get(i),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)), zkHost, zkPort, "127.0.0.1", 8200 + i, -1, false
@@ -963,9 +962,8 @@ public class KVStoreTests {
         coordinator.runLoadBalancerDaemon = false;
         coordinator.startServing();
         List<DataStore<KVRow, KVShard> > dataStores = new ArrayList<>();
-        int numDatastores = numShards;
         List<LocalDataStoreCloud> localDataStoreClouds = new ArrayList<>();
-        for (int i = 0; i < numDatastores; i++) {
+        for (int i = 0; i < numShards; i++) {
             localDataStoreClouds.add(i, new LocalDataStoreCloud());
             DataStore<KVRow, KVShard>  dataStore = new DataStore<>(localDataStoreClouds.get(i),
                     new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", i)),

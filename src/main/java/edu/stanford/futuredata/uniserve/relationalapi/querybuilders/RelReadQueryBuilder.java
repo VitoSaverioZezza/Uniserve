@@ -8,7 +8,7 @@ import org.javatuples.Pair;
 import java.util.*;
 
 public class RelReadQueryBuilder {
-    private Broker broker;
+    private final Broker broker;
 
     public static final Integer AVG = 1;
     public static final Integer MIN = 2;
@@ -17,15 +17,15 @@ public class RelReadQueryBuilder {
     public static final Integer SUM = 5;
 
     private List<String> projectionAttributes = new ArrayList<>();
-    private List<Pair<Integer, String>> aggregates = new ArrayList<>();
+    private final List<Pair<Integer, String>> aggregates = new ArrayList<>();
 
     private List<String> userResultsSchema = new ArrayList<>();
-    private List<String> aggregateUserAttributesNames = new ArrayList<>();
+    private final List<String> aggregateUserAttributesNames = new ArrayList<>();
 
     private String sourceName = "";
     private boolean sourceIsTable = true;
     private String sourceFilter = "";
-    private Map<String, ReadQuery> subquery = new HashMap<>();
+    private final Map<String, ReadQuery> subquery = new HashMap<>();
     private List<String> sourceSchema = new ArrayList<>();
 
     private String rawHavingPredicate = "";
@@ -33,8 +33,8 @@ public class RelReadQueryBuilder {
 
     private boolean isStored = false;
 
-    private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
-    private List<SerializablePredicate> operations = new ArrayList<>();
+    private final Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
+    private final List<SerializablePredicate> operations = new ArrayList<>();
 
 
     public RelReadQueryBuilder(Broker broker){

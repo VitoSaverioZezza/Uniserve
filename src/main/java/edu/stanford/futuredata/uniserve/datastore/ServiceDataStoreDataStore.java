@@ -64,7 +64,7 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
                     rowArrayList.add(rowChunk);
                 } else if (writeState == DataStore.PREPARE) {
                     assert(lastState == DataStore.COLLECT);
-                    rowList = new ArrayList<>(rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toList()));
+                    rowList = rowArrayList.stream().flatMap(Arrays::stream).collect(Collectors.toCollection(ArrayList::new));
                     dataStore.shardLockMap.get(shardNum).writerLockLock();
                     responseObserver.onNext(executeReplicaWrite(shardNum, rowList));
                     dataStore.shardLockMap.get(shardNum).writerLockUnlock();

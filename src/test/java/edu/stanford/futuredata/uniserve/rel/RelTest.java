@@ -43,8 +43,8 @@ import static org.junit.jupiter.api.Assertions.*;
 public class RelTest {
     private static final Logger logger = LoggerFactory.getLogger(RelTest.class);
 
-    private static String zkHost = "127.0.0.1";
-    private static Integer zkPort = 2181;
+    private static final String zkHost = "127.0.0.1";
+    private static final Integer zkPort = 2181;
 
     public static void cleanUp(String zkHost, int zkPort) {
         // Clean up ZooKeeper
@@ -92,7 +92,7 @@ public class RelTest {
     }
 
     @AfterEach
-    private void unitTestCleanUp() throws IOException {
+    public void unitTestCleanUp() throws IOException {
         a();
         cleanUp(zkHost, zkPort);
     }
@@ -108,7 +108,7 @@ public class RelTest {
                 rowBuilder.append(row.getField(j) + ", ");
             }
             rowBuilder.append(row.getField(row.getSize() - 1));
-            System.out.println(rowBuilder.toString());
+            System.out.println(rowBuilder);
         }
     }
 
@@ -771,11 +771,8 @@ public class RelTest {
             assertEquals(2, (int) readRow.getSize());
             boolean present = false;
             for(RelRow writtenRow: filmRows){
-                boolean match = true;
-                if(!(writtenRow.getField(1).equals(readRow.getField(0)) &&
-                        writtenRow.getField(2).equals(readRow.getField(1)))){
-                    match = false;
-                }
+                boolean match = writtenRow.getField(1).equals(readRow.getField(0)) &&
+                        writtenRow.getField(2).equals(readRow.getField(1));
                 if(match){
                     present = true;
                 }
@@ -1250,7 +1247,7 @@ public class RelTest {
                     assertEquals((int) writtenMax.getField(3), maxCFUvalue);
                 }
             }
-            assertTrue(contains);;
+            assertTrue(contains);
         }
         assertEquals(maxCFUs.getFieldNames(), List.of("Code", "Name"));
         assertEquals(writtenMaxCFU.size(), maxCFUs.getData().size());

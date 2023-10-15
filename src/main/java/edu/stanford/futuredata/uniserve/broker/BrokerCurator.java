@@ -20,7 +20,7 @@ public class BrokerCurator {
     // TODO:  Figure out what to actually do when ZK fails.
     private final CuratorFramework cf;
     private static final Logger logger = LoggerFactory.getLogger(BrokerCurator.class);
-    private InterProcessMutex lock;
+    private final InterProcessMutex lock;
 
     /**Returns curator's framework client for the broker's communication*/
     BrokerCurator(String zkHost, int zkPort) {
@@ -188,7 +188,7 @@ public class BrokerCurator {
             if(Utilities.logger_flag)
                 logger.error("ZK Failure {}", e.getMessage());
             assert(false);
-            return null;
+            return Optional.empty();
         }
     }
     /**Retrieves shard-server assignment*/

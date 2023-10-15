@@ -368,7 +368,7 @@ public class DataStore<R extends Row, S extends Shard> {
                 if (runCount % pingDaemonRefreshInterval == 0) {
                     dsDescriptions = zkCurator.getOtherDSDescriptions(dsID);
                 }
-                if (dsDescriptions.size() > 0) {
+                if (!dsDescriptions.isEmpty()) {
                     DataStoreDescription dsToPing =
                             dsDescriptions.get(ThreadLocalRandom.current().nextInt(dsDescriptions.size()));
                     int pingedDSID = dsToPing.dsID;
@@ -462,7 +462,7 @@ public class DataStore<R extends Row, S extends Shard> {
         return t;
     }
 
-    private Map<Pair<Long, Integer>, List<R>> resultsToStore = new ConcurrentHashMap<>();
+    private final Map<Pair<Long, Integer>, List<R>> resultsToStore = new ConcurrentHashMap<>();
     public ArrayList<R> getDataToStore(Pair<Long, Integer> dataIndex){
         List<R> ret = resultsToStore.get(dataIndex);
         if(ret == null){

@@ -49,8 +49,7 @@ public class KVFilterOnRead implements AnchoredReadQueryPlan<KVShard, List<KVRow
             }
         }
         KVRow[] resultArray = result.toArray(new KVRow[0]);
-        ByteString serializedResult = Utilities.objectToByteString(resultArray);
-        return serializedResult;
+        return Utilities.objectToByteString(resultArray);
     }
 
     @Override

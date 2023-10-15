@@ -10,28 +10,28 @@ import org.javatuples.Pair;
 import java.util.*;
 
 public class JoinQueryBuilder {
-    private Broker broker;
+    private final Broker broker;
 
     private String sourceOne = "";
     private String sourceTwo = "";
-    private Map<String, ReadQuery> subqueries = new HashMap<>();
+    private final Map<String, ReadQuery> subqueries = new HashMap<>();
     private boolean sourceOneTable = true;
     private boolean sourceTwoTable = true;
-    private Map<String, List<String>> sourcesSchemas = new HashMap<>();
-    private Map<String, List<String>> joinAttributes = new HashMap<>();
-    private Map<String, String> filterPredicates = new HashMap<>();
+    private final Map<String, List<String>> sourcesSchemas = new HashMap<>();
+    private final Map<String, List<String>> joinAttributes = new HashMap<>();
+    private final Map<String, String> filterPredicates = new HashMap<>();
 
-    private List<String> rawSelectArguments = new ArrayList<>();
+    private final  List<String> rawSelectArguments = new ArrayList<>();
 
-    private List<String> resultUserSchema = new ArrayList<>();
-    private List<String> resultSystemSchema = new ArrayList<>();
+    private final List<String> resultUserSchema = new ArrayList<>();
+    private final List<String> resultSystemSchema = new ArrayList<>();
 
     private boolean distinct = false;
     private boolean isStored = false;
 
-    private Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
+    private final Map<String, ReadQuery> predicateSubqueries = new HashMap<>();
 
-    private List<SerializablePredicate> operations = new ArrayList<>();
+    private final List<SerializablePredicate> operations = new ArrayList<>();
 
     public JoinQueryBuilder(Broker broker){
         this.broker = broker;
@@ -338,7 +338,7 @@ public class JoinQueryBuilder {
                         sb.append(split[i]);
                         sb.append(".");
                     }
-                    String correspondingAttributeName = sb.toString() + split[split.length-1];
+                    String correspondingAttributeName = sb + split[split.length-1];
                     int index = sourcesSchemas.get(sourceOne).indexOf(correspondingAttributeName);
                     if(!split[0].equals(sourceOne) || index == -1){
                         throw new RuntimeException("filter predicate of source one contains alias of " +
@@ -375,7 +375,7 @@ public class JoinQueryBuilder {
                         sb.append(split[i]);
                         sb.append(".");
                     }
-                    String correspondingAttributeName = sb.toString() + split[split.length-1];
+                    String correspondingAttributeName = sb + split[split.length-1];
                     int index = sourcesSchemas.get(sourceTwo).indexOf(correspondingAttributeName);
                     if(!split[0].equals(sourceTwo) || index == -1){
                         throw new RuntimeException("filter predicate of source two contains alias of " +

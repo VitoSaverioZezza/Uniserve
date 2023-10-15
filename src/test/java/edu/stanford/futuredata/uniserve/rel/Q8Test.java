@@ -45,7 +45,7 @@ public class Q8Test {
     }
 
     @AfterEach
-    private void unitTestCleanUp() throws IOException {
+    public void unitTestCleanUp() throws IOException {
         TestMethods.unitTestCleanUp();
     }
     @Test
@@ -73,7 +73,7 @@ public class Q8Test {
                 "(i_category == 'Men'" +
                 "&&   (i_color == 'indian' || i_color == 'dark')" +
                 "&&   (i_units == 'Oz' || i_units == 'Lb' )" +
-                "&&   (i_size == 'extra large' || OR i_size == 'small'))" +
+                "&&   (i_size == 'extra large' || i_size == 'small'))" +
                 "||" +
                 "(i_category == 'Men'" +
                 "&& ( i_color == 'peach' || i_color == 'purple' )" +
@@ -124,7 +124,7 @@ public class Q8Test {
     }
 
     /*
-    * -- start query 41 in stream 0 using template query41.tpl
+    * query 41 of the TPC DS benchmark
 SELECT Distinct(i_product_name)
 FROM   item i1
 WHERE  i_manufact_id BETWEEN 765 AND 765 + 40

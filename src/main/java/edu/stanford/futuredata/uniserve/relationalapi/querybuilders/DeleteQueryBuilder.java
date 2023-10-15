@@ -14,7 +14,7 @@ import java.util.List;
 
 public class DeleteQueryBuilder {
     private String table = "";
-    private Broker broker;
+    private final Broker broker;
     private List<RelRow> data;
     private Boolean[] keyStructure;
     private ReadQuery dataQuery = null;

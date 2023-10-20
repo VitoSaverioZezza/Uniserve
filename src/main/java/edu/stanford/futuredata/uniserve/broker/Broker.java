@@ -4,8 +4,6 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.*;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.interfaces.*;
-import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
-import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
 import edu.stanford.futuredata.uniserve.utilities.DataStoreDescription;
@@ -23,7 +21,6 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 
 /**
@@ -980,7 +977,6 @@ public class Broker {
             }catch (Exception e ){
                 assert (false);
             }
-
             this.writeCachedData(plan.getWriteResultPlan(), txID, shardIDtoDSId);
             removeCachedResults(txID);
         }
@@ -1527,6 +1523,12 @@ public class Broker {
         t.setKeyStructure((Boolean[]) Utilities.byteStringToObject(r.getKeyStructure()));
         t.setRegisteredQueries((ArrayList<ReadQuery>) Utilities.byteStringToObject(r.getTriggeredQueries()));
         t.setTableShardsIDs((ArrayList<Integer>) Utilities.byteStringToObject(r.getShardIDs()));
+        if(t.getRegisteredQueries() == null){
+            t.setRegisteredQueries(new ArrayList<>());
+        }
+        if(t.getTableShardsIDs() == null){
+            t.setTableShardsIDs(new ArrayList<>());
+        }
         return t;
     }
     /**Given a Table identifier, its number of shards and a row's partition key, returns the shard identifier
@@ -1631,7 +1633,7 @@ public class Broker {
     public String registerQuery(ReadQuery query){
         Integer resultTableID = zkCurator.getResultTableID();
         query.setResultTableName(Integer.toString(resultTableID));
-        boolean isTableCreated = createTable(Integer.toString(resultTableID), SHARDS_PER_TABLE, query.getResultSchema(), query.getKeyStructure());
+        boolean isTableCreated = createTable(Integer.toString(resultTableID), Math.max(dsIDToChannelMap.size(),1), query.getResultSchema(), query.getKeyStructure());
         if(!isTableCreated){
             throw new RuntimeException("Query cannot be registered");
         }

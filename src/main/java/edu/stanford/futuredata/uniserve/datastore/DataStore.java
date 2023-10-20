@@ -19,6 +19,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -459,6 +460,12 @@ public class DataStore<R extends Row, S extends Shard> {
         t.setKeyStructure((Boolean[]) Utilities.byteStringToObject(r.getKeyStructure()));
         t.setRegisteredQueries((ArrayList<ReadQuery>) Utilities.byteStringToObject(r.getTriggeredQueries()));
         t.setTableShardsIDs((ArrayList<Integer>) Utilities.byteStringToObject(r.getShardIDs()));
+        if(t.getRegisteredQueries() == null){
+            t.setRegisteredQueries(new ArrayList<>());
+        }
+        if(t.getTableShardsIDs() == null){
+            t.setTableShardsIDs(new ArrayList<>());
+        }
         return t;
     }
 
@@ -471,7 +478,7 @@ public class DataStore<R extends Row, S extends Shard> {
         return new ArrayList<>(ret);
     }
     public void storeResults(Pair<Long, Integer> dataIndex, List<R> data){
-        resultsToStore.put(dataIndex, data);
+        resultsToStore.computeIfAbsent(dataIndex, k->new CopyOnWriteArrayList<>()).addAll(data);
     }
     public void removeCachedData(List<Pair<Long, Integer>> dataIndexes){
         for(Pair<Long, Integer> dataIndex:dataIndexes) {

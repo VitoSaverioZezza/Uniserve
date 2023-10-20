@@ -1,42 +1,15 @@
-package edu.stanford.futuredata.uniserve.rel;
+package edu.stanford.futuredata.uniserve.rel.TPC_DS;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
-import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
-import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
-import edu.stanford.futuredata.uniserve.datastore.DataStore;
-import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
-import edu.stanford.futuredata.uniserve.relational.RelRow;
-import edu.stanford.futuredata.uniserve.relational.RelShard;
-import edu.stanford.futuredata.uniserve.relational.RelShardFactory;
 import edu.stanford.futuredata.uniserve.relationalapi.API;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
-import org.apache.commons.io.FileUtils;
-import org.apache.curator.RetryPolicy;
-import org.apache.curator.framework.CuratorFramework;
-import org.apache.curator.framework.CuratorFrameworkFactory;
-import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.Path;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.List;
-
-import static edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud.deleteDirectoryRecursion;
 
 public class Q9Test {
 
@@ -56,9 +29,9 @@ public class Q9Test {
     /*
     * query 42 of the TPC DS benchmark
 SELECT dt.d_year,
-               item.i_category_id,
-               item.i_category,
-               Sum(ss_ext_sales_price)
+       item.i_category_id,
+       item.i_category,
+       Sum(ss_ext_sales_price)
 FROM   date_dim dt,
        store_sales,
        item
@@ -74,9 +47,15 @@ ORDER  BY Sum(ss_ext_sales_price) DESC,
           dt.d_year,
           item.i_category_id,
           item.i_category
-LIMIT 100; */
+
+
+        q.d_year = t.d_year and,
+       q.i_category_id = t.i_category_id and
+       q.i_category = t.i_category and
+       q.ss_ext_sales_price = t.ss_ext_sales_price and
+* */
     @Test
-    public void Q9Test(){
+    public void Q9Test() throws IOException {
         TestMethods tm = new TestMethods();
         tm.startServers();
         Broker broker = new Broker(TestMethods.zkHost, TestMethods.zkPort);
@@ -94,6 +73,7 @@ LIMIT 100; */
                 .filters("", "i_manager_id == 1").build();
 
         ReadQuery q9 = api.read().select("j1.d_year", "item.i_category_id", "item.i_category")
+                .alias("d_year", "i_category_id", "i_category")
                 .sum("j1.ss_ext_sales_price", "sum_ss_ext_sales_price")
                 .from(ssInDec2000FromManager1, "src").build();
         RelReadQueryResults results = q9.run(broker);
@@ -101,7 +81,7 @@ LIMIT 100; */
 
         System.out.println("RESULTS:");
         TestMethods.printRowList(results.getData());
-
+        tm.printOnFile(results.getData(), results.getFieldNames(),"res9");
         System.out.println("\nreturning...");
         broker.shutdown();
         tm.stopServers();

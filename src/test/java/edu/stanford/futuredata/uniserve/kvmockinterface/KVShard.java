@@ -86,4 +86,14 @@ public class KVShard implements Shard {
         return Optional.of(shardPath);
     }
 
+    @Override
+    public boolean insertRows(List data) {
+        return false;
+    }
+
+    @Override
+    public boolean committRows() {
+        return false;
+    }
+
 }

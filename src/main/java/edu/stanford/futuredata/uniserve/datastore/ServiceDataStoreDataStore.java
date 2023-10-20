@@ -506,8 +506,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
             }
         };
     }
-
-
     private BootstrapReplicaResponse bootstrapReplicaHandler(BootstrapReplicaMessage request) {
         int shardNum = request.getShard();
         dataStore.shardLockMap.get(shardNum).writerLockLock();

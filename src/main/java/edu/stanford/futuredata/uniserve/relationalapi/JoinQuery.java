@@ -163,14 +163,42 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
 
     @Override
     public Map<Integer, List<ByteString>> scatter(RelShard shard, int numRepartitions, String sourceName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
-        List<RelRow> data = shard.getData();
-        if(data.isEmpty()){
-            return new HashMap<>();
+        //List<RelRow> data = shard.getData();
+        //if(data.isEmpty()){
+        //    return new HashMap<>();
+        //}
+        //List<RelRow> filteredData = filter(data, sourceName, concreteSubqueriesResults);
+        //if(filteredData.isEmpty()){
+        //    return new HashMap<>();
+        //}
+
+        //List<RelRow> filteredData; //= filter(shardData, concreteSubqueriesResults);
+        //String filterPredicate = filterPredicates.get(sourceName);
+        Serializable cachedFilterPredicate = cachedFilterPredicates.get(sourceName);
+        List<Pair<String, Integer>> predicateVarToIndexes = null;
+        if(sourceName.equals(sourceOne)){
+            predicateVarToIndexes = predicateVarToIndexesOne;
+        } else if (sourceName.equals(sourceTwo)) {
+            predicateVarToIndexes = predicateVarToIndexesTwo;
         }
-        List<RelRow> filteredData = filter(data, sourceName, concreteSubqueriesResults);
-        if(filteredData.isEmpty()){
-            return new HashMap<>();
-        }
+        //if(!(filterPredicate == null || filterPredicate.isEmpty() || cachedFilterPredicate == null || cachedFilterPredicate.equals(""))){
+        //    filteredData = shard.getFilteredData(cachedFilterPredicate, concreteSubqueriesResults, predicateVarToIndexes);
+        //}else {
+        //    filteredData = shard.getData();
+        //}
+
+        List<RelRow> filteredData = new ArrayList<>(
+                shard.getData(
+                        false,
+                        false,
+                        null,
+                        cachedFilterPredicate,
+                        concreteSubqueriesResults,
+                        predicateVarToIndexes,
+                        null
+                )
+        );
+
         Map<Integer, List<ByteString>> returnedAssignment = new HashMap<>();
         List<String> joinAttributes = sourcesJoinAttributes.get(sourceName);
         List<String> sourceSchema = sourceSchemas.get(sourceName);
@@ -201,15 +229,19 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     }
     @Override
     public ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, RelShard> ephemeralShards) {
-        List<RelRow> rowsSourceOne = new ArrayList<>();
-        List<RelRow> rowsSourceTwo = new ArrayList<>();
-        if(ephemeralData.get(sourceOne) != null)
-            rowsSourceOne = ephemeralData.get(sourceOne).stream().map(v -> (RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
-        if(ephemeralData.get(sourceTwo) != null)
-            rowsSourceTwo = ephemeralData.get(sourceTwo).stream().map(v -> (RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
-        if(rowsSourceOne.isEmpty() || rowsSourceTwo.isEmpty()){
-            return Utilities.objectToByteString(new ArrayList<>());
-        }
+        //List<RelRow> rowsSourceOne = new ArrayList<>();
+        //List<RelRow> rowsSourceTwo = new ArrayList<>();
+        //if(ephemeralData.get(sourceOne) != null)
+        //    rowsSourceOne = ephemeralData.get(sourceOne).stream().map(v -> (RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+        //if(ephemeralData.get(sourceTwo) != null)
+        //    rowsSourceTwo = ephemeralData.get(sourceTwo).stream().map(v -> (RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+        List<RelRow> rowsSourceOne = ephemeralShards.get(sourceOne).getData();
+        List<RelRow> rowsSourceTwo = ephemeralShards.get(sourceTwo).getData();
+        if(rowsSourceOne == null || rowsSourceOne.isEmpty() || rowsSourceTwo == null || rowsSourceTwo.isEmpty())
+            return  Utilities.objectToByteString(new ArrayList<>());
+        //if(rowsSourceOne.isEmpty() || rowsSourceTwo.isEmpty()){
+        //    return Utilities.objectToByteString(new ArrayList<>());
+        //}
         List<String> schemaSourceOne = sourceSchemas.get(sourceOne);
         List<String> schemaSourceTwo = sourceSchemas.get(sourceTwo);
         List<String> joinAttributesOne = sourcesJoinAttributes.get(sourceOne);

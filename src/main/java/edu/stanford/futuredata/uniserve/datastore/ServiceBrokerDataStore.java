@@ -663,6 +663,9 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
             ephemeralShards.put(tableName, ephemeralShard);
             List<Integer> targetShards = allTargetShards.get(tableName);
+            if(targetShards == null){
+                continue;
+            }
             List<ByteString> tableEphemeralData = new CopyOnWriteArrayList<>();
             CountDownLatch latch = new CountDownLatch(targetShards.size());
             for (int targetShard : targetShards) {
@@ -728,7 +731,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 latch.await();
             } catch (InterruptedException ignored) {
             }
-            ephemeralData.put(tableName, tableEphemeralData);
+            List rows = (List) tableEphemeralData.stream().map(v->(R)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+            ephemeralShard.insertRows(rows);
+            ephemeralShard.committRows();
+            //ephemeralData.put(tableName, tableEphemeralData);
         }
         for (String subqueryID: subqueriesResults.keySet()) {
             List<Pair<Integer, Integer>> shardToDSPairs = subqueriesResults.get(subqueryID);
@@ -784,7 +790,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 latch.await();
             } catch (InterruptedException ignored) {
             }
-            ephemeralData.put(subqueryID, tableEphemeralData);
+            List rows = (List) tableEphemeralData.stream().map(v->(R)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+            ephemeralShard.insertRows(rows);
+            ephemeralShard.committRows();
+            //ephemeralData.put(subqueryID, tableEphemeralData);
         }
 
         ByteString b = plan.gather(ephemeralData, ephemeralShards);

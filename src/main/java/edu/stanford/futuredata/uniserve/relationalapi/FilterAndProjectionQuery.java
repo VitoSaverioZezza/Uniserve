@@ -32,7 +32,7 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     private List<String> resultSchema = new ArrayList<>();
     private List<String> systemResultSchema = new ArrayList<>();
     private String filterPredicate = "";
-    private Serializable cachedFilterPredicate = "";
+    private Serializable cachedFilterPredicate = null;
     private boolean stored = false;
     private boolean isThisSubquery = false;
     private boolean isDistinct = false;
@@ -148,9 +148,26 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
 
     @Override
     public ByteString retrieve(RelShard shard, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
-        List<RelRow> shardData = shard.getData();
-        List<RelRow> filteredData = filter(shardData, concreteSubqueriesResults);
-        ArrayList<RelRow> retrievedData = project(filteredData);
+        //List<RelRow> shardData = shard.getData();
+
+        //List<RelRow> filteredData; //= filter(shardData, concreteSubqueriesResults);
+        //if(!(filterPredicate == null || filterPredicate.isEmpty() || cachedFilterPredicate == null || cachedFilterPredicate.equals(""))){
+        //    filteredData = shard.getFilteredData(cachedFilterPredicate, concreteSubqueriesResults, predicateVarToIndexes);
+        //}else {
+        //    filteredData = shard.getData();
+        //}
+
+        //ArrayList<RelRow> retrievedData = project(filteredData);
+
+        ArrayList<RelRow> retrievedData = new ArrayList<>(shard.getData(
+                isDistinct,
+                !(resultSourceIndexes == null || resultSourceIndexes.isEmpty()),
+                resultSourceIndexes,
+                cachedFilterPredicate,
+                concreteSubqueriesResults,
+                predicateVarToIndexes,
+                operations
+                ));
         return Utilities.objectToByteString(retrievedData);
     }
     @Override

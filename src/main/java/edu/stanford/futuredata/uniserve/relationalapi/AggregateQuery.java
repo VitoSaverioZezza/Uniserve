@@ -162,8 +162,26 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
 
     @Override
     public Map<Integer, List<ByteString>> scatter(RelShard shard, int numRepartitions, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
-        List<RelRow> data = shard.getData();
-        List<RelRow> filteredData = filter(data, concreteSubqueriesResults);
+        //List<RelRow> data = shard.getData();
+        //List<RelRow> filteredData = filter(data, concreteSubqueriesResults);
+
+        //List<RelRow> filteredData; //= filter(shardData, concreteSubqueriesResults);
+        //if(!(filterPredicate == null || filterPredicate.isEmpty() || cachedFilterPredicate == null || cachedFilterPredicate.equals(""))){
+        //    filteredData = shard.getFilteredData(cachedFilterPredicate, concreteSubqueriesResults, predicateVarToIndexes);
+        //}else {
+        //    filteredData = shard.getData();
+        //}
+
+        List<RelRow> filteredData = new ArrayList<>(shard.getData(
+                false,
+                false,
+                null,
+                cachedFilterPredicate,
+                concreteSubqueriesResults,
+                predicateVarToIndexes,
+                null
+        ));
+
         Map<Integer, List<ByteString>> ret = new HashMap<>();
         for(RelRow row: filteredData){
             int key = 0;
@@ -190,7 +208,8 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
     }
     @Override
     public ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, RelShard> ephemeralShards) {
-        List<RelRow> rows = ephemeralData.get(sourceName).stream().map(v -> (RelRow) Utilities.byteStringToObject(v)).collect(Collectors.toList());
+        //List<RelRow> rows = ephemeralData.get(sourceName).stream().map(v -> (RelRow) Utilities.byteStringToObject(v)).collect(Collectors.toList());
+        List<RelRow> rows = ephemeralShards.get(sourceName).getData();
         Map<List<Object>, List<RelRow>> groups = new HashMap<>();
         for(RelRow row: rows){
             List<Object> rowGroupFields = getGroup(row);

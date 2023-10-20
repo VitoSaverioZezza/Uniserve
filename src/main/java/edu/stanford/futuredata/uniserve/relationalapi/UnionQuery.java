@@ -156,28 +156,52 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
     }
 
     @Override
-    public ByteString retrieve(RelShard shard, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
-        List<RelRow> data = shard.getData();
-        if(data.isEmpty()){
-            return Utilities.objectToByteString(new ArrayList<>());
+    public ByteString retrieve(RelShard shard, String sourceName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
+        //List<RelRow> data = shard.getData();
+        //if(data.isEmpty()){
+        //    return Utilities.objectToByteString(new ArrayList<>());
+        //}
+        //ArrayList<RelRow> filteredData = new ArrayList<>(filter(data, tableName, concreteSubqueriesResults));
+        //if(filteredData.isEmpty()){
+        //    return Utilities.objectToByteString(new ArrayList<>());
+        //}
+
+        //ArrayList<RelRow> filteredData; //= filter(shardData, concreteSubqueriesResults);
+        String filterPredicate = filterPredicates.get(sourceName);
+        Serializable cachedFilterPredicate = cachedFilterPredicates.get(sourceName);
+        List<Pair<String, Integer>> predicateVarToIndexes = null;
+        if(sourceName.equals(sourceOne)){
+            predicateVarToIndexes = predicateVarToIndexesOne;
+        } else if (sourceName.equals(sourceTwo)) {
+            predicateVarToIndexes = predicateVarToIndexesTwo;
         }
-        ArrayList<RelRow> filteredData = new ArrayList<>(filter(data, tableName, concreteSubqueriesResults));
-        if(filteredData.isEmpty()){
-            return Utilities.objectToByteString(new ArrayList<>());
-        }
-        ArrayList<RelRow> retrievedResults = checkDistinct(filteredData);
-        if(retrievedResults.isEmpty()){
-            return Utilities.objectToByteString(new ArrayList<>());
-        }
-        if(!operations.isEmpty()){
-            ArrayList<RelRow> operationsRows = new ArrayList<>();
-            for(RelRow retrievedRow:retrievedResults){
-                operationsRows.add(applyOperations(retrievedRow));
-            }
-            return Utilities.objectToByteString(operationsRows);
-        }else {
-            return Utilities.objectToByteString(retrievedResults);
-        }
+        //if(!(filterPredicate == null || filterPredicate.isEmpty() || cachedFilterPredicate == null || cachedFilterPredicate.equals(""))){
+        //    filteredData = new ArrayList<>(shard.getFilteredData(cachedFilterPredicate, concreteSubqueriesResults, predicateVarToIndexes));
+        //}else {
+        //    filteredData = new ArrayList<>(shard.getData());
+        //}
+        ArrayList<RelRow> retrievedResults = new ArrayList<>(
+                shard.getData(
+                        isDistinct, false, null,
+                        cachedFilterPredicate, concreteSubqueriesResults,
+                        predicateVarToIndexes, operations
+                )
+        );
+        return Utilities.objectToByteString(retrievedResults);
+
+        //ArrayList<RelRow> retrievedResults = checkDistinct(filteredData);
+        //if(retrievedResults.isEmpty()){
+        //    return Utilities.objectToByteString(new ArrayList<>());
+        //}
+        //if(!operations.isEmpty()){
+        //    ArrayList<RelRow> operationsRows = new ArrayList<>();
+        //    for(RelRow retrievedRow:retrievedResults){
+        //        operationsRows.add(applyOperations(retrievedRow));
+        //    }
+        //    return Utilities.objectToByteString(operationsRows);
+        //}else {
+        //    return Utilities.objectToByteString(retrievedResults);
+        //}
     }
 
     @Override

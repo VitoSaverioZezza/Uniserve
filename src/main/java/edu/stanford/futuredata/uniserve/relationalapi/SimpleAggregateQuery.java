@@ -28,7 +28,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     private List<String> resultsSchema = new ArrayList<>();
     private List<Pair<Integer, String>> aggregatesSpecification = new ArrayList<>();
     private String filterPredicate = "";
-    private Serializable cachedFilterPredicate = "";
+    private Serializable cachedFilterPredicate = null;
     private Map<String, ReadQuery> sourceSubqueries = new HashMap<>();
     private boolean stored;
     private boolean isThisSubquery = false;
@@ -145,8 +145,27 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
 
     @Override
     public Map<Integer, List<ByteString>> scatter(RelShard shard, int numRepartitions, String tableName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
-        List<RelRow> shardData = shard.getData();
-        List<RelRow> filteredData = filter(shardData, concreteSubqueriesResults);
+        //List<RelRow> shardData = shard.getData();
+        //List<RelRow> filteredData = filter(shardData, concreteSubqueriesResults);
+
+        //List<RelRow> filteredData; //= filter(shardData, concreteSubqueriesResults);
+        //if(!(filterPredicate == null || filterPredicate.isEmpty() || cachedFilterPredicate == null || cachedFilterPredicate.equals(""))){
+        //    filteredData = shard.getFilteredData(cachedFilterPredicate, concreteSubqueriesResults, predicateVarToIndexes);
+        //}else {
+        //    filteredData = shard.getData();
+        //}
+
+        List<RelRow> filteredData = new ArrayList<>(
+                shard.getData(
+                        false,
+                        false,
+                        null,
+                        cachedFilterPredicate,
+                        concreteSubqueriesResults,
+                        predicateVarToIndexes,
+                        null
+                )
+        );
 
         Integer aggregatingDSID = sourceName == null ? 0 : sourceName.hashCode() % numRepartitions;
         if(aggregatingDSID < 0){
@@ -162,12 +181,16 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     }
     @Override
     public ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, RelShard> ephemeralShards) {
-        //this should be executed only once, by the dsID selected by the scatter!!
-        List<ByteString> serializedPartialResultRows = ephemeralData.get(sourceName);
-        if(serializedPartialResultRows == null || serializedPartialResultRows.isEmpty()){
+        //List<ByteString> serializedPartialResultRows = ephemeralData.get(sourceName);
+        //if(serializedPartialResultRows == null || serializedPartialResultRows.isEmpty()){
+        //    return Utilities.objectToByteString(new ArrayList<>());
+        //}
+        //List<RelRow> partialResults = serializedPartialResultRows.stream().map((v)->(RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+
+        List<RelRow> partialResults = ephemeralShards.get(sourceName).getData();
+        if(partialResults == null || partialResults.isEmpty()){
             return Utilities.objectToByteString(new ArrayList<>());
         }
-        List<RelRow> partialResults = serializedPartialResultRows.stream().map((v)->(RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
         ArrayList<RelRow> results = new ArrayList<>();
         results.add(computeResults(partialResults));
         return Utilities.objectToByteString(results);

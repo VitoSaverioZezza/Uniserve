@@ -20,4 +20,7 @@ public interface Shard extends Serializable {
     void destroy();
     /**@return an Optional object storing a path to a directory containing a serialization of the shard.*/
     Optional<Path> shardToData();
+
+    boolean insertRows(List data);
+    boolean committRows();
 }

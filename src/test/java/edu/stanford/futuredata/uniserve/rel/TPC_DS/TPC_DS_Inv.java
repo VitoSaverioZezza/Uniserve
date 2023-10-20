@@ -1,9 +1,62 @@
-package edu.stanford.futuredata.uniserve.rel;
+package edu.stanford.futuredata.uniserve.rel.TPC_DS;
 
 import java.util.List;
 
 public class TPC_DS_Inv {
     public static final Integer numberOfTables = 24;
+
+    public static final int storeSalesSize = 240485;
+    public static final int storeReturnsSize = 23925;
+    public static final int catalogSalesSize = 89807;
+    public static final int catalogReturnsSize = 8923;
+    public static final int webSalesSize = 47726;
+    public static final int webReturnsSize = 4714;
+    public static final int inventorySize = 261261;
+    public static final int storeSize = 2;
+    public static final int callCenterSize = 2;
+    public static final int catalogPageSize = 11718;
+    public static final int webSiteSize = 2;
+    public static final int webPageSize = 2;
+    public static final int warehouseSize = 1;
+    public static final int customerSize = 6000;
+    public static final int customerAddressSize = 3000;
+    public static final int customerDemographicsSize = 1920800;
+    public static final int dateDimSize = 73049;
+    public static final int householdDemographicsSize = 7200;
+    public static final int itemSize = 2000;
+    public static final int incomeBandSize = 20;
+    public static final int promotionSize = 18;
+    public static final int reasonSize = 2;
+    public static final int shipModeSize = 20;
+    public static final int timeDimSize = 86400;
+
+    public static final List<Integer> sizes = List.of(
+            storeSalesSize,
+            storeReturnsSize,
+            catalogSalesSize,
+            catalogReturnsSize,
+            webSalesSize,
+            webReturnsSize,
+            inventorySize,
+            storeSize,
+            callCenterSize,
+            catalogPageSize,
+            webSiteSize,
+            webPageSize,
+            warehouseSize,
+            customerSize,
+            customerAddressSize,
+            customerDemographicsSize,
+            dateDimSize,
+            householdDemographicsSize,
+            itemSize,
+            incomeBandSize,
+            promotionSize,
+            reasonSize,
+            shipModeSize,
+            timeDimSize
+    );
+
 
     public final static String callCenterPath = "/call_center.dat";
     public final static String catalogPagePath = "/catalog_page.dat";

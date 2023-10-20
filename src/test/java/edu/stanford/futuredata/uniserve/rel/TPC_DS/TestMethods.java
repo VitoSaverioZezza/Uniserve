@@ -1,19 +1,15 @@
-package edu.stanford.futuredata.uniserve.rel;
+package edu.stanford.futuredata.uniserve.rel.TPC_DS;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
-import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
-import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.relational.RelShardFactory;
 import edu.stanford.futuredata.uniserve.relationalapi.API;
-import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
-import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -21,10 +17,6 @@ import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.log4j.Logger;
 import org.javatuples.Pair;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
-import org.mvel2.MVEL;
 
 import java.io.*;
 import java.nio.file.DirectoryStream;
@@ -152,9 +144,9 @@ public class TestMethods {
         }
     }
 
-    public void printOnFile(List<RelRow> rowList, List<String> schema) throws IOException {
+    public void printOnFile(List<RelRow> rowList, List<String> schema, String fileName) throws IOException {
         System.out.println("Writing output...");
-        String sinkPath = "C:\\Users\\saver\\Desktop\\debRes\\res.csv";
+        String sinkPath = "C:\\Users\\saver\\Desktop\\debRes\\"+fileName+".csv";
         BufferedWriter datWriter = new BufferedWriter(new FileWriter(sinkPath));
 
         StringBuilder schemaBuilder = new StringBuilder();
@@ -182,10 +174,43 @@ public class TestMethods {
         System.out.println("Output written to " + sinkPath);
     }
 
+    public void saveTimings(List<Pair<String, Long>> writeTimes, Long readTime, String filaname) throws IOException {
+        System.out.println("Writing times...");
+        String sinkPath = "C:\\Users\\saver\\Desktop\\Timings\\times"+filaname+".csv";
 
-    public void loadDataInMem(Broker broker, List<String> tablesToLoad) {
+        File f = new File(sinkPath);
+        if(!f.exists() && !f.isDirectory()) {
+            BufferedWriter create = new BufferedWriter(new FileWriter(sinkPath));
+            StringBuilder builder = new StringBuilder();
+            for(Pair<String, Long> wrtieTimes: writeTimes){
+                builder.append(wrtieTimes.getValue0());
+                builder.append(";");
+            }
+            builder.append("ReadTime");
+            create.write(builder.toString());
+            create.newLine();
+            create.close();
+        }
+        BufferedWriter datWriter = new BufferedWriter(new FileWriter(sinkPath, true));
+
+        StringBuilder builder = new StringBuilder();
+        for(Pair<String, Long> writeTime: writeTimes){
+            builder.append(writeTime.getValue1());
+            builder.append(";");
+        }
+        builder.append(readTime);
+        String line = builder.toString();
+        datWriter.write(line);
+        datWriter.newLine();
+        datWriter.close();
+        System.out.println("Times written to " + sinkPath);
+    }
+
+
+    public List<Pair<String,Long>> loadDataInMem(Broker broker, List<String> tablesToLoad) {
         API api = new API(broker);
         boolean res = true;
+        List<Pair<String, Long>> times = new ArrayList<>();
         for (int i = 0; i < TPC_DS_Inv.numberOfTables; i++) {
             if(!tablesToLoad.contains(TPC_DS_Inv.names.get(i))){
                 continue;
@@ -195,7 +220,7 @@ public class TestMethods {
             List<RelRow> memBuffer = new ArrayList<>();
             MemoryLoader memoryLoader = new MemoryLoader(i, memBuffer);
             if(!memoryLoader.run()){
-                return;
+                return null;
             }
             int shardNum = Math.min(Math.max(memBuffer.size()/1000, 1), Broker.SHARDS_PER_TABLE);
             res = api.createTable(TPC_DS_Inv.names.get(i))
@@ -203,13 +228,18 @@ public class TestMethods {
                     .keys(TPC_DS_Inv.schemas.get(i).toArray(new String[0]))
                     .shardNumber(shardNum)
                     .build().run();
+
+            long startTime = System.currentTimeMillis();
             res = api.write().table(TPC_DS_Inv.names.get(i)).data(memBuffer.toArray(new RelRow[0])).build().run();
+            long elapsedTime = System.currentTimeMillis() - startTime;
+            times.add(new Pair<>(TPC_DS_Inv.names.get(i), elapsedTime));
             memBuffer.clear();
             if(!res){
                 broker.shutdown();
                 throw new RuntimeException("Write error for table "+TPC_DS_Inv.names.get(i));
             }
         }
+        return times;
     }
 
     private class MemoryLoader{

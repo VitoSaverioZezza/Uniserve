@@ -667,6 +667,8 @@ public class Broker {
         CountDownLatch latch = new CountDownLatch(numReducers);
         int reducerNum = 0;
         List<ByteString> destinationShardIDs = new CopyOnWriteArrayList<>();
+
+
         for (int dsID : dsIDs) {
             /*Each datastore receives a call to the shuffleReadQuery method, with message containing:
             * - repartitionNum: the dsID

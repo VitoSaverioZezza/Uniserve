@@ -1,43 +1,17 @@
-package edu.stanford.futuredata.uniserve.rel;
+package edu.stanford.futuredata.uniserve.rel.TPC_DS;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
-import edu.stanford.futuredata.uniserve.coordinator.Coordinator;
-import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
-import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
-import edu.stanford.futuredata.uniserve.datastore.DataStore;
-import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
-import edu.stanford.futuredata.uniserve.relational.RelRow;
-import edu.stanford.futuredata.uniserve.relational.RelShard;
-import edu.stanford.futuredata.uniserve.relational.RelShardFactory;
 import edu.stanford.futuredata.uniserve.relationalapi.API;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
-import org.apache.commons.io.FileUtils;
-import org.apache.curator.RetryPolicy;
-import org.apache.curator.framework.CuratorFramework;
-import org.apache.curator.framework.CuratorFrameworkFactory;
-import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileReader;
 import java.io.IOException;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
-import java.nio.file.Path;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.List;
 
-import static edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud.deleteDirectoryRecursion;
-import static edu.stanford.futuredata.uniserve.rel.TestMethods.*;
+import static edu.stanford.futuredata.uniserve.rel.TPC_DS.TestMethods.*;
 
 public class Q2Test {
     @BeforeAll
@@ -74,7 +48,7 @@ GROUP  BY ca_zip
 */
 
     @Test
-    public void Q2Test(){
+    public void Q2Test() throws IOException {
         TestMethods tm = new TestMethods(); tm.startServers();
         Broker broker = new Broker(zkHost, zkPort);
         API api = new API(broker);
@@ -129,6 +103,7 @@ GROUP  BY ca_zip
         tm.stopServers();
         System.out.println("\n\nResults:\n");
         TestMethods.printRowList(results.getData());
+        tm.printOnFile(results.getData(), results.getFieldNames(),"res2");
     }
     public List<String> tablesToLoad = List.of(
             "catalog_sales",

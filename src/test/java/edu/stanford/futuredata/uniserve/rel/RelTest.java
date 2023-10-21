@@ -315,7 +315,6 @@ public class RelTest {
         }
     }
 
-
     @Test
     public void unionTest(){
         startServers();
@@ -1436,6 +1435,8 @@ public class RelTest {
             }
             assertTrue(present);
         }
+        System.out.println("\t\t\tAll actors rows are correctly written");
+
         System.out.println("\t\tTEST ----- Checking whether the query's stored");
         TableInfo actorTableInfo = broker.getTableInfo("Actors");
         boolean allActorStoredQuery = false;
@@ -1450,11 +1451,19 @@ public class RelTest {
 
         System.out.println("\t\tTEST ----- Updating source");
         RelRow newWrittenRow = new RelRow(1111, "Test", "Test", 0, 0);
-        api.write().table("Actors").data(List.of(newWrittenRow)).build().run();
-
+        boolean writeSuccess = api.write().table("Actors").data(List.of(newWrittenRow)).build().run();
+        if(!writeSuccess){
+            System.err.println("\t\t\tWrite query on source table failed");
+            broker.shutdown();
+            stopServers();
+            return;
+        }
         int newActorCount = actorCount+1;
         boolean presentAllActor = false;
         RelReadQueryResults resTableContent = api.read().select().from("1").build().run(broker);
+        printRowList(resTableContent.getData());
+        System.out.println("HUH");
+        printRowList(actorRows);
         assertEquals(resTableContent.getData().size(), newActorCount);
         presentAllActor = false;
         for(RelRow readRow : resTableContent.getData()){
@@ -1527,8 +1536,6 @@ public class RelTest {
         }
         assertTrue(presentAllActor);
         System.out.println("\t\t\tTEST ------ Results are correct");
-
-
 
         allActorsQuery = api.read().select().fromFilter("Actors", "Salary > 0").build();
         allActors = allActorsQuery.run(broker);

@@ -27,7 +27,7 @@ public class KVQueryEngine implements QueryEngine {
         List<KVRow> filteredData;
         if(!filterOnWrite){
             WriteQueryPlan<KVRow, KVShard> insertRawDataPlan = new KVWriteQueryPlanInsert("filterAndAverageRaw");
-            broker.writeQuery(insertRawDataPlan, data);
+            broker.writeQuery(insertRawDataPlan, data, true);
             AnchoredReadQueryPlan<KVShard, List<KVRow>> filterStoredDataPlan = new KVFilterOnRead();
             filteredData = broker.anchoredReadQuery(filterStoredDataPlan);
         }else{
@@ -40,7 +40,7 @@ public class KVQueryEngine implements QueryEngine {
 
         if(!averageOnWrite){
             WriteQueryPlan<KVRow, KVShard> insertFilteredDataPlan = new KVWriteQueryPlanInsert("intermediateFilter");
-            broker.writeQuery(insertFilteredDataPlan, filteredData);
+            broker.writeQuery(insertFilteredDataPlan, filteredData, true);
             AnchoredReadQueryPlan<KVShard, Integer> averageOnReadPlan = new KVAverageRead();
             return broker.anchoredReadQuery(averageOnReadPlan);
         }else{

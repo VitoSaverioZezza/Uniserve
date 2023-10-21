@@ -73,7 +73,7 @@ public class TableTests {
                 rows.add(new TableRow(Map.of("k", k, "v", v), k));
             }
         }
-        assertTrue(broker.writeQuery(new TableWriteInsert("table1"), rows));
+        assertTrue(broker.writeQuery(new TableWriteInsert("table1"), rows, true));
 
         ShuffleOnReadQueryPlan<TableShard, Integer> r = new TableReadMostFrequent("table1");
         assertEquals(0, broker.shuffleReadQuery(r));
@@ -124,12 +124,12 @@ public class TableTests {
                 cities.add(city);
             }
         }
-        assertTrue(broker.writeQuery(new TableWriteInsert("stateTable"), rows));
+        assertTrue(broker.writeQuery(new TableWriteInsert("stateTable"), rows, true));
         rows.clear();
         for(int i = 0; i < cities.size(); i++) {
             rows.add(new TableRow(Map.of("person", i, "city", cities.get(i)), i));
         }
-        assertTrue(broker.writeQuery(new TableWriteInsert("peopleTable"), rows));
+        assertTrue(broker.writeQuery(new TableWriteInsert("peopleTable"), rows, true));
 
         ShuffleOnReadQueryPlan<TableShard, Integer> r = new TableReadPopularState("peopleTable", "stateTable");
         assertEquals(9, broker.shuffleReadQuery(r));

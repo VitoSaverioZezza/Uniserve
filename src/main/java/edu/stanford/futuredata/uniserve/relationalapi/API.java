@@ -19,4 +19,5 @@ public class API {
     public DeleteQueryBuilder delete(){return new DeleteQueryBuilder(broker);}
     public JoinQueryBuilder join(){return new JoinQueryBuilder(broker);}
     public UnionQueryBuilder union(){return new UnionQueryBuilder(broker);}
+    public WriteBatch writeBatch(){return new WriteBatch(broker);}
 }

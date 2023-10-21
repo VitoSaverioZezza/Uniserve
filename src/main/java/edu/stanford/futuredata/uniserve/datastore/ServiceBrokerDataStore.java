@@ -931,7 +931,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 }
             });
 
-            if(dataToBeForwarded == null){
+            if(dataToBeForwarded == null || dataToBeForwarded.isEmpty()){
                 ;
             }else{
                 int CHUNK_SIZE = 1000;

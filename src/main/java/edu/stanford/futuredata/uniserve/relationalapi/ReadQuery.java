@@ -380,7 +380,7 @@ public class ReadQuery implements Serializable {
         return subqueries;
     }
     public List<Pair<Integer, String>> getAggregates(){
-        if(filterAndProjectionQuery != null || joinQuery != null){
+        if(unionQuery != null || filterAndProjectionQuery != null || joinQuery != null){
             return new ArrayList<>();
         }else if(simpleAggregateQuery != null){
             return simpleAggregateQuery.getAggregatesSpecification();

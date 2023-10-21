@@ -72,8 +72,8 @@ public class DeleteQueryBuilder {
             data = dataQuery.run(broker).getData();
         }
         if(consistent){
-            return broker.writeQuery(new ConsistentDeleteQuery(table, keyStructure), data);
+            return broker.writeQuery(new ConsistentDeleteQuery(table, keyStructure), data, true);
         }
-        return broker.simpleWriteQuery(new DeleteQuery(table, keyStructure), data);
+        return broker.simpleWriteQuery(new DeleteQuery(table, keyStructure), data, true);
     }
 }

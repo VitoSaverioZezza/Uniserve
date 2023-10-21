@@ -64,11 +64,10 @@ public class AutoScalingTests {
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan;
         writeQueryPlan = new KVWriteQueryPlanInsert("table1");
-        assertTrue(broker.writeQuery(writeQueryPlan,
-                List.of(new KVRow(0, 0), new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 3))));
+        assertTrue(broker.writeQuery(writeQueryPlan, List.of(new KVRow(0, 0), new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 3)), true));
         writeQueryPlan = new KVWriteQueryPlanInsert("table2");
         assertTrue(broker.writeQuery(writeQueryPlan,
-                List.of(new KVRow(0, 0), new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 3))));
+                List.of(new KVRow(0, 0), new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 3)), true));
 
         coordinator.addDataStore();
 

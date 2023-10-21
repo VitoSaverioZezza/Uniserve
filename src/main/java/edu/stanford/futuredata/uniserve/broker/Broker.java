@@ -156,7 +156,7 @@ public class Broker {
      * @param rows the list of rows to be written
      * @param writeQueryPlan the plan specifying how the operations have to be carried out
      * @return true if and only if the query has been executed successfully*/
-    public <R extends Row, S extends Shard> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+    public <R extends Row, S extends Shard> boolean writeQuery(WriteQueryPlan<R, S> writeQueryPlan, List<R> rows, boolean runStored) {
         zkCurator.acquireWriteLock(); // TODO: Maybe acquire later?
         long tStart = System.currentTimeMillis();
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
@@ -204,9 +204,11 @@ public class Broker {
         zkCurator.writeLastCommittedVersion(txID);
         zkCurator.releaseWriteLock();
         /*After the lock has been released since all stored queries are performed via a write operation that uses its own lock*/
-        List<ReadQuery> triggeredQueries = tableInfo.getRegisteredQueries();
-        for(ReadQuery triggeredQuery: triggeredQueries){
-            triggeredQuery.updateStoredResults(this);
+        if(runStored) {
+            List<ReadQuery> triggeredQueries = tableInfo.getRegisteredQueries();
+            for (ReadQuery triggeredQuery : triggeredQueries) {
+                triggeredQuery.updateStoredResults(this);
+            }
         }
 
         if(Utilities.logger_flag)
@@ -224,7 +226,7 @@ public class Broker {
      * @return true if the primary datastore has successfully executed the query. No guarantees on how many replicas
      * have executed the query are given.
      * */
-    public <R extends Row, S extends Shard> boolean simpleWriteQuery(SimpleWriteQueryPlan<R, S> writeQueryPlan, List<R> rows) {
+    public <R extends Row, S extends Shard> boolean simpleWriteQuery(SimpleWriteQueryPlan<R, S> writeQueryPlan, List<R> rows, boolean runStored) {
         long tStart = System.currentTimeMillis();
         Map<Integer, List<R>> shardRowListMap = new HashMap<>();
         TableInfo tableInfo = getTableInfo(writeQueryPlan.getQueriedTable());
@@ -261,9 +263,12 @@ public class Broker {
             }
         }
         zkCurator.writeLastCommittedVersion(txID);
-        List<ReadQuery> triggeredQueries = tableInfo.getRegisteredQueries();
-        for(ReadQuery triggeredQuery: triggeredQueries){
-            triggeredQuery.updateStoredResults(this);
+        if(runStored) {
+            List<ReadQuery> triggeredQueries = tableInfo.getRegisteredQueries();
+            for (ReadQuery triggeredQuery : triggeredQueries) {
+                logger.info("Updating stored query result table {}", triggeredQuery.getResultTableName());
+                triggeredQuery.updateStoredResults(this);
+            }
         }
         if(Utilities.logger_flag)
             logger.info("SimpleWrite completed. Rows: {}. Table: {} Version: {} Time: {}ms.",

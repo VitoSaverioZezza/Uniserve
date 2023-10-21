@@ -96,7 +96,7 @@ public class KVExecutable {
         Broker broker = new Broker(zkHost, zkPort);
         broker.createTable("table", 1, new ArrayList<>(), null);
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        boolean writeSuccess  = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
+        boolean writeSuccess  = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)), true);
         assert(writeSuccess);
         for (int iterNum = 0; iterNum < 10; iterNum++) {
             List<Long> trialTimes = new ArrayList<>();

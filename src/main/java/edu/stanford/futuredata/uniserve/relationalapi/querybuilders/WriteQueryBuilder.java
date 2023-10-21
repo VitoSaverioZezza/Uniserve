@@ -23,6 +23,10 @@ public class WriteQueryBuilder {
         this.broker = broker;
     }
 
+    public int numDataItems(){
+        return data.size();
+    }
+
     public WriteQueryBuilder table(String tableName){
         if(Character.isDigit(tableName.charAt(0))){
             throw new RuntimeException("Invalid table name");
@@ -66,9 +70,26 @@ public class WriteQueryBuilder {
             throw new RuntimeException("No input is defined");
         }
         if(consistent && writeQuery != null){
-            return broker.writeQuery(writeQuery, data);
+            return broker.writeQuery(writeQuery, data, true);
         } else if (simpleWriteQuery != null) {
-            return broker.simpleWriteQuery(simpleWriteQuery, data);
+            return broker.simpleWriteQuery(simpleWriteQuery, data, true);
+        } else{
+            throw new RuntimeException("Malformed write query");
+        }
+    }
+
+    public String getTable(){
+        return this.tableName;
+    }
+
+    public boolean runNoStoreUpdate(){
+        if(data == null){
+            throw new RuntimeException("No input is defined");
+        }
+        if(consistent && writeQuery != null){
+            return broker.writeQuery(writeQuery, data, false);
+        } else if (simpleWriteQuery != null) {
+            return broker.simpleWriteQuery(simpleWriteQuery, data, false);
         } else{
             throw new RuntimeException("Malformed write query");
         }

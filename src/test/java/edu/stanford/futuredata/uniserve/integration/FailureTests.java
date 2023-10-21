@@ -67,7 +67,7 @@ public class FailureTests {
             rows.add(new KVRow(i, i));
         }
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
+        boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows, true);
         assertTrue(writeSuccess);
 
         dataStores.get(0).shutDown();
@@ -122,7 +122,7 @@ public class FailureTests {
                 for(int d = 0; d < numDataStores; d++) {
                     rows.add(new KVRow(d, i % 2));
                 }
-                boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
+                boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows, true);
                 for (int shardNum = 0; shardNum < numShards; shardNum++) {
                     int dsID = coordinator.consistentHash.getRandomBucket(shardNum);
                     KVShard s = dataStores.get(dsID).shardMap.get(shardNum);
@@ -175,7 +175,7 @@ public class FailureTests {
             startRows.add(new KVRow(d, 0));
         }
         WriteQueryPlan<KVRow, KVShard> q = new KVWriteQueryPlanInsert();
-        assertTrue(broker.writeQuery(q, startRows));
+        assertTrue(broker.writeQuery(q, startRows, true));
         Thread t = new Thread(() -> {
             for (int i = 0; i < 10; i++) {
                 WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsertSlow();
@@ -183,7 +183,7 @@ public class FailureTests {
                 for(int d = 0; d < numShards; d++) {
                     rows.add(new KVRow(d, i % 2));
                 }
-                boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
+                boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows, true);
                 for (int shardNum = 0; shardNum < numShards; shardNum++) {
                     int dsID = coordinator.consistentHash.getRandomBucket(shardNum);
                     KVShard s = dataStores.get(dsID).shardMap.get(shardNum);
@@ -239,7 +239,7 @@ public class FailureTests {
         broker.createTable("table", numShards, new ArrayList<>(), null);
         for (int i = 1; i < 100; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));
+            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)), true);
             assertTrue(writeSuccess);
             AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);

@@ -10,6 +10,7 @@ import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.relational.RelShardFactory;
 import edu.stanford.futuredata.uniserve.relationalapi.API;
+import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.WriteQueryBuilder;
 import org.apache.commons.io.FileUtils;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -52,6 +53,7 @@ public class TestMethods {
         }
         // Clean up directories.
         try {
+            FileUtils.deleteDirectory(new File("/var/tmp/KVUniserve"));
             FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve"));
             FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve0"));
             FileUtils.deleteDirectory(new File("/var/tmp/RelUniserve1"));
@@ -211,6 +213,9 @@ public class TestMethods {
         API api = new API(broker);
         boolean res = true;
         List<Pair<String, Long>> times = new ArrayList<>();
+
+        List<WriteQueryBuilder> batch = new ArrayList<>();
+
         for (int i = 0; i < TPC_DS_Inv.numberOfTables; i++) {
             if(!tablesToLoad.contains(TPC_DS_Inv.names.get(i))){
                 continue;
@@ -229,17 +234,21 @@ public class TestMethods {
                     .shardNumber(shardNum)
                     .build().run();
 
-            long startTime = System.currentTimeMillis();
-            res = api.write().table(TPC_DS_Inv.names.get(i)).data(memBuffer.toArray(new RelRow[0])).build().run();
-            long elapsedTime = System.currentTimeMillis() - startTime;
-            times.add(new Pair<>(TPC_DS_Inv.names.get(i), elapsedTime));
-            memBuffer.clear();
-            if(!res){
-                broker.shutdown();
-                throw new RuntimeException("Write error for table "+TPC_DS_Inv.names.get(i));
-            }
+            //long startTime = System.currentTimeMillis();
+            //res = api.write().table(TPC_DS_Inv.names.get(i)).data(memBuffer.toArray(new RelRow[0])).build().run();
+            //long elapsedTime = System.currentTimeMillis() - startTime;
+            //times.add(new Pair<>(TPC_DS_Inv.names.get(i), elapsedTime));
+            //memBuffer.clear();
+
+            batch.add(api.write().table(TPC_DS_Inv.names.get(i)).data(memBuffer.toArray(new RelRow[0])).build());
+
+            //if(!res){
+            //    broker.shutdown();
+            //    throw new RuntimeException("Write error for table "+TPC_DS_Inv.names.get(i));
+            //}
         }
-        return times;
+        Pair<Boolean, List<Pair<String,Long>>> results = api.writeBatch().setPlans(batch.toArray(new WriteQueryBuilder[0])).run();
+        return results.getValue1();
     }
 
     private class MemoryLoader{

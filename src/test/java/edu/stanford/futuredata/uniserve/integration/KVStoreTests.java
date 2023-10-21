@@ -100,13 +100,13 @@ public class KVStoreTests {
         assertFalse(broker.createTable("table1", numShards + 1, new ArrayList<>(), null));
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert("table1");
-        assertTrue(broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2))));
+        assertTrue(broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)), true));
 
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet("table1", 1);
         assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(readQueryPlan));
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan2 = new KVWriteQueryPlanInsert("table2");
-        assertTrue(broker.writeQuery(writeQueryPlan2, Collections.singletonList(new KVRow(1, 3))));
+        assertTrue(broker.writeQuery(writeQueryPlan2, Collections.singletonList(new KVRow(1, 3)), true));
 
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan2 = new KVReadQueryPlanGet("table2", 1);
         assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(readQueryPlan2));
@@ -137,13 +137,13 @@ public class KVStoreTests {
         assertFalse(broker.createTable("table1", numShards + 1, new ArrayList<>(), null));
 
         SimpleWriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVSimpleWriteQueryPlanInsert("table1");
-        assertTrue(broker.simpleWriteQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2))));
+        assertTrue(broker.simpleWriteQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)), true));
 
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet("table1", 1);
         assertEquals(Integer.valueOf(2), broker.anchoredReadQuery(readQueryPlan));
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan2 = new KVWriteQueryPlanInsert("table2");
-        assertTrue(broker.writeQuery(writeQueryPlan2, Collections.singletonList(new KVRow(1, 3))));
+        assertTrue(broker.writeQuery(writeQueryPlan2, Collections.singletonList(new KVRow(1, 3)), true));
 
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan2 = new KVReadQueryPlanGet("table2", 1);
         assertEquals(Integer.valueOf(3), broker.anchoredReadQuery(readQueryPlan2));
@@ -181,7 +181,7 @@ public class KVStoreTests {
             rows.add(new KVRow(i, i));
         }
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
+        boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows, true);
         assertTrue(writeSuccess);
 
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(1));
@@ -227,7 +227,7 @@ public class KVStoreTests {
             rows.add(new KVRow(i, i));
         }
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
+        boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows, true);
         assertTrue(writeSuccess);
 
         AnchoredReadQueryPlan<KVShard, Map<String, Map<Integer, Integer>>> readQueryPlan =
@@ -268,7 +268,7 @@ public class KVStoreTests {
             rows.add(new KVRow(i, i));
         }
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        assertTrue(broker.writeQuery(writeQueryPlan, rows));
+        assertTrue(broker.writeQuery(writeQueryPlan, rows, true));
 
         DataStore<KVRow, KVShard>  dataStoreTwo = new DataStore<>(new LocalDataStoreCloud(),
                 new KVShardFactory(), Path.of(String.format("/var/tmp/KVUniserve%d", 2)), zkHost, zkPort, "127.0.0.1", 8201, -1, false
@@ -278,7 +278,7 @@ public class KVStoreTests {
 
         Thread.sleep(Broker.shardMapDaemonSleepDurationMillis * 2);
 
-        assertTrue(broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2))));
+        assertTrue(broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)), true));
 
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(1));
         Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
@@ -328,7 +328,7 @@ public class KVStoreTests {
             rows.add(new KVRow(i, i));
         }
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        assertTrue(broker.writeQuery(writeQueryPlan, rows));
+        assertTrue(broker.writeQuery(writeQueryPlan, rows, true));
 
         dataStoreClouds.add(1, new LocalDataStoreCloud());
 
@@ -340,7 +340,7 @@ public class KVStoreTests {
 
         Thread.sleep(Broker.shardMapDaemonSleepDurationMillis * 2);
 
-        assertTrue(broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2))));
+        assertTrue(broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)), true));
 
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Collections.singletonList(1));
         Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
@@ -388,10 +388,10 @@ public class KVStoreTests {
         assertTrue(broker.createTable("table2", 1, new ArrayList<>(), null));
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert("table1");
-        assertTrue(broker.writeQuery(writeQueryPlan, List.of(new KVRow(1, 1), new KVRow(2, 2))));
+        assertTrue(broker.writeQuery(writeQueryPlan, List.of(new KVRow(1, 1), new KVRow(2, 2)), true));
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan2 = new KVWriteQueryPlanInsert("table2");
-        assertTrue(broker.writeQuery(writeQueryPlan2, List.of(new KVRow(1, 4), new KVRow(2, 5))));
+        assertTrue(broker.writeQuery(writeQueryPlan2, List.of(new KVRow(1, 4), new KVRow(2, 5)), true));
 
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan2 = new KVPseudoBroadcastJoin("table1", "table2");
         assertEquals(Integer.valueOf(12), broker.anchoredReadQuery(readQueryPlan2));
@@ -440,7 +440,7 @@ public class KVStoreTests {
             rows.add(new KVRow(i, i));
         }
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows);
+        boolean writeSuccess = broker.writeQuery(writeQueryPlan, rows, true);
         assertTrue(writeSuccess);
 
         List<BrokerThread> brokerThreads = new ArrayList<>();
@@ -500,7 +500,7 @@ public class KVStoreTests {
         broker.createTable("table", numShards, new ArrayList<>(), null);
         for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));
+            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)), true);
             assertTrue(writeSuccess);
             AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
@@ -516,7 +516,7 @@ public class KVStoreTests {
         for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i),
-                    new KVRow(2 * i, 4 * i), new KVRow(4 * i, 8 * i)));
+                    new KVRow(2 * i, 4 * i), new KVRow(4 * i, 8 * i)), true);
             assertTrue(writeSuccess);
             AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
@@ -565,7 +565,7 @@ public class KVStoreTests {
         broker.createTable("table", numShards, new ArrayList<>(), null);
         for (int i = 1; i < 6; i++) {
             SimpleWriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVSimpleWriteQueryPlanInsert();
-            boolean writeSuccess = broker.simpleWriteQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));
+            boolean writeSuccess = broker.simpleWriteQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)), true);
             assertTrue(writeSuccess);
             AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
@@ -581,7 +581,7 @@ public class KVStoreTests {
         for (int i = 1; i < 6; i++) {
             SimpleWriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVSimpleWriteQueryPlanInsert();
             boolean writeSuccess = broker.simpleWriteQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i),
-                    new KVRow(2 * i, 4 * i), new KVRow(4 * i, 8 * i)));
+                    new KVRow(2 * i, 4 * i), new KVRow(4 * i, 8 * i)), true);
             assertTrue(writeSuccess);
             AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
@@ -630,7 +630,7 @@ public class KVStoreTests {
         broker.createTable("table", numShards, new ArrayList<>(), null);
         for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)));
+            boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(i, i)), true);
             assertTrue(writeSuccess);
             AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
@@ -648,7 +648,7 @@ public class KVStoreTests {
         for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i),
-                    new KVRow(2 * i, 4 * i), new KVRow(4 * i, 8 * i)));
+                    new KVRow(2 * i, 4 * i), new KVRow(4 * i, 8 * i)), true);
             assertTrue(writeSuccess);
             AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
@@ -673,7 +673,7 @@ public class KVStoreTests {
         for (int i = 1; i < 6; i++) {
             WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
             boolean writeSuccess = broker.writeQuery(writeQueryPlan, Arrays.asList(new KVRow(i, 2 * i + 1),
-                    new KVRow(2 * i, 4 * i + 1), new KVRow(4 * i, 8 * i + 1)));
+                    new KVRow(2 * i, 4 * i + 1), new KVRow(4 * i, 8 * i + 1)), true);
             assertTrue(writeSuccess);
             AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanGet(i);
             Integer queryResponse = broker.anchoredReadQuery(readQueryPlan);
@@ -717,11 +717,11 @@ public class KVStoreTests {
         broker.createTable("table", numShards, new ArrayList<>(), null);
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        boolean writeSuccess = broker.writeQuery(writeQueryPlan, List.of(new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 2)));
+        boolean writeSuccess = broker.writeQuery(writeQueryPlan, List.of(new KVRow(1, 1), new KVRow(2, 2), new KVRow(3, 2)), true);
         assertTrue(writeSuccess);
 
         writeSuccess = broker.writeQuery(writeQueryPlan, List.of(new KVRow(1, 3), new KVRow(2, 3), new KVRow(3, 3),
-                new KVRow(123123123, 1)));
+                new KVRow(123123123, 1)), true);
         assertFalse(writeSuccess);
 
         AnchoredReadQueryPlan<KVShard, Integer> readQueryPlan = new KVReadQueryPlanSumGet(Arrays.asList(1, 2, 3));
@@ -748,7 +748,7 @@ public class KVStoreTests {
         broker.createTable("table", numShards, new ArrayList<>(), null);
 
         WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-        boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)));
+        boolean writeSuccess = broker.writeQuery(writeQueryPlan, Collections.singletonList(new KVRow(1, 2)), true);
         assertTrue(writeSuccess);
 
         Optional<KVShard> shard = dataStore.downloadShardFromCloud(0, "0_1", 1);
@@ -798,7 +798,7 @@ public class KVStoreTests {
                         insertList.add(new KVRow(i, finalThreadNum));
                     }
                     WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-                    assertTrue(broker.writeQuery(writeQueryPlan, insertList));
+                    assertTrue(broker.writeQuery(writeQueryPlan, insertList, true));
                 }
             });
             t.start();
@@ -843,7 +843,7 @@ public class KVStoreTests {
             firstList.add(new KVRow(i, 0));
         }
         WriteQueryPlan<KVRow, KVShard> firstPlan = new KVWriteQueryPlanInsert();
-        assertTrue(broker.writeQuery(firstPlan, firstList));
+        assertTrue(broker.writeQuery(firstPlan, firstList, true));
 
         for (int i = 0; i < numShards; i++) {
             coordinator.addReplica(i, (i + 1) % numShards);
@@ -859,7 +859,7 @@ public class KVStoreTests {
                         insertList.add(new KVRow(i, finalThreadNum));
                     }
                     WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsert();
-                    assertTrue(broker.writeQuery(writeQueryPlan, insertList));
+                    assertTrue(broker.writeQuery(writeQueryPlan, insertList, true));
                 }
             });
             t.start();
@@ -917,7 +917,7 @@ public class KVStoreTests {
                         insertList.add(new KVRow(i, finalThreadNum));
                     }
                     WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsertSlow();
-                    assertTrue(broker.writeQuery(writeQueryPlan, insertList));
+                    assertTrue(broker.writeQuery(writeQueryPlan, insertList, true));
                 }
             });
             t.start();
@@ -983,7 +983,7 @@ public class KVStoreTests {
             firstList.add(new KVRow(i, 0));
         }
         WriteQueryPlan<KVRow, KVShard> firstPlan = new KVWriteQueryPlanInsert();
-        assertTrue(broker.writeQuery(firstPlan, firstList));
+        assertTrue(broker.writeQuery(firstPlan, firstList, true));
 
         for (int i = 0; i < numShards; i++) {
             coordinator.addReplica(i, (i + 1) % numShards);
@@ -999,7 +999,7 @@ public class KVStoreTests {
                         insertList.add(new KVRow(i, finalThreadNum));
                     }
                     WriteQueryPlan<KVRow, KVShard> writeQueryPlan = new KVWriteQueryPlanInsertSlow();
-                    assertTrue(broker.writeQuery(writeQueryPlan, insertList));
+                    assertTrue(broker.writeQuery(writeQueryPlan, insertList, true));
                 }
             });
             t.start();

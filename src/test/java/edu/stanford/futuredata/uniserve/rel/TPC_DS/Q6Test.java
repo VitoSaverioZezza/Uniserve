@@ -114,7 +114,7 @@ GROUP  BY i_item_id
         tm.stopServers();
         System.out.println("RESULTS:");
         TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res");
+        tm.printOnFile(results.getData(), results.getFieldNames(),"res6");
 
         for (Pair<String, Long> time : loadTimes) {
             System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
@@ -256,7 +256,7 @@ GROUP  BY i_item_id
         tm.stopServers();
         System.out.println("RESULTS:");
         TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res");
+        tm.printOnFile(results.getData(), results.getFieldNames(),"res6");
 
         for (Pair<String, Long> time : loadTimes) {
             System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
@@ -326,7 +326,7 @@ GROUP  BY i_item_id
         tm.stopServers();
         System.out.println("RESULTS:");
         TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res");
+        tm.printOnFile(results.getData(), results.getFieldNames(),"res6");
 
         for (Pair<String, Long> time : loadTimes) {
             System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
@@ -396,7 +396,7 @@ GROUP  BY i_item_id
         tm.stopServers();
         System.out.println("RESULTS:");
         TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res");
+        tm.printOnFile(results.getData(), results.getFieldNames(),"res6");
 
         for (Pair<String, Long> time : loadTimes) {
             System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
@@ -466,7 +466,7 @@ GROUP  BY i_item_id
         tm.stopServers();
         System.out.println("RESULTS:");
         TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res");
+        tm.printOnFile(results.getData(), results.getFieldNames(),"res6");
 
         for (Pair<String, Long> time : loadTimes) {
             System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");

@@ -839,7 +839,7 @@ GROUP  BY i_item_id,
             System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
         }
         System.out.println("Read time: " + elapsedTime);
-        tm.saveTimings(loadTimes, elapsedTime, "Q5_3timings");
+        tm.saveTimings(loadTimes, elapsedTime, "Q5_8timings");
     }
 
     public List<String> tablesToLoad = List.of(

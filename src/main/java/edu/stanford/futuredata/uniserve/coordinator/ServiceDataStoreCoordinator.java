@@ -87,6 +87,9 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
         return RegisterDataStoreResponse.newBuilder().setReturnCode(0).setDataStoreID(dsID).build();
     }
     private PotentialDSFailureResponse potentialDSFailureHandler(PotentialDSFailureMessage request) {
+        if(coordinator.isShuttingDown){
+            return PotentialDSFailureResponse.newBuilder().build();
+        }
         int dsID = request.getDsID();
         CoordinatorPingMessage m = CoordinatorPingMessage.newBuilder().build();
         try {

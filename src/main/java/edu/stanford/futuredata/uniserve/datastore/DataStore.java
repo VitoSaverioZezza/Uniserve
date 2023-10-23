@@ -17,10 +17,7 @@ import org.slf4j.LoggerFactory;
 import java.io.*;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class DataStore<R extends Row, S extends Shard> {
@@ -162,14 +159,36 @@ public class DataStore<R extends Row, S extends Shard> {
             for (ReplicaDescription rd: replicaDescriptions) {
                 rd.channel.shutdownNow();
             }
+            for(ReplicaDescription rd: replicaDescriptions){
+                try {
+                    rd.channel.awaitTermination(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    logger.warn("DS{} Replica managed channel shutdown timed out {}", dsID, e.getMessage());
+                }
+            }
         }
+
         coordinatorChannel.shutdownNow();
+        try{
+            coordinatorChannel.awaitTermination(5, TimeUnit.SECONDS);
+        }catch (InterruptedException e){
+            logger.warn("DS{} coordinator managed channel shutdown timed out: {}", dsID, e.getMessage());
+        }
+
         for (Map.Entry<Integer, S> entry: shardMap.entrySet()) {
             entry.getValue().destroy();
             shardMap.remove(entry.getKey());
         }
+
         for (ManagedChannel c: dsIDToChannelMap.values()) {
             c.shutdownNow();
+        }
+        try {
+            for (ManagedChannel c : dsIDToChannelMap.values()) {
+                c.awaitTermination(5, TimeUnit.SECONDS);
+            }
+        }catch (InterruptedException e){
+            logger.warn("DS{} Channel shutdown timed out {}", dsID, e.getMessage());
         }
         zkCurator.close();
         int numQueries = readQueryExecuteTimes.size();
@@ -382,10 +401,20 @@ public class DataStore<R extends Row, S extends Shard> {
                     try {
                         DataStorePingResponse alwaysEmpty = stub.dataStorePing(pm);
                     } catch (StatusRuntimeException e) {
-                        PotentialDSFailureMessage fm = PotentialDSFailureMessage.newBuilder().setDsID(pingedDSID).build();
-                        PotentialDSFailureResponse alwaysEmpty = coordinatorStub.potentialDSFailure(fm);
+                        if(!coordinatorChannel.isShutdown()) {
+                            PotentialDSFailureMessage fm = PotentialDSFailureMessage.newBuilder().setDsID(pingedDSID).build();
+                            PotentialDSFailureResponse alwaysEmpty = coordinatorStub.potentialDSFailure(fm);
+                        }else{
+                            logger.warn("Coordinator channel shut down, ping daemon returning");
+                            return;
+                        }
                     }
                     dsChannel.shutdown();
+                    try{
+                        dsChannel.awaitTermination(5, TimeUnit.SECONDS);
+                    }catch(InterruptedException e){
+                        logger.warn("Channel shutdown timed out: {}", e.getMessage());
+                    }
                 }
                 runCount++;
                 try {

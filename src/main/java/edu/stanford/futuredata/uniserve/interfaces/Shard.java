@@ -23,4 +23,7 @@ public interface Shard extends Serializable {
 
     boolean insertRows(List data);
     boolean committRows();
+
+    default boolean writeIntermediateShard(ByteString retrievedResults){return true;}
+    default boolean writeEphemeralShard(List<ByteString> scatterResults){return true;}
 }

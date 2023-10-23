@@ -115,6 +115,14 @@ public class Broker {
         for (ManagedChannel c: dsIDToChannelMap.values()) {
             c.shutdownNow();
         }
+        try{
+            ((ManagedChannel) this.coordinatorBlockingStub.getChannel()).awaitTermination(5, TimeUnit.SECONDS);
+            for(ManagedChannel c: dsIDToChannelMap.values()){
+                c.awaitTermination(5, TimeUnit.SECONDS);
+            }
+        }catch (InterruptedException e){
+            logger.warn("Channel termination timed out {}", e.getMessage());
+        }
         int numQueries = remoteExecutionTimes.size();
         if (numQueries > 0) {
             long p50RE = remoteExecutionTimes.stream().mapToLong(i -> i).sorted().toArray()[remoteExecutionTimes.size() / 2];
@@ -807,7 +815,7 @@ public class Broker {
         Map<String, List<Integer>> tablesToShardsMap = new HashMap<>();
         Map<String, List<ByteString>> retrievedData = new HashMap<>();
         //run subqueries
-        Map<String, ReadQuery> volatileSubqueries = plan.getVolatileSubqueries();
+        Map<String, ReadQuery> volatileSubqueries = plan.getSourceSubqueries();
 
         Map<String, List<Pair<Integer,Integer>>> volatileSubqueriesResults = new HashMap<>();
         for(Map.Entry<String, ReadQuery> entry: volatileSubqueries.entrySet()){
@@ -1691,6 +1699,11 @@ public class Broker {
                 } else if (d.status.get() == DataStoreDescription.DEAD) {
                     if (Broker.this.dsIDToChannelMap.containsKey(dsID)) {
                         Broker.this.dsIDToChannelMap.get(dsID).shutdown();
+                    }
+                    try {
+                        Broker.this.dsIDToChannelMap.get(dsID).awaitTermination(5, TimeUnit.SECONDS);
+                    }catch (InterruptedException e){
+                        logger.warn("Broker channel shutdown timed out {}", e.getMessage());
                     }
                 }
                 dsID++;

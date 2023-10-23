@@ -64,18 +64,18 @@ public class SubquerySimpleRead implements RetrieveAndCombineQueryPlan<RelShard,
         return rqr;
     }
 
-    @Override
-    public boolean writeIntermediateShard(RelShard shard,ByteString retrievedData) {
-        List<Object> data = (List<Object>) Utilities.byteStringToObject(retrievedData);
-        List<RelRow> rows = new ArrayList<>();
-        for(Object o: data){
-            rows.add((RelRow) o);
-        }
-        return shard.insertRows(rows) && shard.committRows();
-    }
+    //@Override
+    //public boolean writeIntermediateShard(RelShard shard,ByteString retrievedData) {
+    //    List<Object> data = (List<Object>) Utilities.byteStringToObject(retrievedData);
+    //    List<RelRow> rows = new ArrayList<>();
+    //    for(Object o: data){
+    //        rows.add((RelRow) o);
+    //    }
+    //    return shard.insertRows(rows) && shard.committRows();
+    //}
 
     @Override
-    public Map<String, ReadQuery> getVolatileSubqueries() {
+    public Map<String, ReadQuery> getSourceSubqueries() {
         return rqr;
     }
 }

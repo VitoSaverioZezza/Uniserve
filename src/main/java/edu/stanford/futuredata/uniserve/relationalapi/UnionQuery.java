@@ -129,7 +129,7 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
     public boolean isThisSubquery() {
         return isThisSubquery;
     }
-    public Map<String, ReadQuery> getVolatileSubqueries(){return sourceSubqueries;}
+    public Map<String, ReadQuery> getSourceSubqueries(){return sourceSubqueries;}
     public Map<String, ReadQuery> getConcreteSubqueries(){return predicateSubqueries;}
     public String getResultTableName(){return resultTableName;}
     public WriteResultsPlan getWriteResultPlan() {
@@ -244,11 +244,11 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
     }
 
 
-    @Override
-    public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
-        List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
-        return intermediateShard.insertRows(rows) && intermediateShard.committRows();
-    }
+    //@Override
+    //public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
+    //    List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
+    //    return intermediateShard.insertRows(rows) && intermediateShard.committRows();
+    //}
 
 
     private ArrayList<RelRow> checkDistinct(ArrayList<RelRow> data){

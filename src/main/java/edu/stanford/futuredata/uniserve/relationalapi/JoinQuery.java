@@ -304,11 +304,11 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         res = checkDistinct(joinedRows);
         return Utilities.objectToByteString(res);
     }
-    @Override
-    public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
-        List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
-        return intermediateShard.insertRows(rows) && intermediateShard.committRows();
-    }
+    //@Override
+    //public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
+    //    List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
+    //    return intermediateShard.insertRows(rows) && intermediateShard.committRows();
+    //}
     @Override
     public RelReadQueryResults combine(List<ByteString> shardQueryResults) {
         RelReadQueryResults results = new RelReadQueryResults();

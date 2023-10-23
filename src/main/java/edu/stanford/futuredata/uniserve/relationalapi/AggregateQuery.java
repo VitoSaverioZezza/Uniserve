@@ -232,11 +232,11 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
         }
         return Utilities.objectToByteString(resultRows);
     }
-    @Override
-    public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
-        List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
-        return intermediateShard.insertRows(rows) && intermediateShard.committRows();
-    }
+    //@Override
+    //public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
+    //    List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
+    //    return intermediateShard.insertRows(rows) && intermediateShard.committRows();
+    //}
     @Override
     public RelReadQueryResults combine(List<ByteString> shardQueryResults) {
         RelReadQueryResults results = new RelReadQueryResults();

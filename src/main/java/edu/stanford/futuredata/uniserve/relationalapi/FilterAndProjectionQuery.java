@@ -122,7 +122,7 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     public boolean isThisSubquery() {
         return isThisSubquery;
     }
-    public Map<String, ReadQuery> getVolatileSubqueries() {
+    public Map<String, ReadQuery> getSourceSubqueries() {
         return sourceSubqueries;
     }
     public Map<String, ReadQuery> getConcreteSubqueries(){return predicateSubqueries;}
@@ -170,11 +170,11 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
                 ));
         return Utilities.objectToByteString(retrievedData);
     }
-    @Override
-    public boolean writeIntermediateShard(RelShard intermediateShard, ByteString retrievedResults){
-        List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(retrievedResults);
-        return intermediateShard.insertRows(rows) && intermediateShard.committRows();
-    }
+    //@Override
+    //public boolean writeIntermediateShard(RelShard intermediateShard, ByteString retrievedResults){
+    //    List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(retrievedResults);
+    //    return intermediateShard.insertRows(rows) && intermediateShard.committRows();
+    //}
 
 
     @Override

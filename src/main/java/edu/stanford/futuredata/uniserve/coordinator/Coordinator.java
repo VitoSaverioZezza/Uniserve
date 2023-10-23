@@ -78,6 +78,8 @@ public class Coordinator {
     public Map<Integer, Integer> cachedQPSLoad = null;
     public Map<String, List<Integer>> tablesToAllocatedShards = new HashMap<>();
 
+    public boolean isShuttingDown = false;
+
 
     // Lock protects shardToPrimaryDataStoreMap, shardToReplicaDataStoreMap, and shardToReplicaRatioMap.
     // Each operation modifying these maps follows this process:  Lock, change the local copies, unlock, perform
@@ -98,8 +100,17 @@ public class Coordinator {
         this.cCloud = cCloud;
     }
 
+    public void initiateShutdown(){
+        isShuttingDown = true;
+        runLoadBalancerDaemon = false;
+        try{loadBalancerDaemon.join();}catch (InterruptedException e){
+            logger.warn("Coordinator cannot initiate shutdown procedure");
+        }
+    }
+
     /** Start serving requests. */
     public boolean startServing() {
+        isShuttingDown = false;
         try {
             server.start();
             zkCurator.registerCoordinator(coordinatorHost, coordinatorPort);
@@ -129,6 +140,13 @@ public class Coordinator {
         }
         for(ManagedChannel channel: dataStoreChannelsMap.values()) {
             channel.shutdown();
+        }
+        for(ManagedChannel channel: dataStoreChannelsMap.values()){
+            try {
+                channel.awaitTermination(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                logger.warn("Channel termination timed out {}", e.getMessage());
+            }
         }
         runLoadBalancerDaemon = false;
         try {
@@ -362,6 +380,7 @@ public class Coordinator {
         @Override
         public void run() {
             while (runLoadBalancerDaemon) {
+                consistentHashLock.lock();
                 try {
                     loadBalancerSemaphore.tryAcquire(loadBalancerSleepDurationMillis, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException e) {
@@ -391,7 +410,6 @@ public class Coordinator {
                 }
             }
         }
-
     }
 
 
@@ -416,6 +434,4 @@ public class Coordinator {
         return tablesToAllocatedShards.get(table);
     }
 
-
-    // Assumes consistentHashLock is held.
 }

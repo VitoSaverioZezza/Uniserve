@@ -1,5 +1,6 @@
 package edu.stanford.futuredata.uniserve.relational;
 
+import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.relationalapi.SerializablePredicate;
@@ -10,6 +11,7 @@ import org.mvel2.MVEL;
 import java.io.*;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class RelShard implements Shard {
     private final List<RelRow> data;
@@ -40,7 +42,11 @@ public class RelShard implements Shard {
     }
 
     @Override
-    public void destroy() {}
+    public void destroy() {
+        data.clear();
+        uncommittedRows.clear();
+        rowsToRemove.clear();
+    }
 
     @Override
     public Optional<Path> shardToData() {
@@ -116,9 +122,7 @@ public class RelShard implements Shard {
         }
         return nonDuplicateRows;
     }
-    private List<RelRow> filter(Serializable filterPredicate,
-                                Map<String, ReadQueryResults> subqRes,
-                                List<Pair<String, Integer>> predVarToIndexes){
+    private List<RelRow> filter(Serializable filterPredicate, Map<String, ReadQueryResults> subqRes, List<Pair<String, Integer>> predVarToIndexes){
         Map<String, RelReadQueryResults> sRes = new HashMap<>();
         int index = -1;
         for(Map.Entry<String, ReadQueryResults>entry:subqRes.entrySet()){
@@ -134,10 +138,7 @@ public class RelShard implements Shard {
         }
         return filteredData;
     }
-    private boolean checkFilterPredicate(RelRow row,
-                                         List<Pair<String, Integer>> predicateVarToIndexes,
-                                         Map<String, RelReadQueryResults> subqRes,
-                                         Serializable filterPredicate){
+    private boolean checkFilterPredicate(RelRow row, List<Pair<String, Integer>> predicateVarToIndexes, Map<String, RelReadQueryResults> subqRes, Serializable filterPredicate){
         Map<String, Object> values = new HashMap<>();
         for(Pair<String, Integer> nameToVar: predicateVarToIndexes){
             int index = nameToVar.getValue1();
@@ -194,6 +195,17 @@ public class RelShard implements Shard {
     private Object applyOperation(Object o, Serializable pred){
         SerializablePredicate predicate = (SerializablePredicate) pred;
         return predicate.run(o);
+    }
+
+    @Override
+    public boolean writeIntermediateShard(ByteString gatherResults){
+        List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
+        return this.insertRows(rows) && this.committRows();
+    }
+    @Override
+    public boolean writeEphemeralShard(List<ByteString> scatterResults){
+        List rows = (List) scatterResults.stream().map(v->(RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+        return this.insertRows(rows) && this.committRows();
     }
 
 }

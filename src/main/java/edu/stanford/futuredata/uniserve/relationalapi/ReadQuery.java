@@ -282,7 +282,7 @@ public class ReadQuery implements Serializable {
     public Set<String> getSourceTables(){
         if(filterAndProjectionQuery != null){
             Set<String> sourceTables = new HashSet<>(filterAndProjectionQuery.getTableNames());
-            Map<String, ReadQuery> volatileSubqueries = filterAndProjectionQuery.getVolatileSubqueries();
+            Map<String, ReadQuery> volatileSubqueries = filterAndProjectionQuery.getSourceSubqueries();
             Map<String, ReadQuery> concreteSubqueries = filterAndProjectionQuery.getConcreteSubqueries();
 
             for(ReadQuery subquery: volatileSubqueries.values()){
@@ -319,7 +319,7 @@ public class ReadQuery implements Serializable {
             return sourceTables;
         } else if (unionQuery != null) {
             Set<String> sourceTables = new HashSet<>(unionQuery.getTableNames());
-            Map<String, ReadQuery> volatileSubqueries = unionQuery.getVolatileSubqueries();
+            Map<String, ReadQuery> volatileSubqueries = unionQuery.getSourceSubqueries();
             Map<String, ReadQuery> concreteSubqueries = unionQuery.getConcreteSubqueries();
             for(ReadQuery subquery: volatileSubqueries.values()){
                 sourceTables.addAll(subquery.getSourceTables());
@@ -348,7 +348,7 @@ public class ReadQuery implements Serializable {
     public Map<String, ReadQuery> getVolatileSubqueries(){
         Map<String, ReadQuery> subqueries = new HashMap<>();
         if(filterAndProjectionQuery != null){
-            subqueries.putAll(filterAndProjectionQuery.getVolatileSubqueries());
+            subqueries.putAll(filterAndProjectionQuery.getSourceSubqueries());
         }else if(simpleAggregateQuery != null){
             subqueries.putAll(simpleAggregateQuery.getVolatileSubqueries());
         }else if(aggregateQuery != null){
@@ -356,7 +356,7 @@ public class ReadQuery implements Serializable {
         }else if(joinQuery != null){
             subqueries.putAll(joinQuery.getVolatileSubqueries());
         } else if (unionQuery != null) {
-            subqueries.putAll(unionQuery.getVolatileSubqueries());
+            subqueries.putAll(unionQuery.getSourceSubqueries());
         }else {
             throw new RuntimeException("no valid query is defined");
         }

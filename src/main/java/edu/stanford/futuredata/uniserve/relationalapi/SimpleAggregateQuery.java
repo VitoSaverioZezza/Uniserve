@@ -195,11 +195,11 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
         results.add(computeResults(partialResults));
         return Utilities.objectToByteString(results);
     }
-    @Override
-    public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
-        List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
-        return intermediateShard.insertRows(rows) && intermediateShard.committRows();
-    }
+    //@Override
+    //public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
+    //    List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
+    //    return intermediateShard.insertRows(rows) && intermediateShard.committRows();
+    //}
     @Override
     public RelReadQueryResults combine(List<ByteString> shardQueryResults) {
         RelReadQueryResults results = new RelReadQueryResults();

@@ -49,7 +49,7 @@ WHERE  inv_date_sk = d_date_sk
        AND inv_item_sk = i_item_sk
        AND inv_warehouse_sk = w_warehouse_sk
        AND d_month_seq BETWEEN 1205 AND 1205 + 11
-GROUP  i_product_name, i_brand, i_class, i_category
+GROUP BY i_product_name, i_brand, i_class, i_category
      */
     @Test
     public void Q4Test() throws IOException {
@@ -204,7 +204,7 @@ GROUP  i_product_name, i_brand, i_class, i_category
             System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
         }
         System.out.println("Read time: " + elapsedTime);
-        tm.saveTimings(loadTimes, elapsedTime, "Q4_3timings");
+        tm.saveTimings(loadTimes, elapsedTime, "Q4_2timings");
 
     }
     @Test

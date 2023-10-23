@@ -267,6 +267,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             int lastState = DataStore.COLLECT;
             List<R> rows;
             final List<StreamObserver<ReplicaWriteMessage>> replicaObservers = new ArrayList<>();
+            boolean isWriteCached = false;
 
             @Override
             public void onNext(WriteQueryMessage writeQueryMessage) {
@@ -284,6 +285,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     assert (lastState == DataStore.COLLECT);
 
                     if(writeQueryMessage.getIsDataCached()){
+                        isWriteCached = true;
                         shardNum = writeQueryMessage.getShard();
                         dataStore.createShardMetadata(shardNum);
                         txID = writeQueryMessage.getTxID();
@@ -399,6 +401,13 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                         returnCode = Broker.QUERY_SUCCESS;
                     } else {
                         returnCode = Broker.QUERY_FAILURE;
+                    }
+
+                    if(isWriteCached){
+                        txIDtoShardStoredAssignment.get(txID).remove(shardNum);
+                        if(txIDtoShardStoredAssignment.get(txID).isEmpty()) {
+                            txIDtoShardStoredAssignment.remove(txID);
+                        }
                     }
 
                     return WriteQueryResponse.newBuilder().setReturnCode(returnCode).build();
@@ -731,10 +740,12 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 latch.await();
             } catch (InterruptedException ignored) {
             }
-            List rows = (List) tableEphemeralData.stream().map(v->(R)Utilities.byteStringToObject(v)).collect(Collectors.toList());
-            ephemeralShard.insertRows(rows);
-            ephemeralShard.committRows();
-            //ephemeralData.put(tableName, tableEphemeralData);
+
+            ephemeralShard.writeEphemeralShard(tableEphemeralData);
+
+            //List rows = (List) tableEphemeralData.stream().map(v->(R)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+            //ephemeralShard.insertRows(rows);
+            //ephemeralShard.committRows();
         }
         for (String subqueryID: subqueriesResults.keySet()) {
             List<Pair<Integer, Integer>> shardToDSPairs = subqueriesResults.get(subqueryID);
@@ -790,10 +801,12 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                 latch.await();
             } catch (InterruptedException ignored) {
             }
-            List rows = (List) tableEphemeralData.stream().map(v->(R)Utilities.byteStringToObject(v)).collect(Collectors.toList());
-            ephemeralShard.insertRows(rows);
-            ephemeralShard.committRows();
-            //ephemeralData.put(subqueryID, tableEphemeralData);
+
+            ephemeralShard.writeEphemeralShard(tableEphemeralData);
+
+            //List rows = (List) tableEphemeralData.stream().map(v->(R)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+            //ephemeralShard.insertRows(rows);
+            //ephemeralShard.committRows();
         }
 
         ByteString b = plan.gather(ephemeralData, ephemeralShards);
@@ -812,6 +825,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             serializedDestinationShard = Utilities.objectToByteString(destinationShardIDs);
         }
 
+        ephemeralShards.values().forEach(S::destroy);
 
         if(plan.isThisSubquery()){
             //create the shard and
@@ -819,10 +833,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             int intermediateShardNum = dataStore.ephemeralShardNum.decrementAndGet();
             dataStore.createShardMetadata(intermediateShardNum);
             S intermediateShard = dataStore.shardMap.get(intermediateShardNum);
-            plan.writeIntermediateShard(intermediateShard, b);
+            intermediateShard.writeIntermediateShard(b);
+            //plan.writeIntermediateShard(intermediateShard, b);
             HashMap<Integer, Integer> shardLocation = new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));
             b = Utilities.objectToByteString(shardLocation);
-            ephemeralShards.values().forEach(S::destroy);
             return ShuffleReadQueryResponse.newBuilder()
                     .setReturnCode(Broker.QUERY_SUCCESS)
                     .setResponse(b)
@@ -1030,7 +1044,8 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             int intermediateShardNum = dataStore.ephemeralShardNum.decrementAndGet();
             dataStore.createShardMetadata(intermediateShardNum);
             S intermediateShard = dataStore.shardMap.get(intermediateShardNum);
-            plan.writeIntermediateShard(intermediateShard, b);
+            intermediateShard.writeIntermediateShard(b);
+            //plan.writeIntermediateShard(intermediateShard, b);
             HashMap<Integer, Integer> shardLocation = new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));
             b = Utilities.objectToByteString(shardLocation);
         }

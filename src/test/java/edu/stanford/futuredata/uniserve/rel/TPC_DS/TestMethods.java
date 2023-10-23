@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.coordinator.DefaultAutoScaler;
 import edu.stanford.futuredata.uniserve.coordinator.DefaultLoadBalancer;
 import edu.stanford.futuredata.uniserve.datastore.DataStore;
 import edu.stanford.futuredata.uniserve.localcloud.LocalDataStoreCloud;
+import edu.stanford.futuredata.uniserve.rel.RelTest;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.relational.RelShardFactory;
@@ -17,6 +18,8 @@ import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.log4j.Logger;
+import org.apache.zookeeper.server.ServerConfig;
+import org.apache.zookeeper.server.ZooKeeperServerMain;
 import org.javatuples.Pair;
 
 import java.io.*;
@@ -50,6 +53,8 @@ public class TestMethods {
             }
         } catch (Exception e) {
             logger.info("Zookeeper cleanup failed: {}");
+        }finally {
+            cf.close();
         }
         // Clean up directories.
         try {
@@ -133,10 +138,11 @@ public class TestMethods {
         }
     }
     public void stopServers(){
-        coordinator.stopServing();
-        for(DataStore dataStore:dataStores) {
+        coordinator.initiateShutdown();
+        for(DataStore<RelRow, RelShard> dataStore:dataStores) {
             dataStore.shutDown();
         }
+        coordinator.stopServing();
         try {
             for(LocalDataStoreCloud ldsc: ldscList) {
                 ldsc.clear();

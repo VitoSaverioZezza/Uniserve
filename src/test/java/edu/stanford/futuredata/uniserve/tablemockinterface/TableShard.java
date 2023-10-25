@@ -62,16 +62,6 @@ public class TableShard implements Shard {
         return Optional.of(shardPath);
     }
 
-    @Override
-    public boolean insertRows(List data) {
-        return false;
-    }
-
-    @Override
-    public boolean committRows() {
-        return false;
-    }
-
     public List<TableRow> data = new ArrayList<>();
 
     public void setRows(List<TableRow> data) {

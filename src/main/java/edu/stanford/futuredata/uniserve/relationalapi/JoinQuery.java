@@ -17,6 +17,8 @@ import java.io.Serializable;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static edu.stanford.futuredata.uniserve.relationalapi.ReadQuery.logger;
+
 public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryResults> {
     private String sourceOne = ""; //either the name of the table or the alias of the subquery
     private String sourceTwo = "";
@@ -38,6 +40,8 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     private final List<Serializable> operations = new ArrayList<>();
     private List<Pair<String, Integer>> predicateVarToIndexesOne = new ArrayList<>();
     private List<Pair<String, Integer>> predicateVarToIndexesTwo = new ArrayList<>();
+    private Serializable compiledHavingPredicate = null;
+    private String havingPredicate = "";
 
     public JoinQuery setSourceOne(String sourceOne) {
         this.sourceOne = sourceOne;
@@ -122,6 +126,18 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         this.predicateVarToIndexesTwo = predicateVarToIndexes;
         return this;
     }
+    public JoinQuery setHavingPredicate(String havingPredicate){
+        this.havingPredicate = havingPredicate;
+        try{
+            compiledHavingPredicate = MVEL.compileExpression(havingPredicate);
+        }catch (Exception e){
+            ReadQuery.logger.warn("Impossible to compile predicate on result rows, no row will be selected");
+            compiledHavingPredicate = null;
+            havingPredicate = "";
+            return this;
+        }
+        return this;
+    }
 
     public List<String> getPredicates(){
         return new ArrayList<>(filterPredicates.values());
@@ -163,30 +179,29 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
 
     @Override
     public Map<Integer, List<ByteString>> scatter(RelShard shard, int numRepartitions, String sourceName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
-        //List<RelRow> data = shard.getData();
-        //if(data.isEmpty()){
-        //    return new HashMap<>();
-        //}
-        //List<RelRow> filteredData = filter(data, sourceName, concreteSubqueriesResults);
-        //if(filteredData.isEmpty()){
-        //    return new HashMap<>();
-        //}
-
-        //List<RelRow> filteredData; //= filter(shardData, concreteSubqueriesResults);
-        //String filterPredicate = filterPredicates.get(sourceName);
         Serializable cachedFilterPredicate = cachedFilterPredicates.get(sourceName);
         List<Pair<String, Integer>> predicateVarToIndexes = null;
+        Map<Integer, List<ByteString>> returnedAssignment = new HashMap<>();
+        List<String> joinAttributes = sourcesJoinAttributes.get(sourceName);
+        List<String> sourceSchema = sourceSchemas.get(sourceName);
         if(sourceName.equals(sourceOne)){
             predicateVarToIndexes = predicateVarToIndexesOne;
         } else if (sourceName.equals(sourceTwo)) {
             predicateVarToIndexes = predicateVarToIndexesTwo;
         }
-        //if(!(filterPredicate == null || filterPredicate.isEmpty() || cachedFilterPredicate == null || cachedFilterPredicate.equals(""))){
-        //    filteredData = shard.getFilteredData(cachedFilterPredicate, concreteSubqueriesResults, predicateVarToIndexes);
-        //}else {
-        //    filteredData = shard.getData();
-        //}
 
+        List<Integer> joinAttributesIndexes = new ArrayList<>();
+        for(String joinAttribute: joinAttributes){
+            int index = sourceSchema.indexOf(joinAttribute);
+            assert (index >= 0);
+            joinAttributesIndexes.add(sourceSchema.indexOf(joinAttribute));
+        }
+
+        returnedAssignment = shard.getGroups(
+                cachedFilterPredicate, concreteSubqueriesResults, predicateVarToIndexes, joinAttributesIndexes, numRepartitions
+        );
+
+        /*
         List<RelRow> filteredData = new ArrayList<>(
                 shard.getData(
                         false,
@@ -199,9 +214,6 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
                 )
         );
 
-        Map<Integer, List<ByteString>> returnedAssignment = new HashMap<>();
-        List<String> joinAttributes = sourcesJoinAttributes.get(sourceName);
-        List<String> sourceSchema = sourceSchemas.get(sourceName);
 
         for(RelRow row: filteredData){
             int key = 0;
@@ -225,32 +237,24 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
             key = key % numRepartitions;
             returnedAssignment.computeIfAbsent(key, k->new ArrayList<>()).add(Utilities.objectToByteString(row));
         }
+        */
         return returnedAssignment;
     }
     @Override
     public ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, RelShard> ephemeralShards) {
-        //List<RelRow> rowsSourceOne = new ArrayList<>();
-        //List<RelRow> rowsSourceTwo = new ArrayList<>();
-        //if(ephemeralData.get(sourceOne) != null)
-        //    rowsSourceOne = ephemeralData.get(sourceOne).stream().map(v -> (RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
-        //if(ephemeralData.get(sourceTwo) != null)
-        //    rowsSourceTwo = ephemeralData.get(sourceTwo).stream().map(v -> (RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
         List<RelRow> rowsSourceOne = ephemeralShards.get(sourceOne).getData();
         List<RelRow> rowsSourceTwo = ephemeralShards.get(sourceTwo).getData();
         if(rowsSourceOne == null || rowsSourceOne.isEmpty() || rowsSourceTwo == null || rowsSourceTwo.isEmpty())
             return  Utilities.objectToByteString(new ArrayList<>());
-        //if(rowsSourceOne.isEmpty() || rowsSourceTwo.isEmpty()){
-        //    return Utilities.objectToByteString(new ArrayList<>());
-        //}
         List<String> schemaSourceOne = sourceSchemas.get(sourceOne);
         List<String> schemaSourceTwo = sourceSchemas.get(sourceTwo);
         List<String> joinAttributesOne = sourcesJoinAttributes.get(sourceOne);
         List<String> joinAttributesTwo = sourcesJoinAttributes.get(sourceTwo);
+        /*
         ArrayList<RelRow> joinedRows = new ArrayList<>();
         for(RelRow rowOne: rowsSourceOne){
             for(RelRow rowTwo: rowsSourceTwo){
                 boolean matching = true;
-
                 for(int i = 0; i < joinAttributesOne.size(); i++){
                     Object rowOneVal = rowOne.getField(schemaSourceOne.indexOf(joinAttributesOne.get(i)));
                     Object rowTwoVal = rowTwo.getField(schemaSourceTwo.indexOf(joinAttributesTwo.get(i)));
@@ -302,13 +306,14 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         }
         ArrayList<RelRow> res;
         res = checkDistinct(joinedRows);
-        return Utilities.objectToByteString(res);
+         */
+        List<RelRow> joinedRows = ephemeralShards.get(sourceOne).join(
+                ephemeralShards.get(sourceTwo).getData(),
+                schemaSourceOne, schemaSourceTwo, joinAttributesOne, joinAttributesTwo,
+                systemResultSchema, sourceOne, operations, isDistinct
+                );
+        return Utilities.objectToByteString(new ArrayList<>(joinedRows));
     }
-    //@Override
-    //public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
-    //    List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
-    //    return intermediateShard.insertRows(rows) && intermediateShard.committRows();
-    //}
     @Override
     public RelReadQueryResults combine(List<ByteString> shardQueryResults) {
         RelReadQueryResults results = new RelReadQueryResults();
@@ -322,20 +327,19 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
                 }
             }
             results.setIntermediateLocations(ret);
-            //List of Map<ShardID, dsID> to be converted in what is in the RelReadQueryResults
         }else{
             List<RelRow> ret = new ArrayList<>();
             for(ByteString serSubset: shardQueryResults){
                 ret.addAll((List<RelRow>)Utilities.byteStringToObject(serSubset));
             }
-            results.addData(ret);
-            //List of RelRows lsis to be merged together in the structure
+            if(isDistinct){
+                results.addData(checkDistinct(new ArrayList<>(ret)));
+            }else {
+                results.addData(ret);
+            }
         }
         return results;
     }
-
-
-
 
     private ArrayList<RelRow> checkDistinct(ArrayList<RelRow> data){
         if(!isDistinct){
@@ -349,109 +353,5 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
             }
         }
         return nonDuplicateRows;
-    }
-    private List<RelRow> filter(List<RelRow> data, String sourceName, Map<String, ReadQueryResults> subqueriesResults){
-        String predicate = filterPredicates.get(sourceName);
-        if(predicate == null || predicate.isEmpty()){
-            return data;
-        }
-        Map<String, RelReadQueryResults> relsubqRes = new HashMap<>();
-        for(Map.Entry<String, ReadQueryResults> entry: subqueriesResults.entrySet()){
-            relsubqRes.put(entry.getKey(), (RelReadQueryResults) entry.getValue());
-        }
-        ArrayList<RelRow> results = new ArrayList<>();
-        for (RelRow row: data){
-            if(evaluatePredicate(row, sourceName, relsubqRes)){
-                results.add(row);
-            }
-        }
-        return results;
-    }
-    private boolean evaluatePredicate(RelRow row, String sourceName, Map<String, RelReadQueryResults> subqueriesResults){
-        Map<String, Object> values = new HashMap<>();
-        List<String> sourceSchema = sourceSchemas.get(sourceName);
-        String filterPredicate = filterPredicates.get(sourceName);
-
-        for(Map.Entry<String, RelReadQueryResults> subqRes: subqueriesResults.entrySet()){
-            if(filterPredicate.contains(subqRes.getKey())){
-                values.put(subqRes.getKey(), subqRes.getValue().getData().get(0).getField(0));
-            }
-        }
-        /*
-        for (String attributeName : sourceSchema) {
-            Object val = row.getField(sourceSchema.indexOf(attributeName));
-            String systemName = sourceName + "." + attributeName;
-            if (filterPredicate.contains(systemName)) {
-                filterPredicate = filterPredicate.replace(systemName, "'"+systemName+"'");
-                values.put("'"+systemName+"'", val);
-            }
-            if (filterPredicate.contains(attributeName)) {
-                values.put(attributeName, val);
-            }
-        }
-        */
-
-
-        if(sourceName.equals(sourceOne)) {
-            for (Pair<String, Integer> nameToVar : predicateVarToIndexesOne) {
-                Object val = row.getField(nameToVar.getValue1());
-                if (val == null) {
-                    return false;
-                } else {
-                    values.put(nameToVar.getValue0(), val);
-                }
-            }
-        }else{
-            for (Pair<String, Integer> nameToVar : predicateVarToIndexesTwo) {
-                Object val = row.getField(nameToVar.getValue1());
-                if (val == null) {
-                    return false;
-                } else {
-                    values.put(nameToVar.getValue0(), val);
-                }
-            }
-        }
-        if(values.containsValue(null)){
-            return false;
-        }
-        try{
-            /*
-
-            JexlEngine jexl = new JexlBuilder().create();
-            JexlExpression expression = jexl.createExpression(filterPredicate);
-            JexlContext context = new MapContext(values);
-            Object result = expression.evaluate(context);
-            if(!(result instanceof Boolean))
-                return false;
-            else {
-                return (Boolean) result;
-            }
-
-            */
-
-            //Serializable compiled = MVEL.compileExpression(filterPredicate);
-            Serializable compiled = cachedFilterPredicates.get(sourceName);
-            Object result = MVEL.executeExpression(compiled, values);
-            if(!(result instanceof Boolean))
-                return false;
-            else
-                return (Boolean) result;
-
-        }catch (Exception e ){
-            System.out.println("JQ.filter ----- "+e.getMessage());
-            return false;
-        }
-    }
-    private RelRow applyOperations(RelRow inputRow){
-        List<Object> newRow = new ArrayList<>();
-        for(int i = 0; i<inputRow.getSize(); i++){
-            newRow.add(applyOperation(inputRow.getField(i), operations.get(i)));
-        }
-        return new RelRow(newRow.toArray());
-    }
-
-    private Object applyOperation(Object o, Serializable pred){
-        SerializablePredicate predicate = (SerializablePredicate) pred;
-        return predicate.run(o);
     }
 }

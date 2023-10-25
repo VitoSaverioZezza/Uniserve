@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
 import edu.stanford.futuredata.uniserve.relationalapi.SerializablePredicate;
+import edu.stanford.futuredata.uniserve.relationalapi.querybuilders.RelReadQueryBuilder;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
 import org.javatuples.Pair;
 import org.mvel2.MVEL;
@@ -91,16 +92,28 @@ public class RelShard implements Shard {
     }
 
 
+    @Override
+    public boolean writeIntermediateShard(ByteString gatherResults){
+        List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
+        return this.insertRows(rows) && this.committRows();
+    }
+    @Override
+    public boolean writeEphemeralShard(List<ByteString> scatterResults){
+        List rows = (List) scatterResults.stream().map(v->(RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
+        return this.insertRows(rows) && this.committRows();
+    }
+
     public List<RelRow> getData(boolean distinct,
                                 boolean proj,
                                 List<Integer> projIndex,
                                 Serializable compFilterP,
                                 Map<String, ReadQueryResults> subqRes,
-                                List<Pair<String, Integer>> redVarToIndexes,
-                                List<Serializable> operations){
+                                List<Pair<String, Integer>> predVarToIndexes,
+                                List<Serializable> operations)
+    {
         List<RelRow> output = new ArrayList<>(data);
         if(compFilterP != null && !compFilterP.equals("")) {
-            output = filter(compFilterP, subqRes, redVarToIndexes);
+            output = filter(null, compFilterP, subqRes, predVarToIndexes);
         }
         if(proj && projIndex != null && !projIndex.isEmpty()){
             output = project(output, projIndex, operations);
@@ -111,7 +124,181 @@ public class RelShard implements Shard {
         return output;
     }
 
+    public Map<Integer, List<ByteString>> getGroups(Serializable compiledPredicate,
+                                                    Map<String, ReadQueryResults> subqResults,
+                                                    List<Pair<String, Integer>> predVarToIndexes,
+                                                    List<Integer> groupAttributeIndexes,
+                                                    int numRepartitions)
+    {
+        List<RelRow> dataToAggregate = getData(false, false, null,
+                compiledPredicate, subqResults, predVarToIndexes, null);
+        Map<Integer, List<ByteString>> ret = new HashMap<>();
+        for(RelRow row: dataToAggregate) {
+            int key = 0;
+            for (Integer index : groupAttributeIndexes) {
+                Object val = row.getField(index);
+                if (val == null) {
+                    key += 1;
+                } else {
+                    if(val instanceof Number) {
+                        val = ((Number) val).doubleValue();
+                    }
+                    key += val.hashCode();
+                }
+            }
+            key = key % numRepartitions;
+            if (key < 0) {
+                key = key * -1;
+            }
+            ret.computeIfAbsent(key, k->new ArrayList<>()).add(Utilities.objectToByteString(row));
+        }
+        return ret;
+    }
 
+    public RelRow getAggregate(Serializable compiledPredicate, Map<String, ReadQueryResults> subqResults,
+                               List<Pair<String, Integer>> predVarToIndexes,
+                               List<Pair<Integer, Integer>> aggOpToIndexes)
+    {
+        List<RelRow> filteredData = this.getData(
+                false,
+                false,
+                null,
+                compiledPredicate,
+                subqResults,
+                predVarToIndexes,
+                null
+        );
+        return computePartialResults(filteredData, aggOpToIndexes);
+    }
+
+    public List<RelRow> join(List<RelRow> rowsSourceTwo,
+                             List<String> schemaSourceOne,
+                             List<String> schemaSourceTwo,
+                             List<String> joinAttributesOne,
+                             List<String> joinAttributesTwo,
+                             List<String> systemResultSchema,
+                             String sourceOne,
+                             List<Serializable> operations,
+                             boolean distinct)
+    {
+        List<RelRow> joinedRows = new ArrayList<>();
+        List<RelRow> rowsSourceOne = this.getData();
+
+        if(rowsSourceTwo == null || rowsSourceTwo.isEmpty() || this.data == null || this.data.isEmpty()){
+            return new ArrayList<>();
+        }
+
+        for(RelRow rowOne: rowsSourceOne){
+            for(RelRow rowTwo: rowsSourceTwo){
+                boolean matching = true;
+                for(int i = 0; i < joinAttributesOne.size(); i++){
+                    Object rowOneVal = rowOne.getField(schemaSourceOne.indexOf(joinAttributesOne.get(i)));
+                    Object rowTwoVal = rowTwo.getField(schemaSourceTwo.indexOf(joinAttributesTwo.get(i)));
+                    if(rowOneVal == null && rowTwoVal == null){
+
+                    } else if (rowOneVal == null || rowTwoVal == null) {
+                        matching = false;
+                        break;
+                    }else if(!rowOneVal.equals(rowTwoVal)) {
+                        if(rowOneVal instanceof Number && rowTwoVal instanceof Number &&
+                                (((Number) rowOneVal).doubleValue() == ((Number) rowTwoVal).doubleValue())){
+                        }else {
+                            matching = false;
+                            break;
+                        }
+                    }
+                }
+
+                if(matching){
+                    List<Object> rawNewRow = new ArrayList<>(systemResultSchema.size());
+                    for(String systemAttribute: systemResultSchema) {
+                        String[] split = systemAttribute.split("\\.");
+                        String source = split[0];
+                        StringBuilder stringBuilder = new StringBuilder();
+                        for (int j = 1; j < split.length - 1; j++) {
+                            stringBuilder.append(split[j]);
+                            stringBuilder.append(".");
+                        }
+                        stringBuilder.append(split[split.length - 1]);
+                        String attribute = stringBuilder.toString();
+
+                        if (source.equals(sourceOne)) {
+                            rawNewRow.add(systemResultSchema.indexOf(systemAttribute),
+                                    rowOne.getField(schemaSourceOne.indexOf(attribute))
+                            );
+                        } else {
+                            rawNewRow.add(systemResultSchema.indexOf(systemAttribute),
+                                    rowTwo.getField(schemaSourceTwo.indexOf(attribute))
+                            );
+                        }
+                    }
+                    if(operations == null || operations.isEmpty()) {
+                        joinedRows.add(new RelRow(rawNewRow.toArray()));
+                    }else{
+                        joinedRows.add(applyOperations(new RelRow(rawNewRow.toArray()), operations));
+                    }
+                }
+            }
+        }
+        List<RelRow> res = joinedRows;
+        if(distinct) {
+            res = removeDuplicates(new ArrayList<>(joinedRows));
+        }
+        return res;
+    }
+
+
+    private RelRow computePartialResults(List<RelRow> shardData, List<Pair<Integer, Integer>> aggregatesOPsToIndexes){
+        List<Object> partialResults = new ArrayList<>();
+        for(Pair<Integer, Integer> aggregate: aggregatesOPsToIndexes){
+            Integer aggregateCode = aggregate.getValue0();
+            Integer index = aggregate.getValue1();
+            if(aggregateCode.equals(RelReadQueryBuilder.AVG)){
+                Double[] countSum = new Double[2];
+                Arrays.fill(countSum, 0D);
+                for(RelRow row: shardData){
+                    Object val = row.getField(index);
+                    if(val != null){
+                        countSum[1] += ((Number) val).doubleValue();
+                    }
+                    countSum[0]++;
+                }
+                partialResults.add(countSum);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.MIN)) {
+                Double min = Double.MAX_VALUE;
+                for (RelRow row: shardData){
+                    Object val = row.getField(index);
+                    if(val != null){
+                        min = Double.min(min, ((Number) val).doubleValue());
+                    }
+                }
+                partialResults.add(min);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.MAX)) {
+                Double max = Double.MIN_VALUE;
+                for (RelRow row: shardData){
+                    Object val = row.getField(index);
+                    if(val != null){
+                        max = Double.max(max, ((Number) val).doubleValue());
+                    }
+                }
+                partialResults.add(max);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.COUNT)) {
+                Double cnt = 0D;
+                cnt += ((Number) shardData.size()).doubleValue();
+                partialResults.add(cnt);
+            } else if (aggregateCode.equals(RelReadQueryBuilder.SUM)) {
+                Double sum = 0D;
+                for (RelRow row: shardData){
+                    Object val = row.getField(index);
+                    if(val != null) {
+                        sum += ((Number) val).doubleValue();
+                    }
+                }
+                partialResults.add(sum);
+            }
+        }
+        return new RelRow(partialResults.toArray());
+    }
     private ArrayList<RelRow> removeDuplicates(ArrayList<RelRow> data){
         ArrayList<RelRow> nonDuplicateRows = new ArrayList<>();
         for(int i = 0; i < data.size(); i++){
@@ -122,7 +309,10 @@ public class RelShard implements Shard {
         }
         return nonDuplicateRows;
     }
-    private List<RelRow> filter(Serializable filterPredicate, Map<String, ReadQueryResults> subqRes, List<Pair<String, Integer>> predVarToIndexes){
+    private List<RelRow> filter(List<RelRow> source, Serializable filterPredicate, Map<String, ReadQueryResults> subqRes, List<Pair<String, Integer>> predVarToIndexes){
+        if(source == null){
+            source = data;
+        }
         Map<String, RelReadQueryResults> sRes = new HashMap<>();
         int index = -1;
         for(Map.Entry<String, ReadQueryResults>entry:subqRes.entrySet()){
@@ -131,7 +321,7 @@ public class RelShard implements Shard {
             index--;
         }
         List<RelRow> filteredData = new ArrayList<>();
-        for(RelRow row: data){
+        for(RelRow row: source){
             if(checkFilterPredicate(row, predVarToIndexes, sRes, filterPredicate)){
                 filteredData.add(row);
             }
@@ -196,16 +386,4 @@ public class RelShard implements Shard {
         SerializablePredicate predicate = (SerializablePredicate) pred;
         return predicate.run(o);
     }
-
-    @Override
-    public boolean writeIntermediateShard(ByteString gatherResults){
-        List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
-        return this.insertRows(rows) && this.committRows();
-    }
-    @Override
-    public boolean writeEphemeralShard(List<ByteString> scatterResults){
-        List rows = (List) scatterResults.stream().map(v->(RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
-        return this.insertRows(rows) && this.committRows();
-    }
-
 }

@@ -59,8 +59,8 @@ public class RelRow implements Row {
             if(thisField == null || inputField == null){
                 return false;
             }
-            if(!this.getField(i).equals(inputRow.getField(i))){
-                return false;
+            if(!thisField.equals(inputField)){
+                return (thisField instanceof Number) && (inputField instanceof Number) && ((Number) thisField).doubleValue() == ((Number) inputField).doubleValue();
             }
         }
         return true;

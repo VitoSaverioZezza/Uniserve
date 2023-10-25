@@ -21,8 +21,8 @@ public interface Shard extends Serializable {
     /**@return an Optional object storing a path to a directory containing a serialization of the shard.*/
     Optional<Path> shardToData();
 
-    boolean insertRows(List data);
-    boolean committRows();
+    //boolean insertRows(List data);
+    //boolean committRows();
 
     default boolean writeIntermediateShard(ByteString retrievedResults){return true;}
     default boolean writeEphemeralShard(List<ByteString> scatterResults){return true;}

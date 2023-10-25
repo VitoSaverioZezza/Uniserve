@@ -12,7 +12,7 @@ import java.io.Serializable;
 import java.util.*;
 
 public class ReadQuery implements Serializable {
-    private static final Logger logger = LoggerFactory.getLogger(ReadQuery.class);
+    static final Logger logger = LoggerFactory.getLogger(ReadQuery.class);
 
     private FilterAndProjectionQuery filterAndProjectionQuery = null;
     private SimpleAggregateQuery simpleAggregateQuery = null;

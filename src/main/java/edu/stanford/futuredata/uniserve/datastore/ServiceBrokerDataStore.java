@@ -404,9 +404,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                     }
 
                     if(isWriteCached){
-                        txIDtoShardStoredAssignment.get(txID).remove(shardNum);
-                        if(txIDtoShardStoredAssignment.get(txID).isEmpty()) {
-                            txIDtoShardStoredAssignment.remove(txID);
+                        if(txIDtoShardStoredAssignment.get(txID) != null) {
+                            txIDtoShardStoredAssignment.get(txID).remove(shardNum);
+                            if (txIDtoShardStoredAssignment.get(txID).isEmpty()) {
+                                txIDtoShardStoredAssignment.remove(txID);
+                            }
                         }
                     }
 

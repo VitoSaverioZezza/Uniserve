@@ -3,13 +3,10 @@ package edu.stanford.futuredata.uniserve.relationalapi;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
 import edu.stanford.futuredata.uniserve.interfaces.RetrieveAndCombineQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
-import edu.stanford.futuredata.uniserve.interfaces.SimpleWriteQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
-import org.apache.commons.jexl3.*;
 import org.javatuples.Pair;
 import org.mvel2.MVEL;
 
@@ -22,7 +19,6 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
     private String sourceTwo = "";
     private boolean sourceOneTable = true; //true if the source is a table
     private boolean sourceTwoTable = true;
-    //private Map<String, List<String>> sourceSchemas = new HashMap<>(); //schemas of both sources
     private List<String> resultSchema = new ArrayList<>(); //user final schema
     private List<String> systemResultSchema = new ArrayList<>(); //system final schema, this is in dotted notation!
     private Map<String, String> filterPredicates = new HashMap<>(); //filters for both sources
@@ -52,10 +48,6 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
         sourceTwoTable = isSourceTwoTable;
         return this;
     }
-    //public UnionQuery setSourceSchemas(Map<String, List<String>> sourceSchemas) {
-    //    this.sourceSchemas = sourceSchemas;
-    //    return this;
-    //}
     public UnionQuery setResultSchema(List<String> resultSchema) {
         this.resultSchema = resultSchema;
         return this;
@@ -106,14 +98,6 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
         this.operations.addAll(operations);
         return this;
     }
-    public UnionQuery setPredicateVarToIndexesOne(List<Pair<String, Integer>> predicateVarToIndexes) {
-        this.predicateVarToIndexesOne = predicateVarToIndexes;
-        return this;
-    }
-    public UnionQuery setPredicateVarToIndexesTwo(List<Pair<String, Integer>> predicateVarToIndexes) {
-        this.predicateVarToIndexesTwo = predicateVarToIndexes;
-        return this;
-    }
 
     public List<String> getPredicates(){
         return new ArrayList<>(filterPredicates.values());
@@ -157,17 +141,6 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
 
     @Override
     public ByteString retrieve(RelShard shard, String sourceName, Map<String, ReadQueryResults> concreteSubqueriesResults) {
-        //List<RelRow> data = shard.getData();
-        //if(data.isEmpty()){
-        //    return Utilities.objectToByteString(new ArrayList<>());
-        //}
-        //ArrayList<RelRow> filteredData = new ArrayList<>(filter(data, tableName, concreteSubqueriesResults));
-        //if(filteredData.isEmpty()){
-        //    return Utilities.objectToByteString(new ArrayList<>());
-        //}
-
-        //ArrayList<RelRow> filteredData; //= filter(shardData, concreteSubqueriesResults);
-        String filterPredicate = filterPredicates.get(sourceName);
         Serializable cachedFilterPredicate = cachedFilterPredicates.get(sourceName);
         List<Pair<String, Integer>> predicateVarToIndexes = null;
         if(sourceName.equals(sourceOne)){
@@ -175,11 +148,6 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
         } else if (sourceName.equals(sourceTwo)) {
             predicateVarToIndexes = predicateVarToIndexesTwo;
         }
-        //if(!(filterPredicate == null || filterPredicate.isEmpty() || cachedFilterPredicate == null || cachedFilterPredicate.equals(""))){
-        //    filteredData = new ArrayList<>(shard.getFilteredData(cachedFilterPredicate, concreteSubqueriesResults, predicateVarToIndexes));
-        //}else {
-        //    filteredData = new ArrayList<>(shard.getData());
-        //}
         ArrayList<RelRow> retrievedResults = new ArrayList<>(
                 shard.getData(
                         isDistinct, false, null,
@@ -188,20 +156,6 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
                 )
         );
         return Utilities.objectToByteString(retrievedResults);
-
-        //ArrayList<RelRow> retrievedResults = checkDistinct(filteredData);
-        //if(retrievedResults.isEmpty()){
-        //    return Utilities.objectToByteString(new ArrayList<>());
-        //}
-        //if(!operations.isEmpty()){
-        //    ArrayList<RelRow> operationsRows = new ArrayList<>();
-        //    for(RelRow retrievedRow:retrievedResults){
-        //        operationsRows.add(applyOperations(retrievedRow));
-        //    }
-        //    return Utilities.objectToByteString(operationsRows);
-        //}else {
-        //    return Utilities.objectToByteString(retrievedResults);
-        //}
     }
 
     @Override
@@ -242,15 +196,6 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
         }
         return results;
     }
-
-
-    //@Override
-    //public boolean writeIntermediateShard(RelShard intermediateShard, ByteString gatherResults){
-    //    List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
-    //    return intermediateShard.insertRows(rows) && intermediateShard.committRows();
-    //}
-
-
     private ArrayList<RelRow> checkDistinct(ArrayList<RelRow> data){
         if(!isDistinct){
             return data;
@@ -263,110 +208,5 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
             }
         }
         return nonDuplicateRows;
-    }
-    private List<RelRow> filter(List<RelRow> data, String sourceName, Map<String, ReadQueryResults> subqueriesResults){
-        String predicate = filterPredicates.get(sourceName);
-        if(predicate == null || predicate.isEmpty()){
-            return data;
-        }
-        Map<String, RelReadQueryResults> relsubqRes = new HashMap<>();
-        for(Map.Entry<String, ReadQueryResults> entry: subqueriesResults.entrySet()){
-            relsubqRes.put(entry.getKey(), (RelReadQueryResults) entry.getValue());
-        }
-        ArrayList<RelRow> results = new ArrayList<>();
-        for (RelRow row: data){
-            if(evaluatePredicate(row, sourceName, relsubqRes)){
-                results.add(row);
-            }
-        }
-        return results;
-    }
-    private boolean evaluatePredicate(RelRow row, String sourceName, Map<String, RelReadQueryResults> subqueriesResults){
-        Map<String, Object> values = new HashMap<>();
-        //List<String> sourceSchema = sourceSchemas.get(sourceName);
-        String filterPredicate = filterPredicates.get(sourceName);
-
-        for(Map.Entry<String, RelReadQueryResults> subqRes: subqueriesResults.entrySet()){
-            if(filterPredicate.contains(subqRes.getKey())){
-                values.put(subqRes.getKey(), subqRes.getValue().getData().get(0).getField(0));
-            }
-        }
-        /*
-        for (String attributeName : sourceSchema) {
-            Object val = row.getField(sourceSchema.indexOf(attributeName));
-            String systemName = sourceName + "." + attributeName;
-            if (filterPredicate.contains(systemName)) {
-                values.put(systemName, val);
-            }
-            if (filterPredicate.contains(attributeName)) {
-                values.put(attributeName, val);
-            }
-        }
-
-         */
-
-
-        if(sourceName.equals(sourceOne)) {
-            for (Pair<String, Integer> nameToVar : predicateVarToIndexesOne) {
-                Object val = row.getField(nameToVar.getValue1());
-                if (val == null) {
-                    return false;
-                } else {
-                    values.put(nameToVar.getValue0(), val);
-                }
-            }
-        }else{
-            for (Pair<String, Integer> nameToVar : predicateVarToIndexesTwo) {
-                Object val = row.getField(nameToVar.getValue1());
-                if (val == null) {
-                    return false;
-                } else {
-                    values.put(nameToVar.getValue0(), val);
-                }
-            }
-        }
-
-
-        if(values.containsValue(null)){
-            return false;
-        }
-        try{
-            /*
-            JexlEngine jexl = new JexlBuilder().create();
-            JexlExpression expression = jexl.createExpression(filterPredicate);
-            JexlContext context = new MapContext(values);
-            Object result = expression.evaluate(context);
-            if(!(result instanceof Boolean))
-                return false;
-            else {
-                return (Boolean) result;
-            }
-
-             */
-
-            //Serializable compiled = MVEL.compileExpression(filterPredicate);
-            Serializable compiled = cachedFilterPredicates.get(sourceName);
-            Object result = MVEL.executeExpression(compiled, values);
-            if(!(result instanceof Boolean))
-                return false;
-            else
-                return (Boolean) result;
-
-        }catch (Exception e ){
-            System.out.println(e.getMessage());
-            return false;
-        }
-    }
-    private RelRow applyOperations(RelRow inputRow){
-        List<Object> newRow = new ArrayList<>();
-        for(int i = 0; i<inputRow.getSize(); i++){
-            newRow.add(applyOperation(inputRow.getField(i), operations.get(i)));
-        }
-        return new RelRow(newRow.toArray());
-    }
-
-    private Object applyOperation(Object o, Serializable pred){
-        SerializablePredicate predicate = (SerializablePredicate) pred;
-        return predicate.run(o);
     }
 }

@@ -20,6 +20,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -70,7 +71,7 @@ public class Coordinator {
     /**If true, the load balancing routine will run*/
     public boolean runLoadBalancerDaemon = true;
     /**Load balancing thread*/
-    private final LoadBalancerDaemon loadBalancerDaemon;
+    private LoadBalancerDaemon loadBalancerDaemon;
     /**Period of time between load balancing runs in milliseconds*/
     public static int loadBalancerSleepDurationMillis = 60000;
     public final Semaphore loadBalancerSemaphore = new Semaphore(0);
@@ -126,7 +127,7 @@ public class Coordinator {
                 Coordinator.this.stopServing();
             }
         });
-        loadBalancerDaemon.start();
+        //loadBalancerDaemon.start();
         return true;
     }
 
@@ -267,8 +268,17 @@ public class Coordinator {
         return new Triplet<>(qpsMap, memoryUsagesMap, serverCpuUsageMap);
     }
 
+    public AtomicBoolean isLoadBalancerRunning = new AtomicBoolean(false);
+    public void startLBD(){
+        if(loadBalancerDaemon.getState().equals(Thread.State.NEW)){
+            this.loadBalancerDaemon.start();
+        } else if (loadBalancerDaemon.getState().equals(Thread.State.TERMINATED)){
+            this.loadBalancerDaemon = new LoadBalancerDaemon();
+            loadBalancerDaemon.start();
+        }
+    }
+
     public void addDataStore() {
-        logger.info("Adding DataStore");
         if (!cCloud.addDataStore()) {
             logger.error("DataStore addition failed");
         }
@@ -384,6 +394,7 @@ public class Coordinator {
                 try {
                     loadBalancerSemaphore.tryAcquire(loadBalancerSleepDurationMillis, TimeUnit.MILLISECONDS);
                 } catch (InterruptedException e) {
+                    consistentHashLock.unlock();
                     return;
                 }
                 Triplet<Map<Integer, Integer>, Map<Integer, Integer>, Map<Integer, Double>> load = collectLoad();
@@ -398,7 +409,7 @@ public class Coordinator {
                     assignShards();
                     Map<Integer, Double> serverCpuUsage = load.getValue2();
                     logger.info("Collected DataStore CPU Usage: {}", serverCpuUsage);
-                    if (cCloud != null) {
+                    if (cCloud != null && autoscaler !=null) {
                         int action = autoscaler.autoscale(serverCpuUsage);
                         if (action == AutoScaler.ADD) {
                             addDataStore();
@@ -406,9 +417,10 @@ public class Coordinator {
                             removeDataStore();
                         }
                     }
-                    consistentHashLock.unlock();
                 }
+                consistentHashLock.unlock();
             }
+            isLoadBalancerRunning.set(false);
         }
     }
 

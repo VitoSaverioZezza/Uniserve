@@ -26,9 +26,21 @@ import static java.nio.file.Files.walk;
 * */
 public class LocalDataStoreCloud implements DataStoreCloud {
     private static final Logger logger = LoggerFactory.getLogger(LocalDataStoreCloud.class);
-    private final String root = "src/main/LocalCloud/";
+    private String root = "src/main/LocalCloud/";
     /*Cartella destinazione rooted nella cartella LocalCloud* "src/main/LocalCloud" */
 
+    public LocalDataStoreCloud(String localCloudPath){
+        //this.root = String.format("src/main/LocalCloud/%d/", dsid);
+        root = localCloudPath;
+        try{
+            if(!Files.exists(Path.of(localCloudPath))) {
+                Files.createDirectory(Path.of(localCloudPath));
+            }
+        }catch(IOException e){
+            if(Utilities.logger_flag)
+                logger.error(e.getMessage());
+        }
+    }
     public LocalDataStoreCloud(){
         //this.root = String.format("src/main/LocalCloud/%d/", dsid);
         try{

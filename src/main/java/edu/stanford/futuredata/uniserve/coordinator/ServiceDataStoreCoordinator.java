@@ -79,6 +79,15 @@ class ServiceDataStoreCoordinator extends DataStoreCoordinatorGrpc.DataStoreCoor
             coordinator.rebalanceConsistentHash(coordinator.cachedQPSLoad);
         }
         coordinator.assignShards();
+
+        if(coordinator.consistentHash.buckets.size() > 1
+                && coordinator.runLoadBalancerDaemon
+                && !coordinator.isLoadBalancerRunning.get()){
+            logger.info("Starting load balancer");
+            coordinator.isLoadBalancerRunning.set(true);
+            coordinator.startLBD();
+        }
+
         coordinator.consistentHashLock.unlock();
         logger.info("Registered DataStore ID: {} Host: {} Port: {} CloudID: {}", dsID, host, port, cloudID);
         if (cloudID != -1) {

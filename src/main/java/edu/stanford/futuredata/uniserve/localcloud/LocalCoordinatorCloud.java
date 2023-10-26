@@ -18,21 +18,30 @@ public class LocalCoordinatorCloud<R extends Row, S extends Shard> implements Co
     private final Map<Integer, DataStore<R, S>> dataStores = new HashMap<>();
     private final ShardFactory<S> factory;
     private final AtomicInteger cloudID = new AtomicInteger(0);
+    private String baseDirectoryPath = "/var/tmp/KVUniserve%d";
+
 
     public LocalCoordinatorCloud(ShardFactory<S> factory) {
         this.factory = factory;
     }
 
+    public LocalCoordinatorCloud(ShardFactory<S> factory, String baseDirectoryPath){
+        this.factory = factory;
+        this.baseDirectoryPath = baseDirectoryPath;
+    }
 
     @Override
     public boolean addDataStore() {
+        /*
         int cloudID = this.cloudID.getAndIncrement();
         DataStore<R, S> dataStore = new DataStore<>(new LocalDataStoreCloud(),
-                factory, Path.of(String.format("/var/tmp/KVUniserve%d", cloudID)), "127.0.0.1", 2181, "127.0.0.1", 8500 + cloudID, cloudID, false
+                factory, Path.of(baseDirectoryPath + cloudID), "127.0.0.1", 2181, "127.0.0.1", 8500 + cloudID, cloudID, false
         );
         dataStores.put(cloudID, dataStore);
         dataStore.runPingDaemon = false;
         return dataStore.startServing();
+        */
+        return true;
     }
 
     @Override

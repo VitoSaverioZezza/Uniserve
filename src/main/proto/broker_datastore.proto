@@ -17,12 +17,6 @@ service BrokerDataStore {
     // Make a read query to a DataStore server.  Return a response.
     rpc ShuffleReadQuery (ShuffleReadQueryMessage) returns (ShuffleReadQueryResponse) {}
 
-    rpc StoreVolatileData(stream StoreVolatileDataMessage) returns (StoreVolatileDataResponse){}
-    rpc ScatterVolatileData(ScatterVolatileDataMessage) returns(ScatterVolatileDataResponse){}
-    rpc GatherVolatileData(GatherVolatileDataMessage) returns (GatherVolatileDataResponse){}
-    rpc RemoveVolatileData(RemoveVolatileDataMessage) returns (RemoveVolatileDataResponse){}
-    rpc RemoveVolatileScatteredData(RemoveVolatileDataMessage) returns (RemoveVolatileDataResponse){}
-
     rpc RetrieveAndCombineQuery(RetrieveAndCombineQueryMessage) returns (RetrieveAndCombineQueryResponse){}
     rpc RemoveIntermediateShards(RemoveIntermediateShardMessage) returns(RemoveIntermediateShardResponse){}
 

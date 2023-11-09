@@ -3,7 +3,6 @@ package edu.stanford.futuredata.uniserve.tablemockinterface.queryplans;
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.Shard;
-import edu.stanford.futuredata.uniserve.interfaces.VolatileShuffleQueryPlan;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableRow;
 import edu.stanford.futuredata.uniserve.tablemockinterface.TableShard;
 import edu.stanford.futuredata.uniserve.utilities.ConsistentHash;
@@ -13,7 +12,7 @@ import org.w3c.dom.UserDataHandler;
 
 import java.util.*;
 
-public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<Integer, Shard> {
+public class VolatileTableReadMostFrequent {
 
     private final String table;
 
@@ -23,12 +22,10 @@ public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<I
     }
 
     /**@return the list of tableIdentifiers of the tables involved in the query*/
-    @Override
     public String getQueriedTables() {
         return table;
     }
 
-    @Override
     public Map<Integer, List<ByteString>> scatter(Shard d, int actorCount) {
         Map<Integer, ArrayList<Map<String, Integer>>> partitionedTables = new HashMap<>();
         /*
@@ -53,7 +50,6 @@ public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<I
         return serializedTables;
     }
 
-    @Override
     public ByteString gather(List<ByteString> scatteredData) {
 
         /*Under the assumption that the query executes on a single table, the gather deserializes the scatter
@@ -92,7 +88,6 @@ public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<I
      *                          value of v among those associated to the given ds and the number of occurencies
      * @return the most frequent value of v among those passed as parameters
      **/
-    @Override
     public Integer combine(List<ByteString> shardQueryResults) {
         Integer maxKey = null;
         int maxFrequency = Integer.MIN_VALUE;
@@ -110,10 +105,8 @@ public class VolatileTableReadMostFrequent implements VolatileShuffleQueryPlan<I
         return maxKey;
     }
 
-    @Override
     public void setTableName(String tableName) {}
 
-    @Override
     public boolean write(Shard s, List<Row> data) {
         TableShard shard = (TableShard) s;
         shard.setRows((List) data);

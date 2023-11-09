@@ -6,6 +6,7 @@ import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 import edu.stanford.futuredata.uniserve.utilities.Utilities;
+import io.grpc.ManagedChannel;
 import io.grpc.stub.StreamObserver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,6 +61,8 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         }
     }
 
+    private int totShardNum = 0;
+
     @Override
     public void createTable(CreateTableMessage request, StreamObserver<CreateTableResponse> responseObserver) {
         responseObserver.onNext(createTableHandler(request));
@@ -72,6 +75,20 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         Boolean[] keyStructure = (Boolean[]) Utilities.byteStringToObject(m.getKeyStructure());
         String tableName = m.getTableName();
         int numShards = m.getNumShards();
+        totShardNum += numShards;
+        if(numShards > Broker.SHARDS_PER_TABLE){
+            return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
+        }
+        if(numShards == 0 && totShardNum == 0){
+            return CreateTableResponse.newBuilder().setReturnCode(Broker.QUERY_FAILURE).build();
+        }
+        if(numShards == 0){
+            numShards = totShardNum / coordinator.tableInfoMap.size();
+            assert(numShards >0);
+        }
+        if(numShards > Broker.SHARDS_PER_TABLE){
+            numShards = Broker.SHARDS_PER_TABLE;
+        }
         int tableID = coordinator.tableNumber.getAndIncrement();
         TableInfo t = new TableInfo(tableName, tableID, numShards);
         t.setAttributeNames(attributeNames);
@@ -100,4 +117,27 @@ class ServiceBrokerCoordinator extends BrokerCoordinatorGrpc.BrokerCoordinatorIm
         return StoreQueryResponse.newBuilder().setStatus(Broker.QUERY_SUCCESS).build();
     }
 
+
+    @Override
+    public void shutdownCluster(ShutdownMessage request, StreamObserver<ShutdownResponse> responseObserver) {
+        responseObserver.onNext(shutdownHandler(request));
+        responseObserver.onCompleted();
+        logger.info("Servers shut down, shutting down coordinator");
+        coordinator.stopServing();
+    }
+    private ShutdownResponse shutdownHandler(ShutdownMessage m) {
+        logger.info("Initiating cluster shutdown");
+        coordinator.initiateShutdown();
+        for(int i = 0; i<coordinator.dataStoreNumber.get(); i++){
+            logger.info("Requesting shutdown of ds{}", i);
+            ManagedChannel channel = coordinator.dataStoreChannelsMap.get(i);
+            if(channel == null){
+                continue;
+            }
+            CoordinatorDataStoreGrpc.CoordinatorDataStoreBlockingStub stub = CoordinatorDataStoreGrpc.newBlockingStub(channel);
+            ShutdownDSMessage message = ShutdownDSMessage.newBuilder().build();
+            stub.shutdownDS(message);
+        }
+        return ShutdownResponse.newBuilder().build();
+    }
 }

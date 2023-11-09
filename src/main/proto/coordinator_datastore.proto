@@ -21,7 +21,11 @@ service CoordinatorDataStore {
     rpc CoordinatorPing (CoordinatorPingMessage) returns (CoordinatorPingResponse) {}
     // Execute a shard reshuffle, adding or remove shards to servers.
     rpc ExecuteReshuffleAdd (ExecuteReshuffleMessage) returns (ExecuteReshuffleResponse) {}
+    rpc ShutdownDS(ShutdownDSMessage) returns (ShutdownDSResponse){}
 }
+
+message ShutdownDSMessage{}
+message ShutdownDSResponse{}
 
 message LoadShardReplicaMessage {
     int32 shard = 1;

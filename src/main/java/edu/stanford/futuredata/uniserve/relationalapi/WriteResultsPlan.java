@@ -21,16 +21,6 @@ public class WriteResultsPlan implements SimpleWriteQueryPlan<RelRow, RelShard> 
         return destinationTable;
     }
 
-    /*
-    @Override
-    public boolean write(RelShard shard, List<RelRow> rows) {
-        shard.clear();
-        shard.insertRows(rows);
-        shard.committRows();
-        return true;
-    }
-    */
-
     @Override
     public boolean write(RelShard shard, List<RelRow> rows) {
         List<RelRow> data = shard.getData();

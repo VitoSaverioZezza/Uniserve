@@ -15,6 +15,7 @@ import org.javatuples.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,6 +30,7 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
 
     private static final Logger logger = LoggerFactory.getLogger(ServiceBrokerDataStore.class);
     private final DataStore<R, S> dataStore;
+    private Map<Long, Map<Integer, List<R>>> txIDtoShardStoredAssignment = new ConcurrentHashMap<>();
 
     ServiceBrokerDataStore(DataStore<R, S> dataStore) {
         this.dataStore = dataStore;
@@ -160,6 +162,10 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
                             ByteString serializedQuery = Utilities.objectToByteString(writeQueryPlan);
                             R[] rowSlice = Arrays.copyOfRange(rowArray, i, Math.min(rowArray.length, i + stepSize));
                             ByteString rowData = Utilities.objectToByteString(rowSlice);
+
+                            logger.info("sbds row chunk size for write replication: {}", rowData.size());//todo debug
+
+
                             ReplicaWriteMessage rm = ReplicaWriteMessage.newBuilder()
                                     .setShard(shardNum)
                                     .setSerializedQuery(serializedQuery)
@@ -810,7 +816,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             //ephemeralShard.insertRows(rows);
             //ephemeralShard.committRows();
         }
-
         ByteString b = plan.gather(ephemeralData, ephemeralShards);
         ByteString serializedDestinationShard = Utilities.objectToByteString(new ArrayList<>());
 
@@ -839,21 +844,21 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             //plan.writeIntermediateShard(intermediateShard, b);
             HashMap<Integer, Integer> shardLocation = new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));
             b = Utilities.objectToByteString(shardLocation);
-            return ShuffleReadQueryResponse.newBuilder()
+            ShuffleReadQueryResponse response = ShuffleReadQueryResponse.newBuilder()
                     .setReturnCode(Broker.QUERY_SUCCESS)
                     .setResponse(b)
                     .setDestinationShards(serializedDestinationShard)
                     .build();
+            return response;
         }else{
-            return ShuffleReadQueryResponse.newBuilder()
+            ShuffleReadQueryResponse response = ShuffleReadQueryResponse.newBuilder()
                     .setReturnCode(Broker.QUERY_SUCCESS)
                     .setResponse(b)
                     .setDestinationShards(serializedDestinationShard)
                     .build();
+            return response;
         }
     }
-
-    Map<Long, Map<Integer, List<R>>> txIDtoShardStoredAssignment = new ConcurrentHashMap<>();
 
     @Override
     public void forwardDataToStore(ForwardDataToStoreMessage request, StreamObserver<ForwardDataToStoreResponse> responseObserver){
@@ -1061,166 +1066,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
     }
 
     @Override
-    public StreamObserver<StoreVolatileDataMessage> storeVolatileData(StreamObserver<StoreVolatileDataResponse> responseObserver){
-     return new StreamObserver<>() {
-         final ArrayList<ByteString> volatileData = new ArrayList<>();
-         Long txID;
-         final AtomicBoolean success = new AtomicBoolean(true);
-
-         @Override
-         public void onNext(StoreVolatileDataMessage message) {
-             if (message.getState() == DataStore.COLLECT) {
-                 volatileData.add(message.getData());
-                 txID = message.getTransactionID();
-             } else if (message.getState() == DataStore.COMMIT) {
-                 List<Row> rows = new ArrayList<>();
-                 for (ByteString rowChunk : volatileData) {
-                     Row[] desRowArray = (Row[])Utilities.byteStringToObject(rowChunk);
-                     rows.addAll(Arrays.asList(desRowArray));
-                 }
-                 S ephemeralShard = dataStore.createNewShard(dataStore.ephemeralShardNum.decrementAndGet()).get();
-                 VolatileShuffleQueryPlan<Object, Shard> plan =
-                         (VolatileShuffleQueryPlan<Object, Shard>) Utilities.byteStringToObject(message.getPlan());
-                 success.set(plan.write(ephemeralShard, rows));
-                 if(success.get()){
-                     success.set(dataStore.addVolatileData(txID, ephemeralShard) && success.get());
-                 }
-                 if (success.get()) {
-                     responseObserver.onNext(StoreVolatileDataResponse.newBuilder().setState(Broker.QUERY_SUCCESS).build());
-                 }else{
-                     responseObserver.onNext(StoreVolatileDataResponse.newBuilder().setState(Broker.QUERY_FAILURE).build());
-                 }
-             }
-         }
-
-         @Override
-         public void onError(Throwable throwable) {
-             logger.error("SBDS: volatile store failed for transaction {} on datastore {}", txID, dataStore.dsID);
-             responseObserver.onError(throwable);
-         }
-
-         @Override
-         public void onCompleted() {
-             responseObserver.onCompleted();
-         }
-     };
-    }
-
-    @Override
-    public void removeVolatileData(RemoveVolatileDataMessage request, StreamObserver<RemoveVolatileDataResponse> responseObserver){
-        responseObserver.onNext(removeVolatileDataHandler(request));
-        responseObserver.onCompleted();
-    }
-    private RemoveVolatileDataResponse removeVolatileDataHandler(RemoveVolatileDataMessage m){
-        dataStore.removeVolatileData(m.getTransactionID());
-        return RemoveVolatileDataResponse.newBuilder().build();
-    }
-
-    @Override
-    public void scatterVolatileData(ScatterVolatileDataMessage request, StreamObserver<ScatterVolatileDataResponse> responseStreamObserver){
-        responseStreamObserver.onNext(scatterVolatileDataHandler(request));
-        responseStreamObserver.onCompleted();
-    }
-    private ScatterVolatileDataResponse scatterVolatileDataHandler(ScatterVolatileDataMessage message){
-        /*The return message contains the state and eventually all the datastore ids to which the
-        * scattered data has been sent.
-        * */
-        VolatileShuffleQueryPlan<Object, Shard> plan = (VolatileShuffleQueryPlan) Utilities.byteStringToObject(message.getPlan());
-        long txID = message.getTransactionID();
-        List<Row> volatileData = new ArrayList<>();
-        int actorCount = message.getActorCount();
-        List<Shard> volatileShards = dataStore.getVolatileData(txID);
-        Map<Integer, List<ByteString>> scatterResults = new HashMap<>();
-        for(Shard shard: volatileShards){
-            Map<Integer, List<ByteString>> shardsScatterResults = plan.scatter(shard, actorCount);
-            for(Map.Entry<Integer, List<ByteString>> entry: shardsScatterResults.entrySet()){
-                scatterResults.computeIfAbsent(entry.getKey(), k->new ArrayList<>());
-                for(ByteString item: entry.getValue()){
-                    scatterResults.get(entry.getKey()).add(item);
-                }
-            }
-        }
-        AtomicInteger shuffleStatus = new AtomicInteger(0);
-        List<ForwardScatterResultsThread> forwardScatterResultsThreads = new ArrayList<>();
-
-        for(Integer dsID: scatterResults.keySet()){
-            ManagedChannel channel = dataStore.getChannelForDSID(dsID);
-            DataStoreDataStoreGrpc.DataStoreDataStoreStub stub = DataStoreDataStoreGrpc.newStub(channel);
-            ForwardScatterResultsThread t = new ForwardScatterResultsThread(dsID,scatterResults.get(dsID),txID,shuffleStatus, stub);
-            t.start();
-            forwardScatterResultsThreads.add(t);
-        }
-
-        for(ForwardScatterResultsThread t: forwardScatterResultsThreads){
-            try {
-                t.join();
-            }catch (InterruptedException e ){
-                logger.error("Broker: Volatile scatter query interrupted: {}", e.getMessage());
-                assert(false);
-                shuffleStatus.set(1);
-            }
-        }
-
-        Set<Integer> setDSids = scatterResults.keySet();
-        ArrayList<Integer> listDSids = new ArrayList<>();
-        for(Integer dsID: setDSids ){
-            if(!listDSids.contains(dsID) && scatterResults.get(dsID) != null) {
-                listDSids.add(dsID);
-            }
-        }
-        ByteString serializedDsIDlist = Utilities.objectToByteString(listDSids);
-        ScatterVolatileDataResponse response;
-        if(shuffleStatus.get()==1){
-            /*An error occurred, delete volatile data from all ds and
-            * return error code to the broker that will proceed to
-            * delete other datastore's volatile*/
-            response = ScatterVolatileDataResponse.newBuilder()
-                    .setState(Broker.QUERY_FAILURE)
-                    .setIdsDsGather(serializedDsIDlist)
-                    .build();
-
-        }else{
-            response = ScatterVolatileDataResponse.newBuilder()
-                    .setState(Broker.QUERY_SUCCESS)
-                    .setIdsDsGather(serializedDsIDlist)
-                    .build();
-        }
-        return response;
-    }
-
-    @Override
-    public void removeVolatileScatteredData(RemoveVolatileDataMessage m, StreamObserver<RemoveVolatileDataResponse> responseObserver){
-        responseObserver.onNext(removeVolatileScatteredDataHandler(m));
-        responseObserver.onCompleted();
-    }
-    private RemoveVolatileDataResponse removeVolatileScatteredDataHandler(RemoveVolatileDataMessage m){
-        dataStore.removeVolatileScatterData(m.getTransactionID());
-        return RemoveVolatileDataResponse.newBuilder().build();
-    }
-
-    @Override
-    public void gatherVolatileData(GatherVolatileDataMessage m, StreamObserver<GatherVolatileDataResponse> responseStreamObserver){
-        responseStreamObserver.onNext(gatherVolatileDataHandler(m));
-        responseStreamObserver.onCompleted();
-    }
-    private GatherVolatileDataResponse gatherVolatileDataHandler(GatherVolatileDataMessage message){
-        /*The return message contains the state and eventually all the datastore ids to which the
-         * scattered data has been sent.
-         * */
-        VolatileShuffleQueryPlan<Object, Shard> plan = (VolatileShuffleQueryPlan) Utilities.byteStringToObject(message.getPlan());
-        long txID = message.getTransactionID();
-        List<ByteString> scatterResults = dataStore.getVolatileScatterData(txID);
-        ByteString gatherResult = plan.gather(scatterResults);
-        GatherVolatileDataResponse response;
-        if(gatherResult == null){
-            response = GatherVolatileDataResponse.newBuilder().setState(Broker.QUERY_FAILURE).build();
-        }else {
-            response = GatherVolatileDataResponse.newBuilder().setGatherResult(gatherResult).setState(Broker.QUERY_SUCCESS).build();
-        }
-        return response;
-    }
-
-    @Override
     public void removeIntermediateShards(RemoveIntermediateShardMessage m, StreamObserver<RemoveIntermediateShardResponse> responseStreamObserver){
         Integer shardID = m.getShardID();
         S shard = dataStore.shardMap.get(shardID);
@@ -1231,79 +1076,6 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         responseStreamObserver.onNext(RemoveIntermediateShardResponse.newBuilder().build());
         responseStreamObserver.onCompleted();
         return;
-    }
-
-    private class ForwardScatterResultsThread extends Thread{
-        private final Integer dsID;
-        private final List<ByteString> dataToBeForwarded;
-        private final long txID;
-        private final AtomicInteger status;
-        private final DataStoreDataStoreGrpc.DataStoreDataStoreStub stub;
-
-        public ForwardScatterResultsThread(
-                Integer dsID,
-                List<ByteString> dataToBeForwarded,
-                long txID,
-                AtomicInteger status,
-                DataStoreDataStoreGrpc.DataStoreDataStoreStub stub
-        ){
-            this.dsID = dsID;
-            this.dataToBeForwarded = dataToBeForwarded;
-            this.txID = txID;
-            this.status = status;
-            this.stub = stub;
-        }
-
-        @Override
-        public void run(){forwardScatterResults();}
-
-        private void forwardScatterResults(){
-            CountDownLatch forwardLatch = new CountDownLatch(1);
-
-            StreamObserver<StoreVolatileShuffleDataMessage> observer = stub.storeVolatileShuffledData(new StreamObserver<StoreVolatileShuffleDataResponse>(){
-                @Override
-                public void onNext(StoreVolatileShuffleDataResponse response){
-                    forwardLatch.countDown();
-                }
-                @Override
-                public void onError(Throwable th){
-                    logger.error("Scattered data forwarding failed for transaction {} on datastore {}  towards datastore {}", txID, dataStore.dsID, dsID);
-                    logger.info(th.getMessage());
-                    status.set(1);
-                    forwardLatch.countDown();
-                }
-                @Override
-                public void onCompleted(){
-                            forwardLatch.countDown();
-                        }
-            });
-
-            if(dataToBeForwarded == null){
-                ;
-            }else{
-                for(ByteString dataItem: dataToBeForwarded){
-                    StoreVolatileShuffleDataMessage payload = StoreVolatileShuffleDataMessage.newBuilder()
-                            .setTransactionID(txID)
-                            .setData(dataItem)
-                            .setState(0)
-                            .build();
-                    observer.onNext(payload);
-                }
-                StoreVolatileShuffleDataMessage confirm = StoreVolatileShuffleDataMessage.newBuilder()
-                        .setTransactionID(txID)
-                        .setState(1)
-                        .build();
-                observer.onNext(confirm);
-            }
-            try {
-                forwardLatch.await();
-            }catch (InterruptedException e){
-                status.set(1);
-                logger.error("SBDS.ForwardScatterResultsThread: forward failed from DS {} to DS {}", dataStore.dsID, dsID);
-                logger.info(e.getMessage());
-                assert (false);
-            }
-        }
     }
 
 

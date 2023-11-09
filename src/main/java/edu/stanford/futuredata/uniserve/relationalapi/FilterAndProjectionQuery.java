@@ -114,6 +114,8 @@ public class FilterAndProjectionQuery implements RetrieveAndCombineQueryPlan<Rel
     public WriteResultsPlan getWriteResultPlan() {
         return writeResultsPlan;
     }
+    public boolean getDistinct(){return isDistinct;}
+    public List<Serializable> getOperations() {return operations;}
 
     @Override
     public List<String> getTableNames() {

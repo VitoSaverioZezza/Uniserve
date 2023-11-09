@@ -367,7 +367,7 @@ public class RelShard implements Shard {
                 rawNewRow.add(rawRow.getField(index));
             }
             RelRow newRow = new RelRow(rawNewRow.toArray());
-            if(operations.isEmpty()) {
+            if(operations == null || operations.isEmpty()) {
                 projectionResults.add(newRow);
             }else{
                 projectionResults.add(applyOperations(newRow, operations));
@@ -383,6 +383,9 @@ public class RelShard implements Shard {
         return new RelRow(newRow.toArray());
     }
     private Object applyOperation(Object o, Serializable pred){
+        if(pred == null){
+            return o;
+        }
         SerializablePredicate predicate = (SerializablePredicate) pred;
         return predicate.run(o);
     }

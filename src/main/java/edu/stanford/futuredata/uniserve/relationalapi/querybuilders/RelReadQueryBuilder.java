@@ -54,11 +54,6 @@ public class RelReadQueryBuilder {
         userResultsSchema = Arrays.asList(aliases);
         if(!noDuplicateInStringArray(aliases))
             throw new RuntimeException("Error in parameter alias definition: Multiple projection args have the same alias");
-        /*
-        if((userResultsSchema.size() + aggregateUserAttributesNames.size()) != (projectionAttributes.size() + aggregates.size())){
-            throw new RuntimeException("Wrong number of aliases provided for selected fields");
-        }
-        */
         return this;
     }
     public RelReadQueryBuilder avg(String aggregatedField, String alias){
@@ -235,7 +230,7 @@ public class RelReadQueryBuilder {
             resultSchema = this.projectionAttributes;
         }
 
-        if(operations.size() < resultSchema.size()){
+        if(!operations.isEmpty() && operations.size() < resultSchema.size()){
             for(int i = operations.size(); i<resultSchema.size(); i++){
                 operations.add(o -> o);
             }
@@ -281,7 +276,6 @@ public class RelReadQueryBuilder {
 
         FilterAndProjectionQuery query = new FilterAndProjectionQuery()
                 .setSourceName          (this.sourceName)
-                //.setSourceSchema        (this.sourceSchema)
                 .setResultSchema        (resultSchema)
                 .setSystemResultSchema  (this.projectionAttributes)
                 .setFilterPredicate     (this.sourceFilter)
@@ -336,7 +330,7 @@ public class RelReadQueryBuilder {
         finalUserSchema.addAll(finalUserSchemaSelect);
         finalUserSchema.addAll(aggregateUserAttributesNames);
 
-        if(operations.size() < finalUserSchema.size()){
+        if(!operations.isEmpty() && operations.size() < finalUserSchema.size()){
             for(int i = operations.size(); i<finalUserSchema.size(); i++){
                 operations.add(o -> o);
             }
@@ -419,7 +413,7 @@ public class RelReadQueryBuilder {
         return readQuery;
     }
     private ReadQuery buildSimpleAggregateQuery(){
-        if(operations.size() < aggregateUserAttributesNames.size()){
+        if(!operations.isEmpty() && operations.size() < aggregateUserAttributesNames.size()){
             for(int i = operations.size(); i<aggregateUserAttributesNames.size(); i++){
                 operations.add(o -> o);
             }

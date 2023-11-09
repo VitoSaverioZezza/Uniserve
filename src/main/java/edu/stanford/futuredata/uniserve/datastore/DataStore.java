@@ -77,9 +77,6 @@ public class DataStore<R extends Row, S extends Shard> {
     public static final int COMMIT = 2;
     public static final int ABORT = 3;
 
-    private final Map<Long, List<Shard>> volatileData = new ConcurrentHashMap<>();
-    private final Map<Long, List<ByteString>> volatileScatterData = new ConcurrentHashMap<>();
-
     ConsistentHash consistentHash;
 
     public DataStore(DataStoreCloud dsCloud, ShardFactory<S> shardFactory, Path baseDirectory, String zkHost, int zkPort, String dsHost, int dsPort, int cloudID, boolean readWriteAtomicity) {
@@ -201,6 +198,7 @@ public class DataStore<R extends Row, S extends Shard> {
             long p99Full = readQueryFullTimes.stream().mapToLong(i -> i).sorted().toArray()[readQueryFullTimes.size() * 99 / 100];
             logger.info("Queries: {} p50 Exec: {}μs p99 Exec: {}μs p50 Full: {}μs p99 Full: {}μs", numQueries, p50Exec, p99Exec, p50Full, p99Full);
         }
+        logger.info("DS{} shut down", dsID);
     }
 
     /**Creates a new shard identified by the given shard number*/
@@ -426,52 +424,6 @@ public class DataStore<R extends Row, S extends Shard> {
         }
     }
 
-    /** retrieves serialized R[] objects given the transaction identifier
-     * @return List < Serialized(R[])>*/
-    public List<Shard> getVolatileData(long transactionID){
-        return volatileData.get(transactionID);
-    }
-    /**Stores volatile raw data for a volatile shuffle query having a given transaction ID*/
-    public boolean addVolatileData(long transactionID, Shard data){
-        try{
-            volatileData.computeIfAbsent(transactionID, k -> new ArrayList<>()).add(data);
-            if(Utilities.logger_flag)
-                logger.info("Volatile shard stored");
-            return true;
-        }catch (Exception e){
-            logger.warn("Impossible to store volatile data for DS {} transaction {}", dsID, transactionID);
-            return false;
-        }
-    }
-    /**Removes cached raw data for the given transaction identifier*/
-    public void removeVolatileData(long transactionID){
-        List<Shard> shards = volatileData.get(transactionID);
-        if(shards != null){
-            for(Shard shard: shards){
-                shard.destroy();
-            }
-        }
-        volatileData.remove(transactionID);
-    }
-
-    /**Retrieve all serialized scattered data for the volatile shuffle transaction associated with the given transaction
-     * identifier*/
-    public List<ByteString> getVolatileScatterData(long transactionID){return volatileScatterData.get(transactionID);}
-    /**Stores the given data binding it to the given transaction identifier. The server - data assignment is a result
-     * of the user-defined scatter operation*/
-    public boolean addVolatileScatterData(long transactionID, ByteString data){
-        try{
-            volatileScatterData.computeIfAbsent(transactionID, k -> new ArrayList<>()).add(data);
-            return true;
-        }catch (Exception e){
-            logger.warn("Impossible to store volatile scatter data for DS {} transaction {}", dsID, transactionID);
-            return false;
-        }
-    }
-    /**Removes volatile scattered data associated with the given transaction identifier*/
-    public void removeVolatileScatterData(long transactionID){
-        volatileScatterData.remove(transactionID);
-    }
 
     public TableInfo getTableInfo(String tableName) {
         DTableInfoResponse r = coordinatorStub.tableInfo(DTableInfoMessage.newBuilder().setTableName(tableName).build());

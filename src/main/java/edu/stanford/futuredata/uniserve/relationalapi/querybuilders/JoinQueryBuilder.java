@@ -301,7 +301,7 @@ public class JoinQueryBuilder {
         } else if (resultUserSchema.size() > resultSystemSchema.size()) {
             resultUserSchema.subList(resultSystemSchema.size(), resultUserSchema.size()).clear();
         }
-        if(operations.size() < resultUserSchema.size()){
+        if(!operations.isEmpty() && operations.size() < resultUserSchema.size()){
             for(int i = operations.size(); i<resultUserSchema.size(); i++){
                 operations.add(o -> o);
             }

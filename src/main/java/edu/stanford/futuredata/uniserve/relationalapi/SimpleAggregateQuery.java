@@ -119,6 +119,7 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     public WriteResultsPlan getWriteResultPlan() {
         return writeResultsPlan;
     }
+    public List<Serializable> getOperations() {return operations;}
 
     @Override
     public List<String> getQueriedTables() {

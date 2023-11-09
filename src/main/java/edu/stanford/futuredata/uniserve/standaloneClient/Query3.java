@@ -1,76 +1,113 @@
-package edu.stanford.futuredata.uniserve.rel.TPC_DS;
+package edu.stanford.futuredata.uniserve.standaloneClient;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
+import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relationalapi.API;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import org.javatuples.Pair;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
-import static edu.stanford.futuredata.uniserve.rel.TPC_DS.TestMethods.zkHost;
-import static edu.stanford.futuredata.uniserve.rel.TPC_DS.TestMethods.zkPort;
+public class Query3 {
 
-public class Q3Test {
-    @BeforeAll
-    static void startUpCleanUp() throws IOException {
-        TestMethods.startUpCleanUp();
+    private final Broker broker;
+    private Map<String, RelReadQueryResults> resultsMap = new HashMap<>();
+    private String rootPath = "";
+
+    public Query3(Broker broker, String rootPath){
+        this.broker = broker;
+        this.rootPath = rootPath;
+    }
+    private int queryIndex = -1;
+
+    public void setQueryIndex(int queryIndex) {
+        this.queryIndex = queryIndex;
     }
 
-    @AfterEach
-    public void unitTestCleanUp() throws IOException {
-        TestMethods.unitTestCleanUp();
-    }
-    @Test
-    public void clean(){}
-
-    /*
-    Query 19 of the TPS DC benchmark
-    SELECT i_brand_id              brand_id,
-               i_brand                 brand,
-               i_manufact_id,
-               i_manufact,
-               Sum(ss_ext_sales_price) ext_price
-    FROM   date_dim,
-           store_sales,
-           item,
-           customer,
-           customer_address,
-           store
-    WHERE  d_date_sk = ss_sold_date_sk
-           AND ss_item_sk = i_item_sk
-           AND i_manager_id = 38
-           AND d_moy = 12
-           AND d_year = 1998
-           AND ss_customer_sk = c_customer_sk
-           AND c_current_addr_sk = ca_address_sk
-           AND Substr(ca_zip, 1, 5) <> Substr(s_zip, 1, 5)
-           AND ss_store_sk = s_store_sk
-    GROUP  BY i_brand,
-              i_brand_id,
-              i_manufact_id,
-              i_manufact
-    * */
-
-    @Test
-    public void Q3Test() throws IOException {
-        TestMethods tm = new TestMethods();
-        tm.startServers();
-        Broker broker = new Broker(zkHost, zkPort);
+    public Map<Integer, List<Pair<String, Long>>> run(){
         API api = new API(broker);
-        for (String tableName : tablesToLoad) {
+        for(String tableName: tablesToLoad){
             int index = TPC_DS_Inv.names.indexOf(tableName);
-            int shardNum = Math.min(Math.max(TPC_DS_Inv.sizes.get(index) / 1000, 1), Broker.SHARDS_PER_TABLE);
+            if(index == -1)
+                return null;
+            int shardNum = Math.min(Math.max(TPC_DS_Inv.sizes.get(index) / 1000, 1),Broker.SHARDS_PER_TABLE);
             api.createTable(tableName)
                     .attributes(TPC_DS_Inv.schemas.get(index).toArray(new String[0]))
                     .keys(TPC_DS_Inv.keys.get(index).toArray(new String[0]))
-                    .shardNumber(shardNum)
-                    .build().run();
+                    .shardNumber(shardNum).build().run();
         }
+        Map<Integer, List<Pair<String, Long>>> timings = new HashMap<>();
+        RelReadQueryResults results = null;
+
+        switch (queryIndex){
+            case 0:
+                timings.put(0, runQ3_0());
+                results = resultsMap.get("0");
+                for(RelRow r: results.getData()){
+                    r.print();
+                }
+                return timings;
+            case 1:
+                timings.put(1, runQ3_1());
+                results = resultsMap.get("1");
+                for(RelRow r: results.getData()){
+                    r.print();
+                }
+                return timings;
+            case 2:
+                timings.put(2, runQ3_2());
+                results = resultsMap.get("2");
+                for(RelRow r: results.getData()){
+                    r.print();
+                }
+                return timings;
+            case 3:
+                timings.put(3, runQ3_3());
+                results = resultsMap.get("3");
+                for(RelRow r: results.getData()){
+                    r.print();
+                }
+                return timings;
+            case 4:
+                timings.put(4, runQ3_4());
+                results = resultsMap.get("4");
+                for(RelRow r: results.getData()){
+                    r.print();
+                }
+                return timings;
+            case 5:
+                timings.put(5, runQ3_5());
+                results = resultsMap.get("5");
+                for(RelRow r: results.getData()){
+                    r.print();
+                }
+                return timings;
+            case 6:
+                timings.put(6, runQ3_6());
+                results = resultsMap.get("6");
+                for(RelRow r: results.getData()){
+                    r.print();
+                }
+                return timings;
+        }
+        return timings;
+    }
+
+    public static final List<String> tablesToLoad = List.of(
+            "date_dim",
+            "store_sales",
+            "item",
+            "customer",
+            "customer_address",
+            "store"
+    );
+    public List<Pair<String, Long>> runQ3_0(){
+        TestMethods tm = new TestMethods(rootPath);
+
+        API api = new API(broker);
         List<Pair<String,Long>> loadTimes = tm.loadDataInMem(broker, tablesToLoad);
 
         List<String> rawJ1Schema = List.of("store_sales.ss_ext_sales_price", "store_sales.ss_item_sk", "store_sales.ss_store_sk", "store_sales.ss_customer_sk", "date_dim.d_moy", "date_dim.d_year");
@@ -87,15 +124,16 @@ public class Q3Test {
         ReadQuery storeSalesInDec98ByManager38 = api.join()
                 .select(rawJ2Schema.toArray(new String[0]))
                 .alias(j2Schema.toArray(new String[0]))
-                .sources(storeSalesInDec98, "item", "storeSalesInDec98", List.of("ss_item_sk"), List.of("i_item_sk"))
-                .filters("", "i_manager_id == 38").build();
+                .sources(storeSalesInDec98, "item", "storeSalesInDec98",
+                        List.of("ss_item_sk"), List.of("i_item_sk")
+                ).filters("", "i_manager_id == 38").build();
 
         ReadQuery j3 = api.join()
                 .select("customer.c_current_addr_sk", "j2.ss_ext_sales_price", "j2.ss_store_sk", "j2.i_brand", "j2.i_brand_id", "j2.i_manufact_id", "j2.i_manufact")
                 .alias("c_current_addr_sk", "ss_ext_sales_price", "ss_store_sk", "i_brand", "i_brand_id", "i_manufact_id", "i_manufact")
                 .sources(storeSalesInDec98ByManager38, "customer", "j2",
                         List.of("ss_customer_sk"), List.of("c_customer_sk")
-        ).build();
+                ).build();
 
         ReadQuery j4 = api.join()
                 .select("pj3.ss_ext_sales_price", "pj3.ss_store_sk", "pj3.i_brand", "pj3.i_brand_id", "pj3.i_manufact_id", "pj3.i_manufact", "customer_address.ca_zip")
@@ -104,48 +142,27 @@ public class Q3Test {
                 .build();
 
 
-        ReadQuery j5 = api.join()
-                .select("pj4.i_brand_id", "pj4.i_brand", "pj4.i_manufact_id", "pj4.i_manufact", "pj4.ss_ext_sales_price", "pj4.ca_zip", "store.s_zip")
-                .alias("i_brand_id", "i_brand", "i_manufact_id", "i_manufact", "ss_ext_sales_price", "", null)
-                .sources(j4, "store", "pj4", List.of("ss_store_sk"), List.of("s_store_sk")).build();
+        ReadQuery j5 = api.join().sources(j4, "store", "pj4", List.of("ss_store_sk"), List.of("s_store_sk")).build();
 
-        ReadQuery fpj5 = api.read().select("i_brand_id", "i_brand", "i_manufact_id", "i_manufact")
+        ReadQuery res = api.read().select("pj4.i_brand_id", "pj4.i_brand", "pj4.i_manufact_id", "pj4.i_manufact")
                 .alias("i_brand_id", "i_brand", "i_manufact_id", "i_manufact")
-                .sum("ss_ext_sales_price", "ext_price")
+                .sum("pj4.ss_ext_sales_price", "ext_price")
                 .fromFilter(j5, "j5", "substringQUERY = def (x) { x.substring(0,5) }; substringQUERY(pj4.ca_zip) != substringQUERY(store.s_zip)")
                 .build();
 
-        long t = System.currentTimeMillis();
-        RelReadQueryResults results = fpj5.run(broker);
-        long elapsedTime = System.currentTimeMillis() - t;
-        System.out.println("RESULTS:");
-        TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res3");
+        long readStartTime = System.currentTimeMillis();
+        RelReadQueryResults results = res.run(broker);
+        long elapsedTime = System.currentTimeMillis() - readStartTime;
 
-        System.out.println("Table writing times, with shard creation: ");
-        for (Pair<String, Long> time : loadTimes) {
-            System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
-        }
-        System.out.println("Read time: " + elapsedTime);
-        tm.saveTimings(loadTimes, elapsedTime, "Q3timings");
-        tm.stopServers();
-        broker.shutdown();
+        resultsMap.put("0", results);
+        loadTimes.add(new Pair<>("Read", elapsedTime));
+
+        return loadTimes;
     }
-    @Test
-    public void Q3_1Test() throws IOException {
-        TestMethods tm = new TestMethods();
-        tm.startServers();
-        Broker broker = new Broker(zkHost, zkPort);
+    public List<Pair<String, Long>> runQ3_1(){
+        TestMethods tm = new TestMethods(rootPath);
+
         API api = new API(broker);
-        for (String tableName : tablesToLoad) {
-            int index = TPC_DS_Inv.names.indexOf(tableName);
-            int shardNum = Math.min(Math.max(TPC_DS_Inv.sizes.get(index) / 1000, 1), Broker.SHARDS_PER_TABLE);
-            api.createTable(tableName)
-                    .attributes(TPC_DS_Inv.schemas.get(index).toArray(new String[0]))
-                    .keys(TPC_DS_Inv.keys.get(index).toArray(new String[0]))
-                    .shardNumber(shardNum)
-                    .build().run();
-        }
 
         List<String> rawJ1Schema = List.of("store_sales.ss_ext_sales_price", "store_sales.ss_item_sk", "store_sales.ss_store_sk", "store_sales.ss_customer_sk", "date_dim.d_moy", "date_dim.d_year");
         List<String> j1Schema = List.of("ss_ext_sales_price", "ss_item_sk", "ss_store_sk", "ss_customer_sk", "d_moy", "d_year");
@@ -185,49 +202,25 @@ public class Q3Test {
 
         ReadQuery j5 = api.join().sources(j4, "store", "pj4", List.of("ss_store_sk"), List.of("s_store_sk")).build();
 
-        ReadQuery fpj5 = api.read().select("pj4.i_brand_id", "pj4.i_brand", "pj4.i_manufact_id", "pj4.i_manufact")
+        ReadQuery res = api.read().select("pj4.i_brand_id", "pj4.i_brand", "pj4.i_manufact_id", "pj4.i_manufact")
                 .alias("i_brand_id", "i_brand", "i_manufact_id", "i_manufact")
                 .sum("pj4.ss_ext_sales_price", "ext_price")
                 .fromFilter(j5, "j5", "substringQUERY = def (x) { x.substring(0,5) }; substringQUERY(pj4.ca_zip) != substringQUERY(store.s_zip)")
                 .build();
 
-        long t = System.currentTimeMillis();
-        RelReadQueryResults results = fpj5.run(broker);
-        long elapsedTime = System.currentTimeMillis() - t;
-        System.out.println("RESULTS:");
-        TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res3");
+        long readStartTime = System.currentTimeMillis();
+        RelReadQueryResults results = res.run(broker);
+        long elapsedTime = System.currentTimeMillis() - readStartTime;
 
+        resultsMap.put("1", results);
+        loadTimes.add(new Pair<>("Read", elapsedTime));
 
-        System.out.println("\nreturning...");
-        tm.stopServers();
-        broker.shutdown();
-
-
-        System.out.println("Table writing times, with shard creation: ");
-        for (Pair<String, Long> time : loadTimes) {
-            System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
-        }
-        System.out.println("Read time: " + elapsedTime);
-        tm.saveTimings(loadTimes, elapsedTime, "Q3_1timings");
-        tm.stopServers();
-        broker.shutdown();
+        return loadTimes;
     }
-    @Test
-    public void Q3_2Test() throws IOException {
-        TestMethods tm = new TestMethods();
-        tm.startServers();
-        Broker broker = new Broker(zkHost, zkPort);
+    public List<Pair<String, Long>> runQ3_2(){
+        TestMethods tm = new TestMethods(rootPath);
+
         API api = new API(broker);
-        for (String tableName : tablesToLoad) {
-            int index = TPC_DS_Inv.names.indexOf(tableName);
-            int shardNum = Math.min(Math.max(TPC_DS_Inv.sizes.get(index) / 1000, 1), Broker.SHARDS_PER_TABLE);
-            api.createTable(tableName)
-                    .attributes(TPC_DS_Inv.schemas.get(index).toArray(new String[0]))
-                    .keys(TPC_DS_Inv.keys.get(index).toArray(new String[0]))
-                    .shardNumber(shardNum)
-                    .build().run();
-        }
 
         List<String> rawJ1Schema = List.of("store_sales.ss_ext_sales_price", "store_sales.ss_item_sk", "store_sales.ss_store_sk", "store_sales.ss_customer_sk", "date_dim.d_moy", "date_dim.d_year");
         List<String> j1Schema = List.of("ss_ext_sales_price", "ss_item_sk", "ss_store_sk", "ss_customer_sk", "d_moy", "d_year");
@@ -275,40 +268,16 @@ public class Q3Test {
         long t = System.currentTimeMillis();
         RelReadQueryResults results = fpj5.run(broker);
         long elapsedTime = System.currentTimeMillis() - t;
-        System.out.println("RESULTS:");
-        TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res3");
 
+        resultsMap.put("2", results);
+        loadTimes.add(new Pair<>("Read", elapsedTime));
 
-        System.out.println("\nreturning...");
-        tm.stopServers();
-        broker.shutdown();
-
-
-        System.out.println("Table writing times, with shard creation: ");
-        for (Pair<String, Long> time : loadTimes) {
-            System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
-        }
-        System.out.println("Read time: " + elapsedTime);
-        tm.saveTimings(loadTimes, elapsedTime, "Q3_2timings");
-        tm.stopServers();
-        broker.shutdown();
+        return loadTimes;
     }
-    @Test
-    public void Q3_3Test() throws IOException {
-        TestMethods tm = new TestMethods();
-        tm.startServers();
-        Broker broker = new Broker(zkHost, zkPort);
+    public List<Pair<String, Long>> runQ3_3(){
+        TestMethods tm = new TestMethods(rootPath);
+
         API api = new API(broker);
-        for (String tableName : tablesToLoad) {
-            int index = TPC_DS_Inv.names.indexOf(tableName);
-            int shardNum = Math.min(Math.max(TPC_DS_Inv.sizes.get(index) / 1000, 1), Broker.SHARDS_PER_TABLE);
-            api.createTable(tableName)
-                    .attributes(TPC_DS_Inv.schemas.get(index).toArray(new String[0]))
-                    .keys(TPC_DS_Inv.keys.get(index).toArray(new String[0]))
-                    .shardNumber(shardNum)
-                    .build().run();
-        }
 
         List<String> rawJ1Schema = List.of("store_sales.ss_ext_sales_price", "store_sales.ss_item_sk", "store_sales.ss_store_sk", "store_sales.ss_customer_sk", "date_dim.d_moy", "date_dim.d_year");
         List<String> j1Schema = List.of("ss_ext_sales_price", "ss_item_sk", "ss_store_sk", "ss_customer_sk", "d_moy", "d_year");
@@ -355,40 +324,16 @@ public class Q3Test {
         long t = System.currentTimeMillis();
         RelReadQueryResults results = fpj5.run(broker);
         long elapsedTime = System.currentTimeMillis() - t;
-        System.out.println("RESULTS:");
-        TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res3");
 
+        resultsMap.put("3", results);
+        loadTimes.add(new Pair<>("Read", elapsedTime));
 
-        System.out.println("\nreturning...");
-        tm.stopServers();
-        broker.shutdown();
-
-
-        System.out.println("Table writing times, with shard creation: ");
-        for (Pair<String, Long> time : loadTimes) {
-            System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
-        }
-        System.out.println("Read time: " + elapsedTime);
-        tm.saveTimings(loadTimes, elapsedTime, "Q3_3timings");
-        tm.stopServers();
-        broker.shutdown();
+        return loadTimes;
     }
-    @Test
-    public void Q3_4Test() throws IOException {
-        TestMethods tm = new TestMethods();
-        tm.startServers();
-        Broker broker = new Broker(zkHost, zkPort);
+    public List<Pair<String, Long>> runQ3_4(){
+        TestMethods tm = new TestMethods(rootPath);
+
         API api = new API(broker);
-        for (String tableName : tablesToLoad) {
-            int index = TPC_DS_Inv.names.indexOf(tableName);
-            int shardNum = Math.min(Math.max(TPC_DS_Inv.sizes.get(index) / 1000, 1), Broker.SHARDS_PER_TABLE);
-            api.createTable(tableName)
-                    .attributes(TPC_DS_Inv.schemas.get(index).toArray(new String[0]))
-                    .keys(TPC_DS_Inv.keys.get(index).toArray(new String[0]))
-                    .shardNumber(shardNum)
-                    .build().run();
-        }
 
         List<String> rawJ1Schema = List.of("store_sales.ss_ext_sales_price", "store_sales.ss_item_sk", "store_sales.ss_store_sk", "store_sales.ss_customer_sk", "date_dim.d_moy", "date_dim.d_year");
         List<String> j1Schema = List.of("ss_ext_sales_price", "ss_item_sk", "ss_store_sk", "ss_customer_sk", "d_moy", "d_year");
@@ -435,40 +380,16 @@ public class Q3Test {
         long t = System.currentTimeMillis();
         RelReadQueryResults results = fpj5.run(broker);
         long elapsedTime = System.currentTimeMillis() - t;
-        System.out.println("RESULTS:");
-        TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res3");
 
+        resultsMap.put("4", results);
+        loadTimes.add(new Pair<>("Read", elapsedTime));
 
-        System.out.println("\nreturning...");
-        tm.stopServers();
-        broker.shutdown();
-
-
-        System.out.println("Table writing times, with shard creation: ");
-        for (Pair<String, Long> time : loadTimes) {
-            System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
-        }
-        System.out.println("Read time: " + elapsedTime);
-        tm.saveTimings(loadTimes, elapsedTime, "Q3_4timings");
-        tm.stopServers();
-        broker.shutdown();
+        return loadTimes;
     }
-    @Test
-    public void Q3_5Test() throws IOException {
-        TestMethods tm = new TestMethods();
-        tm.startServers();
-        Broker broker = new Broker(zkHost, zkPort);
+    public List<Pair<String, Long>> runQ3_5(){
+        TestMethods tm = new TestMethods(rootPath);
+
         API api = new API(broker);
-        for (String tableName : tablesToLoad) {
-            int index = TPC_DS_Inv.names.indexOf(tableName);
-            int shardNum = Math.min(Math.max(TPC_DS_Inv.sizes.get(index) / 1000, 1), Broker.SHARDS_PER_TABLE);
-            api.createTable(tableName)
-                    .attributes(TPC_DS_Inv.schemas.get(index).toArray(new String[0]))
-                    .keys(TPC_DS_Inv.keys.get(index).toArray(new String[0]))
-                    .shardNumber(shardNum)
-                    .build().run();
-        }
 
         List<String> rawJ1Schema = List.of("store_sales.ss_ext_sales_price", "store_sales.ss_item_sk", "store_sales.ss_store_sk", "store_sales.ss_customer_sk", "date_dim.d_moy", "date_dim.d_year");
         List<String> j1Schema = List.of("ss_ext_sales_price", "ss_item_sk", "ss_store_sk", "ss_customer_sk", "d_moy", "d_year");
@@ -519,30 +440,15 @@ public class Q3Test {
         long t = System.currentTimeMillis();
         RelReadQueryResults results = fpj5.run(broker);
         long elapsedTime = System.currentTimeMillis() - t;
-        System.out.println("RESULTS:");
-        TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res3");
 
+        resultsMap.put("5", results);
+        loadTimes.add(new Pair<>("Read", elapsedTime));
 
-        System.out.println("\nreturning...");
-        tm.stopServers();
-        broker.shutdown();
-
-
-        System.out.println("Table writing times, with shard creation: ");
-        for (Pair<String, Long> time : loadTimes) {
-            System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
-        }
-        System.out.println("Read time: " + elapsedTime);
-        tm.saveTimings(loadTimes, elapsedTime, "Q3_5timings");
-        tm.stopServers();
-        broker.shutdown();
+        return loadTimes;
     }
-    @Test
-    public void Q3_6Test() throws IOException {
-        TestMethods tm = new TestMethods();
-        tm.startServers();
-        Broker broker = new Broker(zkHost, zkPort);
+    public List<Pair<String, Long>> runQ3_6(){
+        TestMethods tm = new TestMethods(rootPath);
+
         API api = new API(broker);
         for (String tableName : tablesToLoad) {
             int index = TPC_DS_Inv.names.indexOf(tableName);
@@ -597,37 +503,48 @@ public class Q3Test {
         fpj5.run(broker);
         List<Pair<String,Long>> loadTimes = tm.loadDataInMem(broker, tablesToLoad);
 
-
         long t = System.currentTimeMillis();
         RelReadQueryResults results = fpj5.run(broker);
         long elapsedTime = System.currentTimeMillis() - t;
-        System.out.println("RESULTS:");
-        TestMethods.printRowList(results.getData());
-        tm.printOnFile(results.getData(), results.getFieldNames(),"res3");
 
+        resultsMap.put("6", results);
+        loadTimes.add(new Pair<>("Read", elapsedTime));
 
-        System.out.println("\nreturning...");
-        tm.stopServers();
-        broker.shutdown();
-
-
-        System.out.println("Table writing times, with shard creation: ");
-        for (Pair<String, Long> time : loadTimes) {
-            System.out.println("\t" + time.getValue0() + ": " + time.getValue1() + "ms");
-        }
-        System.out.println("Read time: " + elapsedTime);
-        tm.saveTimings(loadTimes, elapsedTime, "Q3_6timings");
-        tm.stopServers();
-        broker.shutdown();
+        return loadTimes;
     }
-
-
-    public List<String> tablesToLoad = List.of(
-            "date_dim",
-            "store_sales",
-            "item",
-            "customer",
-            "customer_address",
-            "store"
-    );
 }
+
+
+/*
+* SELECT i_brand_id              brand_id,
+               i_brand                 brand,
+               i_manufact_id,
+               i_manufact,
+               Sum(ss_ext_sales_price) ext_price
+FROM   date_dim,
+       store_sales,
+       item,
+       customer,
+       customer_address,
+       store
+WHERE  d_date_sk = ss_sold_date_sk
+       AND ss_item_sk = i_item_sk
+       AND ss_customer_sk = c_customer_sk
+       AND ss_store_sk = s_store_sk
+       AND c_current_addr_sk = ca_address_sk
+       *
+       AND i_manager_id = 38
+       AND d_moy = 12
+       AND d_year = 1998
+       AND Substr(ca_zip, 1, 5) <> Substr(s_zip, 1, 5)
+       *
+GROUP  BY i_brand,
+          i_brand_id,
+          i_manufact_id,
+          i_manufact
+ORDER  BY ext_price DESC,
+          i_brand,
+          i_brand_id,
+          i_manufact_id,
+          i_manufact
+LIMIT 100; */

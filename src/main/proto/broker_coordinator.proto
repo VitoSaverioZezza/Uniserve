@@ -12,7 +12,11 @@ service BrokerCoordinator {
     rpc CreateTable (CreateTableMessage) returns (CreateTableResponse) {}
 
     rpc StoreQuery (StoreQueryMessage) returns (StoreQueryResponse) {}
+    rpc ShutdownCluster(ShutdownMessage) returns (ShutdownResponse){}
 }
+
+message ShutdownMessage{}
+message ShutdownResponse{}
 
 
 message StoreQueryMessage {

@@ -1,13 +1,14 @@
 package edu.stanford.futuredata.uniserve.relationalapi;
 
-import edu.stanford.futuredata.uniserve.interfaces.SimpleWriteQueryPlan;
+
+import edu.stanford.futuredata.uniserve.interfaces.WriteQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
 import edu.stanford.futuredata.uniserve.relational.RelShard;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class DeleteQuery implements SimpleWriteQueryPlan<RelRow, RelShard> {
+public class DeleteQuery implements WriteQueryPlan<RelRow, RelShard> {
     private final String queriedTable;
     private final Boolean[] keyStructure;
 
@@ -22,7 +23,7 @@ public class DeleteQuery implements SimpleWriteQueryPlan<RelRow, RelShard> {
     }
 
     @Override
-    public boolean write(RelShard shard, List<RelRow> rows) {
+    public boolean preCommit(RelShard shard, List<RelRow> rows) {
         List<RelRow> storedData = shard.getData();
         List<RelRow> rowsToRemove = new ArrayList<>();
         for(RelRow rowToDelete: rows){
@@ -42,7 +43,16 @@ public class DeleteQuery implements SimpleWriteQueryPlan<RelRow, RelShard> {
             }
         }
         shard.removeRows(rowsToRemove);
-        shard.committRows();
         return true;
+    }
+
+    @Override
+    public void commit(RelShard shard) {
+        shard.committRows();
+    }
+
+    @Override
+    public void abort(RelShard shard) {
+        shard.abortTransactions();
     }
 }

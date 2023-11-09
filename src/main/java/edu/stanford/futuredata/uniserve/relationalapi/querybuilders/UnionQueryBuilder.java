@@ -21,7 +21,6 @@ public class UnionQueryBuilder {
     private final HashMap<String, ReadQuery> subqueries = new HashMap<>();
     private String filterPredicateOne = "";
     private String filterPredicateTwo = "";
-    //private ArrayList<String> finalSystemSchema = new ArrayList<>();
     private final ArrayList<String> finalUserSchema = new ArrayList<>();
     private boolean stored = false;
     private boolean distinct = false;

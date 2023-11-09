@@ -157,6 +157,10 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
     public WriteResultsPlan getWriteResultPlan() {
         return writeResultsPlan;
     }
+    public boolean getDistinct(){return isDistinct;}
+    public List<Serializable> getOperations() {return operations;}
+    public List<String> getJoinArgsSrc1(){return sourcesJoinAttributes.get(sourceOne);}
+    public List<String> getJoinArgsSrc2(){return sourcesJoinAttributes.get(sourceTwo);}
 
     @Override
     public List<String> getQueriedTables() {
@@ -250,63 +254,6 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         List<String> schemaSourceTwo = sourceSchemas.get(sourceTwo);
         List<String> joinAttributesOne = sourcesJoinAttributes.get(sourceOne);
         List<String> joinAttributesTwo = sourcesJoinAttributes.get(sourceTwo);
-        /*
-        ArrayList<RelRow> joinedRows = new ArrayList<>();
-        for(RelRow rowOne: rowsSourceOne){
-            for(RelRow rowTwo: rowsSourceTwo){
-                boolean matching = true;
-                for(int i = 0; i < joinAttributesOne.size(); i++){
-                    Object rowOneVal = rowOne.getField(schemaSourceOne.indexOf(joinAttributesOne.get(i)));
-                    Object rowTwoVal = rowTwo.getField(schemaSourceTwo.indexOf(joinAttributesTwo.get(i)));
-                    if(rowOneVal == null && rowTwoVal == null){
-
-                    } else if (rowOneVal == null || rowTwoVal == null) {
-                        matching = false;
-                        break;
-                    }else if(!rowOneVal.equals(rowTwoVal)) {
-                        if(rowOneVal instanceof Number && rowTwoVal instanceof Number &&
-                                (((Number) rowOneVal).doubleValue() == ((Number) rowTwoVal).doubleValue())){
-                        }else {
-                            matching = false;
-                            break;
-                        }
-                    }
-                }
-
-                if(matching){
-                    List<Object> rawNewRow = new ArrayList<>(systemResultSchema.size());
-                    for(String systemAttribute: systemResultSchema) {
-                        String[] split = systemAttribute.split("\\.");
-                        String source = split[0];
-                        StringBuilder stringBuilder = new StringBuilder();
-                        for (int j = 1; j < split.length - 1; j++) {
-                            stringBuilder.append(split[j]);
-                            stringBuilder.append(".");
-                        }
-                        stringBuilder.append(split[split.length - 1]);
-                        String attribute = stringBuilder.toString();
-
-                        if (source.equals(sourceOne)) {
-                            rawNewRow.add(systemResultSchema.indexOf(systemAttribute),
-                                    rowOne.getField(schemaSourceOne.indexOf(attribute))
-                            );
-                        } else {
-                            rawNewRow.add(systemResultSchema.indexOf(systemAttribute),
-                                    rowTwo.getField(schemaSourceTwo.indexOf(attribute))
-                            );
-                        }
-                    }
-                    if(operations.isEmpty()) {
-                        joinedRows.add(new RelRow(rawNewRow.toArray()));
-                    }else{
-                        joinedRows.add(applyOperations(new RelRow(rawNewRow.toArray())));
-                    }
-                }
-            }
-        }
-        ArrayList<RelRow> res;
-        res = checkDistinct(joinedRows);
-         */
         List<RelRow> joinedRows = ephemeralShards.get(sourceOne).join(
                 ephemeralShards.get(sourceTwo).getData(),
                 schemaSourceOne, schemaSourceTwo, joinAttributesOne, joinAttributesTwo,

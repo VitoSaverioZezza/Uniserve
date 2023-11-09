@@ -226,4 +226,12 @@ class ServiceCoordinatorDataStore<R extends Row, S extends Shard> extends Coordi
         removeShard(message.getShard());
         return RemoveShardResponse.newBuilder().build();
     }
+
+    @Override
+    public void shutdownDS(ShutdownDSMessage m, StreamObserver<ShutdownDSResponse> responseObserver) {
+        logger.info("DS{} shutdown request from coordinator", dataStore.dsID);
+        responseObserver.onNext(ShutdownDSResponse.newBuilder().build());
+        responseObserver.onCompleted();
+        dataStore.shutDown();
+    }
 }

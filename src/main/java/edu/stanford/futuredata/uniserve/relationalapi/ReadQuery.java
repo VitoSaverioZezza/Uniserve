@@ -266,8 +266,83 @@ public class ReadQuery implements Serializable {
                 return false;
             }
         }
+        List<Serializable> thisOperations = this.getOperations();
+        List<Serializable> inputOperations = readQuery.getOperations();
+        if(thisOperations.size() != inputOperations.size()){
+            return false;
+        }
+        for(int i = 0; i<thisOperations.size(); i++){
+            if(!thisOperations.get(i).equals(inputOperations.get(i))){
+                return false;
+            }
+        }
+        if(this.getDistinct() != readQuery.getDistinct()){
+            return false;
+        }
+        if(!matchingJoin(readQuery)){
+            return false;
+        }
         return true;
     }
+
+    boolean matchingJoin(ReadQuery input){
+        if(this.joinQuery == null && input.joinQuery == null){
+            return true;
+        }
+        if(this.joinQuery == null || input.joinQuery == null){
+            return false;
+        }
+        List<String> inSrc1 = input.joinQuery.getJoinArgsSrc1();
+        List<String> inSrc2 = input.joinQuery.getJoinArgsSrc2();
+        List<String> thisSrc1 = this.joinQuery.getJoinArgsSrc1();
+        List<String> thisSrc2 = this.joinQuery.getJoinArgsSrc2();
+        if(inSrc1.size() != thisSrc1.size() || inSrc2.size() != thisSrc2.size()){
+            return false;
+        }
+        for(int i = 0; i<inSrc1.size(); i++){
+            if(!inSrc1.get(i).equals(thisSrc1.get(i))){
+                return false;
+            }
+        }
+        for(int i = 0; i<inSrc2.size(); i++){
+            if(!inSrc2.get(i).equals(thisSrc2.get(i))){
+                return false;
+            }
+        }
+        return true;
+    }
+
+    boolean getDistinct(){
+        if(filterAndProjectionQuery != null){
+            return filterAndProjectionQuery.getDistinct();
+        }else if(simpleAggregateQuery != null){
+            return true;
+        }else if(aggregateQuery != null){
+            return true;
+        }else if(joinQuery != null){
+            return joinQuery.getDistinct();
+        } else if (unionQuery != null) {
+            return unionQuery.getDistinct();
+        }else {
+            throw new RuntimeException("no valid query is defined");
+        }
+    }
+    List<Serializable> getOperations(){
+        if(filterAndProjectionQuery != null){
+            return filterAndProjectionQuery.getOperations();
+        }else if(simpleAggregateQuery != null){
+            return simpleAggregateQuery.getOperations();
+        }else if(aggregateQuery != null){
+            return aggregateQuery.getOperations();
+        }else if(joinQuery != null){
+            return joinQuery.getOperations();
+        } else if (unionQuery != null) {
+            return unionQuery.getOperations();
+        }else {
+            throw new RuntimeException("no valid query is defined");
+        }
+    }
+
     private String queryMatch(Broker broker){
         TableInfo aSourceTableInfo = broker.getTableInfo(new ArrayList<>(this.getSourceTables()).get(0));
         ArrayList<ReadQuery> alreadyRegisteredQueries = aSourceTableInfo.getRegisteredQueries();

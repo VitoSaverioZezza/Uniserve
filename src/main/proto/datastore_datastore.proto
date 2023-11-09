@@ -20,7 +20,7 @@ service DataStoreDataStore {
     rpc AnchoredShuffle (AnchoredShuffleMessage) returns (stream AnchoredShuffleResponse) {}
     // Get data for a shuffle.
     rpc Shuffle (ShuffleMessage) returns (stream ShuffleResponse) {}
-    rpc StoreVolatileShuffledData(stream StoreVolatileShuffleDataMessage) returns (StoreVolatileShuffleDataResponse){}
+    //rpc StoreVolatileShuffledData(stream StoreVolatileShuffleDataMessage) returns (StoreVolatileShuffleDataResponse){}
     rpc CacheResults(stream CacheResultsMessage) returns(CacheResultsResponse){}
 }
 message StoreVolatileShuffleDataMessage{

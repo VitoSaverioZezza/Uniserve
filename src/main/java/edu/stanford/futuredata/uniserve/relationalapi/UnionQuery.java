@@ -119,6 +119,8 @@ public class UnionQuery implements RetrieveAndCombineQueryPlan<RelShard, RelRead
     public WriteResultsPlan getWriteResultPlan() {
         return writeResultsPlan;
     }
+    public boolean getDistinct(){return isDistinct;}
+    public List<Serializable> getOperations() {return operations;}
 
     @Override
     public List<String> getTableNames() {

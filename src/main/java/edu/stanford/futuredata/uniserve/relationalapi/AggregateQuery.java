@@ -2,6 +2,7 @@ package edu.stanford.futuredata.uniserve.relationalapi;
 
 import com.google.protobuf.ByteString;
 import edu.stanford.futuredata.uniserve.interfaces.ReadQueryResults;
+import edu.stanford.futuredata.uniserve.interfaces.Row;
 import edu.stanford.futuredata.uniserve.interfaces.ShuffleOnReadQueryPlan;
 import edu.stanford.futuredata.uniserve.relational.RelReadQueryResults;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
@@ -139,6 +140,7 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
     public WriteResultsPlan getWriteResultPlan() {
         return writeResultsPlan;
     }
+    public List<Serializable> getOperations() {return operations;}
 
 
     @Override

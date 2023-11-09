@@ -2,8 +2,8 @@ package edu.stanford.futuredata.uniserve.relationalapi.querybuilders;
 
 import edu.stanford.futuredata.uniserve.broker.Broker;
 import edu.stanford.futuredata.uniserve.relational.RelRow;
-import edu.stanford.futuredata.uniserve.relationalapi.ConsistentDeleteQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.DeleteQuery;
+import edu.stanford.futuredata.uniserve.relationalapi.SimpleDeleteQuery;
 import edu.stanford.futuredata.uniserve.relationalapi.ReadQuery;
 import edu.stanford.futuredata.uniserve.utilities.TableInfo;
 
@@ -72,8 +72,8 @@ public class DeleteQueryBuilder {
             data = dataQuery.run(broker).getData();
         }
         if(consistent){
-            return broker.writeQuery(new ConsistentDeleteQuery(table, keyStructure), data, true);
+            return broker.writeQuery(new DeleteQuery(table, keyStructure), data, true);
         }
-        return broker.simpleWriteQuery(new DeleteQuery(table, keyStructure), data, true);
+        return broker.simpleWriteQuery(new SimpleDeleteQuery(table, keyStructure), data, true);
     }
 }

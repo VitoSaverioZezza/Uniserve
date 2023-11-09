@@ -1355,8 +1355,8 @@ public class RelTest {
         assertEquals(atLeast20.getData().size(), matchesSize);
         System.out.println("\t\tTEST ----- Nested query with filter OK");
 
-        broker.shutdown();
-        stopServers();
+        broker.shutdownCluster();
+        //stopServers();
     }
 
     @Test

@@ -442,39 +442,6 @@ class ServiceDataStoreDataStore<R extends Row, S extends Shard> extends DataStor
     }
 
     @Override
-    public StreamObserver<StoreVolatileShuffleDataMessage> storeVolatileShuffledData(
-            StreamObserver<StoreVolatileShuffleDataResponse> responseObserver){
-        return new StreamObserver<StoreVolatileShuffleDataMessage>() {
-            final ArrayList<ByteString> volatileScatterData = new ArrayList<>();
-            Long txID;
-
-            @Override
-            public void onNext(StoreVolatileShuffleDataMessage message) {
-                if(message.getState() == 0){
-                    volatileScatterData.add(message.getData());
-                    txID = message.getTransactionID();
-                } else if (message.getState() == 1) {
-                    for(ByteString dataItem : volatileScatterData){
-                        dataStore.addVolatileScatterData(txID, dataItem);
-                    }
-                    responseObserver.onNext(StoreVolatileShuffleDataResponse.newBuilder().setState(0).build());
-                    responseObserver.onCompleted();
-                }
-            }
-
-            @Override
-            public void onError(Throwable throwable) {
-                logger.error("volatile store of scattered data failed for transaction {} on datastore {}", txID, dataStore.dsID);
-                responseObserver.onError(throwable);
-            }
-
-            @Override
-            public void onCompleted() {
-            }
-        };
-    }
-
-    @Override
     public StreamObserver<CacheResultsMessage> cacheResults(StreamObserver<CacheResultsResponse> responseObserver){
         return new StreamObserver<CacheResultsMessage>() {
             final ArrayList<ByteString> results = new ArrayList<>();

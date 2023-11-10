@@ -817,12 +817,14 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             //ephemeralShard.committRows();
         }
         ByteString b = plan.gather(ephemeralData, ephemeralShards);
+        //List<ByteString> b = plan.gather(ephemeralData, ephemeralShards);
         ByteString serializedDestinationShard = Utilities.objectToByteString(new ArrayList<>());
 
         if(plan.isStored()){
             Map<Integer, List<R>> destinationShardsRows = new HashMap<>();
             TableInfo destinationInfo = dataStore.getTableInfo(plan.getResultTableName());
             List<R> gatherRows = (List<R>) Utilities.byteStringToObject(b);
+            //List<R> gatherRows = b.stream().map(v->(R)Utilities.byteStringToObject(v)).collect(Collectors.toList());
             for(R row: gatherRows){
                 int destinationShardID = destinationInfo.id * Broker.SHARDS_PER_TABLE + (row.getPartitionKey(destinationInfo.getKeyStructure()) % destinationInfo.numShards);
                 destinationShardsRows.computeIfAbsent(destinationShardID, k->new ArrayList<>()).add(row);
@@ -837,23 +839,41 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
         if(plan.isThisSubquery()){
             //create the shard and
             //store the results in the shard, then return the location rather than the data.
+/*
+            HashMap<Integer, Integer> shardLocation = new HashMap<>();
+            int chunkSize = 1;
+            for(int i = 0; i<b.size(); i+=chunkSize){
+                int end = Math.min(i+chunkSize, b.size());
+                List<ByteString> chunk = new ArrayList<>(b.subList(i, end));
+                int intermediateShardNum = dataStore.ephemeralShardNum.decrementAndGet();
+                dataStore.createShardMetadata(intermediateShardNum);
+                S intermediateShard = dataStore.shardMap.get(intermediateShardNum);
+                intermediateShard.writeIntermediateShard(chunk);
+                shardLocation.put(intermediateShardNum, dataStore.dsID);
+            }
+*/
             int intermediateShardNum = dataStore.ephemeralShardNum.decrementAndGet();
             dataStore.createShardMetadata(intermediateShardNum);
             S intermediateShard = dataStore.shardMap.get(intermediateShardNum);
             intermediateShard.writeIntermediateShard(b);
+            //ByteString serShardLocations = Utilities.objectToByteString(shardLocation);
             //plan.writeIntermediateShard(intermediateShard, b);
             HashMap<Integer, Integer> shardLocation = new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));
             b = Utilities.objectToByteString(shardLocation);
             ShuffleReadQueryResponse response = ShuffleReadQueryResponse.newBuilder()
                     .setReturnCode(Broker.QUERY_SUCCESS)
                     .setResponse(b)
+                    //.setResponse(serShardLocations)
                     .setDestinationShards(serializedDestinationShard)
                     .build();
             return response;
         }else{
+            //ArrayList<R> gatherResults = new ArrayList<>(b.stream().map(v->(R)Utilities.byteStringToObject(v)).collect(Collectors.toList()));
+            //ByteString serRowList = Utilities.objectToByteString(gatherResults);
             ShuffleReadQueryResponse response = ShuffleReadQueryResponse.newBuilder()
                     .setReturnCode(Broker.QUERY_SUCCESS)
                     .setResponse(b)
+                    //.setResponse(serRowList)
                     .setDestinationShards(serializedDestinationShard)
                     .build();
             return response;
@@ -1051,6 +1071,11 @@ class ServiceBrokerDataStore<R extends Row, S extends Shard> extends BrokerDataS
             int intermediateShardNum = dataStore.ephemeralShardNum.decrementAndGet();
             dataStore.createShardMetadata(intermediateShardNum);
             S intermediateShard = dataStore.shardMap.get(intermediateShardNum);
+            /*
+            List<R> gatherRows = (List<R>) Utilities.byteStringToObject(b);
+            List<ByteString> serRows = gatherRows.stream().map(Utilities::objectToByteString).collect(Collectors.toList());
+            intermediateShard.writeIntermediateShard(serRows);
+            */
             intermediateShard.writeIntermediateShard(b);
             //plan.writeIntermediateShard(intermediateShard, b);
             HashMap<Integer, Integer> shardLocation = new HashMap<>(Map.of(intermediateShardNum, dataStore.dsID));

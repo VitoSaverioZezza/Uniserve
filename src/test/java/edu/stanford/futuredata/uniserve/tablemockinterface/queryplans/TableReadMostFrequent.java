@@ -101,6 +101,7 @@ public class TableReadMostFrequent implements ShuffleOnReadQueryPlan<TableShard,
      *     */
     @Override
     public ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, TableShard> ephemeralShards) {
+    //public List<ByteString> gather(Map<String, List<ByteString>> ephemeralData, Map<String, TableShard> ephemeralShards) {
 
         /*Under the assumption that the query executes on a single table, the gather deserializes the scatter
         * reuslts, therefore the "table" map is the subset of rows associated to the datastore executing the query
@@ -124,8 +125,10 @@ public class TableReadMostFrequent implements ShuffleOnReadQueryPlan<TableShard,
                 frequencies.entrySet().stream().max((entry1, entry2) -> entry1.getValue() > entry2.getValue() ? 1 : -1);
         if (maxEntry.isPresent()) {
             Pair<Integer, Integer> kf = new Pair<>(maxEntry.get().getKey(), maxEntry.get().getValue());
+            //return List.of(Utilities.objectToByteString(kf));
             return Utilities.objectToByteString(kf);
         } else {
+            //return List.of(ByteString.EMPTY);
             return ByteString.EMPTY;
         }
     }

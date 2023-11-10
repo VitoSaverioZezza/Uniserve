@@ -15,11 +15,11 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class RelShard implements Shard {
-    private final List<RelRow> data;
+    private final LinkedHashSet<RelRow> data;
     private final String shardPath;
 
-    private final List<RelRow> uncommittedRows = new ArrayList<>();
-    private List<RelRow> rowsToRemove = new ArrayList<>();
+    private final LinkedHashSet<RelRow> uncommittedRows = new LinkedHashSet<>();
+    private LinkedHashSet<RelRow> rowsToRemove = new LinkedHashSet<>();
 
 
 
@@ -28,11 +28,11 @@ public class RelShard implements Shard {
             Path mapFile = Path.of(shardPath.toString(), "map.obj");
             FileInputStream f = new FileInputStream(mapFile.toFile());
             ObjectInputStream o = new ObjectInputStream(f);
-            this.data = (List<RelRow>) o.readObject();
+            this.data = (LinkedHashSet<RelRow>) o.readObject();
             o.close();
             f.close();
         } else {
-            this.data = new ArrayList<>();
+            this.data = new LinkedHashSet<>();
         }
         this.shardPath = shardPath.toString();
     }
@@ -64,7 +64,7 @@ public class RelShard implements Shard {
         return Optional.of(Path.of(shardPath));
     }
     public List<RelRow> getData(){
-        return data;
+        return new ArrayList<>(data);
     }
     public boolean insertRows(List/*<RelRow>*/ rows){
         uncommittedRows.addAll(rows);
@@ -85,16 +85,18 @@ public class RelShard implements Shard {
         return true;
     }
     public void clear(){
-        this.rowsToRemove = data;
+        this.rowsToRemove = new LinkedHashSet<>(data);
     }
     public void removeRows(List<RelRow> rowsToRemove){
-        this.rowsToRemove = rowsToRemove;
+        this.rowsToRemove = new LinkedHashSet<>(rowsToRemove);
     }
 
 
     @Override
     public boolean writeIntermediateShard(ByteString gatherResults){
         List<RelRow> rows = (List<RelRow>) Utilities.byteStringToObject(gatherResults);
+    //public boolean writeIntermediateShard(List<ByteString> gatherResults){
+    //    List<RelRow> rows = gatherResults.stream().map(v->(RelRow)Utilities.byteStringToObject(v)).collect(Collectors.toList());
         return this.insertRows(rows) && this.committRows();
     }
     @Override
@@ -111,7 +113,7 @@ public class RelShard implements Shard {
                                 List<Pair<String, Integer>> predVarToIndexes,
                                 List<Serializable> operations)
     {
-        List<RelRow> output = new ArrayList<>(data);
+        LinkedHashSet<RelRow> output = new LinkedHashSet<>(data);
         if(compFilterP != null && !compFilterP.equals("")) {
             output = filter(null, compFilterP, subqRes, predVarToIndexes);
         }
@@ -119,9 +121,9 @@ public class RelShard implements Shard {
             output = project(output, projIndex, operations);
         }
         if(distinct){
-            output = removeDuplicates(new ArrayList<>(output));
+            return output.stream().distinct().collect(Collectors.toList());
         }
-        return output;
+        return new ArrayList<>(output);
     }
 
     public Map<Integer, List<ByteString>> getGroups(Serializable compiledPredicate,
@@ -171,6 +173,34 @@ public class RelShard implements Shard {
         return computePartialResults(filteredData, aggOpToIndexes);
     }
 
+    private boolean equalGroups(List<Object> g1, List<Object> g2){
+        boolean equal = true;
+        if(g1 == null && g2 == null)
+            return true;
+        if(g1 == null || g2 == null)
+            return false;
+        if(g1.size() != g2.size())
+            return false;
+        for(int i = 0; i<g1.size(); i++){
+            Object v1 = g1.get(i);
+            Object v2 = g2.get(i);
+            if(v1 == null && v2 == null)
+                continue;
+            if(v1 == null || v2 == null)
+                return false;
+            if(v1.equals(v2))
+                continue;
+            if(v1 instanceof Number && v2 instanceof Number){
+                if(((Number)v1).doubleValue() == ((Number)v2).doubleValue()){
+                    continue;
+                }else{
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     public List<RelRow> join(List<RelRow> rowsSourceTwo,
                              List<String> schemaSourceOne,
                              List<String> schemaSourceTwo,
@@ -179,14 +209,99 @@ public class RelShard implements Shard {
                              List<String> systemResultSchema,
                              String sourceOne,
                              List<Serializable> operations,
-                             boolean distinct)
+                             boolean distinct,
+                             Integer[] resultSchemaSystemIndexes)
     {
-        List<RelRow> joinedRows = new ArrayList<>();
-        List<RelRow> rowsSourceOne = this.getData();
+        LinkedHashSet<RelRow> joinedRows = new LinkedHashSet<>();
+        LinkedHashSet<RelRow> rowsSourceOne = new LinkedHashSet<>(data);
 
         if(rowsSourceTwo == null || rowsSourceTwo.isEmpty() || this.data == null || this.data.isEmpty()){
             return new ArrayList<>();
         }
+        /*
+        Map<List<Object>, List<RelRow>> groupsOne = new HashMap<>();
+        Map<List<Object>, List<RelRow>> groupsTwo = new HashMap<>();
+        for(RelRow row: rowsSourceOne){
+            List<Object> rowGroup = new ArrayList<>();
+            for(int i = 0; i<joinAttributesOne.size(); i++){
+                rowGroup.add(row.getField(schemaSourceOne.indexOf(joinAttributesOne.get(i))));
+            }
+            boolean alreadyListed = false;
+            for(List<Object> mapGroup: groupsOne.keySet()){
+                if(equalGroups(mapGroup, rowGroup)){
+                    alreadyListed = true;
+                    groupsOne.get(mapGroup).add(row);
+                }
+            }
+            if(!alreadyListed){
+                groupsOne.put(rowGroup, new ArrayList<>());
+                groupsOne.get(rowGroup).add(row);
+            }
+        }
+        for(RelRow row: rowsSourceTwo){
+            List<Object> rowGroup = new ArrayList<>();
+            for(int i = 0; i<joinAttributesTwo.size(); i++){
+                rowGroup.add(row.getField(schemaSourceTwo.indexOf(joinAttributesTwo.get(i))));
+            }
+            boolean alreadyListed = false;
+            for(List<Object> mapGroup: groupsTwo.keySet()){
+                if(equalGroups(mapGroup, rowGroup)){
+                    alreadyListed = true;
+                    groupsTwo.get(mapGroup).add(row);
+                }
+            }
+            if(!alreadyListed){
+                groupsTwo.put(rowGroup, new ArrayList<>());
+                groupsTwo.get(rowGroup).add(row);
+            }
+        }
+        for(Map.Entry<List<Object>, List<RelRow>> groupEntryOne: groupsOne.entrySet()){
+            boolean found = false;
+            List<Object> gr2 = null;
+            for(Map.Entry<List<Object>, List<RelRow>> groupEntryTwo: groupsTwo.entrySet()){
+                if(equalGroups(groupEntryOne.getKey(), groupEntryTwo.getKey())){
+                    found = true;
+                    gr2 = groupEntryTwo.getKey();
+                    List<RelRow> rowsOne = groupEntryOne.getValue();
+                    List<RelRow> rowsTwo = groupEntryTwo.getValue();
+                    for(RelRow rowOne: rowsOne){
+                        for(RelRow rowTwo: rowsTwo){
+                            List<Object> rawNewRow = new ArrayList<>(systemResultSchema.size());
+                            for(String systemAttribute: systemResultSchema) {
+                                String[] split = systemAttribute.split("\\.");
+                                String source = split[0];
+                                StringBuilder stringBuilder = new StringBuilder();
+                                for (int j = 1; j < split.length - 1; j++) {
+                                    stringBuilder.append(split[j]);
+                                    stringBuilder.append(".");
+                                }
+                                stringBuilder.append(split[split.length - 1]);
+                                String attribute = stringBuilder.toString();
+
+                                if (source.equals(sourceOne)) {
+                                    rawNewRow.add(systemResultSchema.indexOf(systemAttribute),
+                                            rowOne.getField(schemaSourceOne.indexOf(attribute))
+                                    );
+                                } else {
+                                    rawNewRow.add(systemResultSchema.indexOf(systemAttribute),
+                                            rowTwo.getField(schemaSourceTwo.indexOf(attribute))
+                                    );
+                                }
+                            }
+                            if(operations == null || operations.isEmpty()) {
+                                joinedRows.add(new RelRow(rawNewRow.toArray()));
+                            }else{
+                                joinedRows.add(applyOperations(new RelRow(rawNewRow.toArray()), operations));
+                            }
+                        }
+                    }
+                }
+            }
+            if(found){
+                groupsTwo.remove(gr2);
+            }
+        }
+        */
 
         for(RelRow rowOne: rowsSourceOne){
             for(RelRow rowTwo: rowsSourceTwo){
@@ -210,7 +325,8 @@ public class RelShard implements Shard {
                 }
 
                 if(matching){
-                    List<Object> rawNewRow = new ArrayList<>(systemResultSchema.size());
+                    Object[] rawNewRow = new Object[systemResultSchema.size()];
+                    /*
                     for(String systemAttribute: systemResultSchema) {
                         String[] split = systemAttribute.split("\\.");
                         String source = split[0];
@@ -221,30 +337,40 @@ public class RelShard implements Shard {
                         }
                         stringBuilder.append(split[split.length - 1]);
                         String attribute = stringBuilder.toString();
-
                         if (source.equals(sourceOne)) {
-                            rawNewRow.add(systemResultSchema.indexOf(systemAttribute),
-                                    rowOne.getField(schemaSourceOne.indexOf(attribute))
-                            );
+                            rawNewRow[systemResultSchema.indexOf(systemAttribute)] =
+                                    rowOne.getField(schemaSourceOne.indexOf(attribute));
                         } else {
-                            rawNewRow.add(systemResultSchema.indexOf(systemAttribute),
-                                    rowTwo.getField(schemaSourceTwo.indexOf(attribute))
-                            );
+                            rawNewRow[systemResultSchema.indexOf(systemAttribute)] =
+                                    rowTwo.getField(schemaSourceTwo.indexOf(attribute));
+                        }
+                    }
+                     */
+                    for(int i = 0; i< systemResultSchema.size(); i++){
+                        Integer rawIndex = resultSchemaSystemIndexes[i];
+                        if(rawIndex >= 0){
+                            rawNewRow[i] = rowOne.getField(rawIndex);
+                        }else {
+                            if(rawIndex == Integer.MIN_VALUE){
+                                rawIndex = 0;
+                            }
+                            rawIndex = rawIndex*-1;
+                            rawNewRow[i] = rowTwo.getField(rawIndex);
                         }
                     }
                     if(operations == null || operations.isEmpty()) {
-                        joinedRows.add(new RelRow(rawNewRow.toArray()));
+                        joinedRows.add(new RelRow(rawNewRow));
                     }else{
-                        joinedRows.add(applyOperations(new RelRow(rawNewRow.toArray()), operations));
+                        joinedRows.add(applyOperations(new RelRow(rawNewRow), operations));
                     }
                 }
             }
         }
-        List<RelRow> res = joinedRows;
+        LinkedHashSet<RelRow> res = joinedRows;
         if(distinct) {
-            res = removeDuplicates(new ArrayList<>(joinedRows));
+            res = removeDuplicates(joinedRows);
         }
-        return res;
+        return new ArrayList<>(res);
     }
 
 
@@ -299,19 +425,12 @@ public class RelShard implements Shard {
         }
         return new RelRow(partialResults.toArray());
     }
-    private ArrayList<RelRow> removeDuplicates(ArrayList<RelRow> data){
-        ArrayList<RelRow> nonDuplicateRows = new ArrayList<>();
-        for(int i = 0; i < data.size(); i++){
-            List<RelRow> sublist = data.subList(i+1, data.size());
-            if(!sublist.contains(data.get(i))){
-                nonDuplicateRows.add(data.get(i));
-            }
-        }
-        return nonDuplicateRows;
+    private LinkedHashSet<RelRow> removeDuplicates(LinkedHashSet<RelRow> data){
+        return new LinkedHashSet<>(data);
     }
-    private List<RelRow> filter(List<RelRow> source, Serializable filterPredicate, Map<String, ReadQueryResults> subqRes, List<Pair<String, Integer>> predVarToIndexes){
+    private LinkedHashSet<RelRow> filter(LinkedHashSet<RelRow> source, Serializable filterPredicate, Map<String, ReadQueryResults> subqRes, List<Pair<String, Integer>> predVarToIndexes){
         if(source == null){
-            source = data;
+            source = new LinkedHashSet<>(data);
         }
         Map<String, RelReadQueryResults> sRes = new HashMap<>();
         int index = -1;
@@ -320,7 +439,7 @@ public class RelShard implements Shard {
             predVarToIndexes.add(new Pair<>(entry.getKey(), index));
             index--;
         }
-        List<RelRow> filteredData = new ArrayList<>();
+        LinkedHashSet<RelRow> filteredData = new LinkedHashSet<>();
         for(RelRow row: source){
             if(checkFilterPredicate(row, predVarToIndexes, sRes, filterPredicate)){
                 filteredData.add(row);
@@ -359,14 +478,16 @@ public class RelShard implements Shard {
             return false;
         }
     }
-    private ArrayList<RelRow> project(List<RelRow> data, List<Integer> resultSourceIndexes, List<Serializable> operations){
-        ArrayList<RelRow> projectionResults = new ArrayList<>();
+    private LinkedHashSet<RelRow> project(LinkedHashSet<RelRow> data, List<Integer> resultSourceIndexes, List<Serializable> operations){
+        LinkedHashSet<RelRow> projectionResults = new LinkedHashSet<>();
         for(RelRow rawRow: data){
-            List<Object> rawNewRow = new ArrayList<>(resultSourceIndexes.size());
+            Object[] rawNewRow = new Object[resultSourceIndexes.size()];
+            int rawIndex = 0;
             for(Integer index: resultSourceIndexes){
-                rawNewRow.add(rawRow.getField(index));
+                rawNewRow[rawIndex] = rawRow.getField(index);
+                rawIndex++;
             }
-            RelRow newRow = new RelRow(rawNewRow.toArray());
+            RelRow newRow = new RelRow(rawNewRow);
             if(operations == null || operations.isEmpty()) {
                 projectionResults.add(newRow);
             }else{

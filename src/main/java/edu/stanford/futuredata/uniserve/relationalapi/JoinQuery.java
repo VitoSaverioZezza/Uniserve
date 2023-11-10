@@ -204,48 +204,11 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         returnedAssignment = shard.getGroups(
                 cachedFilterPredicate, concreteSubqueriesResults, predicateVarToIndexes, joinAttributesIndexes, numRepartitions
         );
-
-        /*
-        List<RelRow> filteredData = new ArrayList<>(
-                shard.getData(
-                        false,
-                        false,
-                        null,
-                        cachedFilterPredicate,
-                        concreteSubqueriesResults,
-                        predicateVarToIndexes,
-                        null
-                )
-        );
-
-
-        for(RelRow row: filteredData){
-            int key = 0;
-            for(String joinAttribute: joinAttributes){
-                Object val = row.getField(sourceSchema.indexOf(joinAttribute));
-                if(val == null) {
-                    key += 1;
-                }else{
-                    if(val instanceof Number) {
-                        val = ((Number) val).doubleValue();
-                    }
-                    key += val.hashCode();
-                    if(key<0){
-                        key = key * -1;
-                    }
-                }
-            }
-            if(numRepartitions == 0){
-                numRepartitions += 1;
-            }
-            key = key % numRepartitions;
-            returnedAssignment.computeIfAbsent(key, k->new ArrayList<>()).add(Utilities.objectToByteString(row));
-        }
-        */
         return returnedAssignment;
     }
     @Override
     public ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, RelShard> ephemeralShards) {
+    //public List<ByteString> gather(Map<String, List<ByteString>> ephemeralData, Map<String, RelShard> ephemeralShards) {
         List<RelRow> rowsSourceOne = ephemeralShards.get(sourceOne).getData();
         List<RelRow> rowsSourceTwo = ephemeralShards.get(sourceTwo).getData();
         if(rowsSourceOne == null || rowsSourceOne.isEmpty() || rowsSourceTwo == null || rowsSourceTwo.isEmpty())
@@ -257,10 +220,20 @@ public class JoinQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQueryR
         List<RelRow> joinedRows = ephemeralShards.get(sourceOne).join(
                 ephemeralShards.get(sourceTwo).getData(),
                 schemaSourceOne, schemaSourceTwo, joinAttributesOne, joinAttributesTwo,
-                systemResultSchema, sourceOne, operations, isDistinct
+                systemResultSchema, sourceOne, operations, isDistinct,
+                resultSchemaSystemIndexes
                 );
+        //return joinedRows.stream().map(Utilities::objectToByteString).collect(Collectors.toList());
         return Utilities.objectToByteString(new ArrayList<>(joinedRows));
     }
+
+    private Integer[] resultSchemaSystemIndexes;
+    public JoinQuery setResultSchemaIndexes(Integer[] resultSchemaSystemIndexes){
+        this.resultSchemaSystemIndexes = resultSchemaSystemIndexes;
+        return this;
+    }
+
+
     @Override
     public RelReadQueryResults combine(List<ByteString> shardQueryResults) {
         RelReadQueryResults results = new RelReadQueryResults();

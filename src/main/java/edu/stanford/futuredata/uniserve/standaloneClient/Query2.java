@@ -43,6 +43,7 @@ public class Query2 {
             if(index == -1)
                 return null;
             int shardNum = Math.min(Math.max(TPC_DS_Inv.sizes.get(index) / 1000, 1),Broker.SHARDS_PER_TABLE);
+            //int shardNum = 50;
             api.createTable(tableName)
                     .attributes(TPC_DS_Inv.schemas.get(index).toArray(new String[0]))
                     .keys(TPC_DS_Inv.keys.get(index).toArray(new String[0]))

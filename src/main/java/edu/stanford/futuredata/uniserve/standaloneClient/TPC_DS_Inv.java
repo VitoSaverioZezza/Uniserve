@@ -30,6 +30,58 @@ public class TPC_DS_Inv {
     public static final int shipModeSize = 20;
     public static final int timeDimSize = 86400;
 
+    public static final int BstoreSalesSize = 1441375;
+    public static final int BstoreReturnsSize = 143733;
+    public static final int BcatalogSalesSize = 720352;
+    public static final int BcatalogReturnsSize = 71974;
+    public static final int BwebSalesSize = 359584;
+    public static final int BwebReturnsSize = 35716;
+    public static final int BinventorySize = 2088522;
+    public static final int BstoreSize = 6;
+    public static final int BcallCenterSize = 2;
+    public static final int BcatalogPageSize = 11718;
+    public static final int BwebSiteSize = 14;
+    public static final int BwebPageSize = 30;
+    public static final int BwarehouseSize = 2;
+    public static final int BcustomerSize = 50000;
+    public static final int BcustomerAddressSize = 25000;
+    public static final int BcustomerDemographicsSize = 1920800;
+    public static final int BdateDimSize = 73049;
+    public static final int BhouseholdDemographicsSize = 7200;
+    public static final int BitemSize = 8000;
+    public static final int BincomeBandSize = 20;
+    public static final int BpromotionSize = 150;
+    public static final int BreasonSize = 17;
+    public static final int BshipModeSize = 20;
+    public static final int BtimeDimSize = 86400;
+
+    public static final List<Integer> Bsizes = List.of(
+            BstoreSalesSize,
+            BstoreReturnsSize,
+            BcatalogSalesSize,
+            BcatalogReturnsSize,
+            BwebSalesSize,
+            BwebReturnsSize,
+            BinventorySize,
+            BstoreSize,
+            BcallCenterSize,
+            BcatalogPageSize,
+            BwebSiteSize,
+            BwebPageSize,
+            BwarehouseSize,
+            BcustomerSize,
+            BcustomerAddressSize,
+            BcustomerDemographicsSize,
+            BdateDimSize,
+            BhouseholdDemographicsSize,
+            BitemSize,
+            BincomeBandSize,
+            BpromotionSize,
+            BreasonSize,
+            BshipModeSize,
+            BtimeDimSize
+    );
+
     public static final List<Integer> sizes = List.of(
             storeSalesSize,
             storeReturnsSize,

@@ -7,27 +7,31 @@ import java.util.Arrays;
 import java.util.List;
 
 public class RelRow implements Row {
-    private final List<Object> data = new ArrayList<>();
+    private Object[] data = null;
+
+    //List<Object> data = new ArrayList<>();
 
     public RelRow(Object... fields){
-        data.addAll(Arrays.asList(fields));
+        data = fields;
+        //data.addAll(Arrays.asList(fields));
     }
 
 
     @Override
     public int getPartitionKey(Boolean[] keyStructure) {
         if(keyStructure == null){
-            keyStructure = new Boolean[data.size()];
+            //keyStructure = new Boolean[data.size()];
+            keyStructure = new Boolean[data.length];
             Arrays.fill(keyStructure, true);
         }
         int hashCodeKey = 0;
-        for(int i = 0; i<data.size() && i<keyStructure.length; i++){
+        for(int i = 0; i<data.length && i<keyStructure.length; i++){
             if(keyStructure[i] != null && keyStructure[i]){
-                Object val = data.get(i);
+                Object val = data[i];
                 if(val == null){
                     hashCodeKey += 0;
                 }else {
-                    hashCodeKey += data.get(i).hashCode();
+                    hashCodeKey += data[i].hashCode();
                 }
             }
         }
@@ -36,9 +40,9 @@ public class RelRow implements Row {
         }
         return hashCodeKey;
     }
-    public Integer getSize(){ return data.size();}
+    public Integer getSize(){ return data.length;}
     public Object getField(int attributeIndex){
-        return data.get(attributeIndex);
+        return data[attributeIndex];
     }
 
     @Override

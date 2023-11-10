@@ -171,6 +171,7 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
         );
     }
     @Override
+    //public List<ByteString> gather(Map<String, List<ByteString>> ephemeralData, Map<String, RelShard> ephemeralShards) {
     public ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, RelShard> ephemeralShards) {
         List<RelRow> rows = ephemeralShards.get(sourceName).getData();
         Map<List<Object>, List<RelRow>> groups = new HashMap<>();
@@ -192,6 +193,7 @@ public class AggregateQuery implements ShuffleOnReadQueryPlan<RelShard, RelReadQ
             }
         }
         return Utilities.objectToByteString(resultRows);
+        //return resultRows.stream().map(Utilities::objectToByteString).collect(Collectors.toList());
     }
     @Override
     public RelReadQueryResults combine(List<ByteString> shardQueryResults) {

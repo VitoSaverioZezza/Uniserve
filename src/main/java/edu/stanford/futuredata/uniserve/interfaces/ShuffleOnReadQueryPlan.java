@@ -34,7 +34,6 @@ public interface ShuffleOnReadQueryPlan<S extends Shard, T> extends Serializable
      * @return a result to be used as input for the combine operation
      * */
     ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards);
-    //List<ByteString> gather(Map<String, List<ByteString>> ephemeralData, Map<String, S> ephemeralShards);
     //default boolean writeIntermediateShard(S intermediateShard, ByteString gatherResults){return true;}
 
     /** The query will return the result of this function executed on all results from gather.

@@ -57,7 +57,6 @@ public class TableReadPopularState implements ShuffleOnReadQueryPlan<TableShard,
 
     @Override
     public ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, TableShard> ephemeralShards) {
-    //public List<ByteString> gather(Map<String, List<ByteString>> ephemeralData, Map<String, TableShard> ephemeralShards) {
         Map<Integer, Integer> cityToState = new HashMap<>();
         for(ByteString b: ephemeralData.get(tableTwo)) {
             if (!b.isEmpty()) {
@@ -78,7 +77,6 @@ public class TableReadPopularState implements ShuffleOnReadQueryPlan<TableShard,
             }
         }
         return Utilities.objectToByteString(stateFrequency);
-        //return List.of(Utilities.objectToByteString(stateFrequency));
     }
 
     @Override

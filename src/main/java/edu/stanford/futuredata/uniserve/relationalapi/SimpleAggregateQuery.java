@@ -157,17 +157,13 @@ public class SimpleAggregateQuery implements ShuffleOnReadQueryPlan<RelShard, Re
     }
     @Override
     public ByteString gather(Map<String, List<ByteString>> ephemeralData, Map<String, RelShard> ephemeralShards) {
-    //public List<ByteString> gather(Map<String, List<ByteString>> ephemeralData, Map<String, RelShard> ephemeralShards) {
         List<RelRow> partialResults = ephemeralShards.get(sourceName).getData();
         if(partialResults == null || partialResults.isEmpty()){
             return Utilities.objectToByteString(new ArrayList<>());
-            //return new ArrayList<>();
         }
         ArrayList<RelRow> results = new ArrayList<>();
         results.add(computeResults(partialResults));
         return Utilities.objectToByteString(results);
-        //return results.stream().map(Utilities::objectToByteString).collect(Collectors.toList());
-
     }
     @Override
     public RelReadQueryResults combine(List<ByteString> shardQueryResults) {

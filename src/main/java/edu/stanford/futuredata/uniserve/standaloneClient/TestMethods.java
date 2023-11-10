@@ -41,7 +41,7 @@ public class TestMethods {
             }
             //int shardNum = Math.min(Math.max(memBuffer.size()/1000, 1), Broker.SHARDS_PER_TABLE);
 
-            int shardNum = Math.min(Math.max(TPC_DS_Inv.Bsizes.get(i)/1000, 1), Broker.SHARDS_PER_TABLE);
+            int shardNum = Math.min(Math.max(TPC_DS_Inv.sizes.get(i)/1000, 1), Broker.SHARDS_PER_TABLE);
             res = api.createTable(TPC_DS_Inv.names.get(i))
                     .attributes(TPC_DS_Inv.schemas.get(i).toArray(new String[0]))
                     .keys(TPC_DS_Inv.schemas.get(i).toArray(new String[0]))

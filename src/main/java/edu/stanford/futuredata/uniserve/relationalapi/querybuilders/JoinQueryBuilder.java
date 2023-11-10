@@ -388,40 +388,9 @@ public class JoinQueryBuilder {
             filterPredicates.put(sourceTwo, predTwo);
         }
 
-        Integer[] resultSchemaSystemIndexes = new Integer[resultSystemSchema.size()];
-        int resSchemaSystemIndexesIndex = 0;
-        for(String systAttribute: resultSystemSchema){
-            boolean positive = true;
-            String[] split = systAttribute.split("\\.");
-            if(split[0].equals(sourceTwo)){
-                positive = false;
-            }
-            StringBuilder builder = new StringBuilder();
-            for(int i = 1; i<split.length -1; i++){
-                builder.append(split[i]);
-                builder.append(".");
-            }
-            builder.append(split[split.length-1]);
-            String name = builder.toString();
-            int index = -1;
-            if(positive){
-                index = sourcesSchemas.get(sourceOne).indexOf(name);
-            }else{
-                index = sourcesSchemas.get(sourceTwo).indexOf(name);
-                index = index * -1;
-                if(index == 0){
-                    index = Integer.MIN_VALUE;
-                }
-            }
-            resultSchemaSystemIndexes[resSchemaSystemIndexesIndex] = index;
-            resSchemaSystemIndexesIndex++;
-        }
-
-
         JoinQuery query = new JoinQuery()
                 .setSourceOne(sourceOne)
                 .setSourceTwo(sourceTwo)
-                .setResultSchemaIndexes(resultSchemaSystemIndexes)
                 .setTableFlags(sourceOneTable, sourceTwoTable)
                 .setSourceSchemas(sourcesSchemas)
                 .setResultSchema(resultUserSchema)
